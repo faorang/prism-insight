@@ -4,6 +4,7 @@
 
 매일 주기적으로 실행하여 주식 종목 정보(코드, 이름)를 최신화
 """
+
 import os
 import json
 import logging
@@ -19,13 +20,11 @@ except ImportError:
 # 로깅 설정
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler("stock_data_update.log")
-    ]
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler(), logging.FileHandler("stock_data_update.log")],
 )
 logger = logging.getLogger(__name__)
+
 
 def update_stock_data(output_file="stock_map.json"):
     """
@@ -44,12 +43,16 @@ def update_stock_data(output_file="stock_map.json"):
 
         # KOSPI 종목 정보 가져오기
         kospi_tickers = stock.get_market_ticker_list(market="KOSPI")
-        kospi_map = {ticker: stock.get_market_ticker_name(ticker) for ticker in kospi_tickers}
+        kospi_map = {
+            ticker: stock.get_market_ticker_name(ticker) for ticker in kospi_tickers
+        }
         logger.info(f"KOSPI 종목 {len(kospi_map)}개 로드")
 
         # KOSDAQ 종목 정보 가져오기
         kosdaq_tickers = stock.get_market_ticker_list(market="KOSDAQ")
-        kosdaq_map = {ticker: stock.get_market_ticker_name(ticker) for ticker in kosdaq_tickers}
+        kosdaq_map = {
+            ticker: stock.get_market_ticker_name(ticker) for ticker in kosdaq_tickers
+        }
         logger.info(f"KOSDAQ 종목 {len(kosdaq_map)}개 로드")
 
         # 결합
@@ -60,17 +63,20 @@ def update_stock_data(output_file="stock_map.json"):
         data = {
             "code_to_name": code_to_name,
             "name_to_code": name_to_code,
-            "updated_at": datetime.now().isoformat()
+            "updated_at": datetime.now().isoformat(),
         }
 
-        with open(output_file, 'w', encoding='utf-8') as f:
+        with open(output_file, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
-        logger.info(f"종목 데이터 업데이트 완료: {len(code_to_name)}개 종목, 파일: {output_file}")
+        logger.info(
+            f"종목 데이터 업데이트 완료: {len(code_to_name)}개 종목, 파일: {output_file}"
+        )
         return True
     except Exception as e:
         logger.error(f"종목 데이터 업데이트 실패: {e}")
         return False
+
 
 def main():
     parser = argparse.ArgumentParser(description="종목 정보 업데이트")
@@ -78,6 +84,7 @@ def main():
 
     args = parser.parse_args()
     update_stock_data(args.output)
+
 
 if __name__ == "__main__":
     main()

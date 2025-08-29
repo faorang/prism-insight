@@ -5,3 +5,11 @@
 mcp_agent.config.yaml
 mcp_agent.secrets.yaml
 config.py
+__pycache__/
+*/__pycache__/
+*/dist/
+node_modules/
+*/node_modules/
+reports/
+trigger_results_*_*.json
+orchestrator_*.log

@@ -6,12 +6,13 @@ import logging
 
 # 로깅 설정
 logging.basicConfig(
-    filename='/root/prism-insight/stock_scheduler.log',
+    filename="/root/prism-insight/stock_scheduler.log",
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    format="%(asctime)s - %(levelname)s - %(message)s",
 )
 
 logger = logging.getLogger(__name__)
+
 
 def is_market_day():
     """한국 주식 시장 영업일인지 확인"""
@@ -37,10 +38,12 @@ def is_market_day():
     # 2025년 특별 공휴일/대체휴일 체크
     if today.year == 2025:
         # 임시공휴일
-        if ((today.month == 1 and today.day == 27) or  # 설날 연휴 임시공휴일
-                (today.month == 3 and today.day == 3) or   # 삼일절 대체공휴일
-                (today.month == 5 and today.day == 6) or   # 어린이날/부처님오신날 대체공휴일
-                (today.month == 10 and today.day == 8)):   # 추석 대체공휴일
+        if (
+            (today.month == 1 and today.day == 27)  # 설날 연휴 임시공휴일
+            or (today.month == 3 and today.day == 3)  # 삼일절 대체공휴일
+            or (today.month == 5 and today.day == 6)  # 어린이날/부처님오신날 대체공휴일
+            or (today.month == 10 and today.day == 8)
+        ):  # 추석 대체공휴일
             logger.debug(f"{today}은 2025년 임시공휴일/대체공휴일입니다.")
             return False
 
@@ -61,6 +64,7 @@ def is_market_day():
 
     # 영업일
     return True
+
 
 if __name__ == "__main__":
     if is_market_day():

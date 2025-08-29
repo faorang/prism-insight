@@ -1,6 +1,7 @@
 """
 분석 요청 관리 및 백그라운드 작업 처리 모듈
 """
+
 import logging
 import traceback
 import uuid
@@ -9,8 +10,10 @@ from datetime import datetime
 from queue import Queue
 
 from report_generator import (
-    get_cached_report, save_report, save_html_report,
-    generate_report_response_sync
+    get_cached_report,
+    save_report,
+    save_html_report,
+    generate_report_response_sync,
 )
 
 # 로거 설정
@@ -22,9 +25,18 @@ analysis_queue = Queue()
 
 class AnalysisRequest:
     """분석 요청 객체"""
-    def __init__(self, stock_code: str, company_name: str, chat_id: int = None,
-                 avg_price: float = None, period: int = None, tone: str = None,
-                 background: str = None, message_id: int = None):
+
+    def __init__(
+        self,
+        stock_code: str,
+        company_name: str,
+        chat_id: int = None,
+        avg_price: float = None,
+        period: int = None,
+        tone: str = None,
+        background: str = None,
+        message_id: int = None,
+    ):
         self.id = str(uuid.uuid4())
         self.stock_code = stock_code
         self.company_name = company_name
@@ -46,6 +58,7 @@ def start_background_worker(bot_instance):
     백그라운드 작업자 시작
     스레드를 생성하여 분석 요청을 처리
     """
+
     def worker():
         logger.info("백그라운드 작업자 시작")
         while True:
@@ -59,7 +72,9 @@ def start_background_worker(bot_instance):
 
                 try:
                     # 캐시된 보고서 확인
-                    is_cached, cached_content, cached_file, cached_html = get_cached_report(request.stock_code)
+                    is_cached, cached_content, cached_file, cached_html = (
+                        get_cached_report(request.stock_code)
+                    )
 
                     if is_cached:
                         logger.info(f"캐시된 보고서 발견: {cached_file}")
@@ -69,8 +84,10 @@ def start_background_worker(bot_instance):
                         request.html_path = cached_html
                     else:
                         # 새로운 분석 수행 (동기 실행 버전 사용)
-                        logger.info(f"새 분석 수행: {request.stock_code} - {request.company_name}")
-                        
+                        logger.info(
+                            f"새 분석 수행: {request.stock_code} - {request.company_name}"
+                        )
+
                         # 분석 실행 (evaluate vs report에 따라 다른 프롬프트 사용)
                         if request.avg_price and request.period:  # evaluate 명령의 경우
                             # evaluate 요청은 비동기로 실행되므로 백그라운드 작업에서는 처리하지 않음
@@ -82,29 +99,33 @@ def start_background_worker(bot_instance):
                             report_result = generate_report_response_sync(
                                 request.stock_code, request.company_name
                             )
-                            
+
                             if report_result:
                                 request.result = report_result
                                 request.status = "completed"
 
                                 # 파일 저장
                                 md_path = save_report(
-                                    request.stock_code, request.company_name, report_result
+                                    request.stock_code,
+                                    request.company_name,
+                                    report_result,
                                 )
                                 request.report_path = md_path
 
                                 html_path = save_html_report(
-                                    request.stock_code, request.company_name, report_result
+                                    request.stock_code,
+                                    request.company_name,
+                                    report_result,
                                 )
                                 request.html_path = html_path
                             else:
                                 request.status = "failed"
                                 request.result = "분석 중 오류가 발생했습니다."
-                    
+
                     # 결과 처리를 위한 큐에 추가
                     logger.info(f"분석 완료, 결과 큐에 추가: {request.id}")
                     bot_instance.result_queue.put(request.id)
-                    
+
                 except Exception as e:
                     logger.error(f"작업자: 분석 처리 중 오류 발생 - {str(e)}")
                     logger.error(traceback.format_exc())
@@ -112,7 +133,7 @@ def start_background_worker(bot_instance):
                     request.result = f"분석 중 오류가 발생했습니다: {str(e)}"
                     # 오류가 발생해도 결과 큐에 추가하여 처리
                     bot_instance.result_queue.put(request.id)
-                
+
             except Exception as e:
                 logger.error(f"작업자: 요청 처리 중 오류 발생 - {str(e)}")
                 logger.error(traceback.format_exc())

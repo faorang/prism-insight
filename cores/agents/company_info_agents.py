@@ -11,7 +11,7 @@ def create_company_status_agent(company_name, company_code, reference_date, urls
                         가능한한 자세하고 정확하고 풍부하게 작성해주세요.
 
                         ## 수집해야 할 데이터 (기업현황 페이지에서만)
-                        1. 기업현황 페이지에서 (접속 URL: {urls['기업현황']}) :
+                        1. 기업현황 페이지에서 (접속 URL: {urls["기업현황"]}) :
                            - 기본 정보: 회사명, 종목코드, 업종, 결산월, 시가총액, 52주 최고/최저가, 주가 정보
                            - 펀더멘털 지표: EPS, BPS, PER, PBR, PCR, EV/EBITDA, 배당수익률, 배당성향 등의 현재값(현재 기준일 : {reference_date}(YYYYMMDD 형식)) 및 과거 3개년도(예시 : 현재가 2025년이면, 2021-2024년) 데이터, 향후 컨센서스(Fwd 12M) 데이터, 업종 평균 PER과의 비교
                            - 주요 주주 현황: 주요 주주명, 보유주식수, 보유지분율
@@ -84,7 +84,7 @@ def create_company_status_agent(company_name, company_code, reference_date, urls
                         기업: {company_name} ({company_code})
                         ##분석일: {reference_date}(YYYYMMDD 형식)
                         """,
-        server_names=["firecrawl"]
+        server_names=["firecrawl"],
     )
 
 
@@ -97,7 +97,7 @@ def create_company_overview_agent(company_name, company_code, reference_date, ur
                         데이터 수집 시 차트보다는 테이블 위주로 데이터를 수집하세요.
     
                         ## 수집해야 할 데이터 (기업개요 페이지에서만)
-                        1. 기업개요 페이지에서 (접속 URL: {urls['기업개요']}) :
+                        1. 기업개요 페이지에서 (접속 URL: {urls["기업개요"]}) :
                            - 기업 세부개요: 본사 주소, 대표이사, 대표 연락처, 감사인, 설립일, 상장일, 발행주식수(보통주/우선주) 등
                            - 사업 구조: 주요제품 매출구성 및 비중, 시장점유율, 내수 및 수출구성 등
                            - 최근 연혁: 최근 주요 이벤트, 신제품 출시, 주요 성과 등
@@ -165,5 +165,5 @@ def create_company_overview_agent(company_name, company_code, reference_date, ur
                         기업: {company_name} ({company_code})
                         ##분석일: {reference_date}(YYYYMMDD 형식)
                         """,
-        server_names=["firecrawl"]
+        server_names=["firecrawl"],
     )

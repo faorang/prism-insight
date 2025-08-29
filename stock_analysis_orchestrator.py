@@ -9,6 +9,7 @@
 4. 텔레그램 채널 요약 메시지 생성 및 전송
 5. 생성된 PDF 첨부파일 전송
 """
+
 import argparse
 import asyncio
 import json
@@ -21,11 +22,11 @@ from pathlib import Path
 # 로거 설정
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler(f"orchestrator_{datetime.now().strftime('%Y%m%d')}.log")
-    ]
+        logging.FileHandler(f"orchestrator_{datetime.now().strftime('%Y%m%d')}.log"),
+    ],
 )
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,7 @@ REPORTS_DIR.mkdir(exist_ok=True)
 TELEGRAM_MSGS_DIR.mkdir(exist_ok=True)
 PDF_REPORTS_DIR.mkdir(exist_ok=True)
 (TELEGRAM_MSGS_DIR / "sent").mkdir(exist_ok=True)
+
 
 class StockAnalysisOrchestrator:
     """주식 분석 및 텔레그램 전송 오케스트레이터"""
@@ -65,14 +67,22 @@ class StockAnalysisOrchestrator:
             import subprocess
 
             # 임시 파일에 결과 저장
-            results_file = f"trigger_results_{mode}_{datetime.now().strftime('%Y%m%d')}.json"
+            results_file = (
+                f"trigger_results_{mode}_{datetime.now().strftime('%Y%m%d')}.json"
+            )
 
             # 명령 실행 - asyncio.create_subprocess_exec을 사용하여 비동기적으로 실행
             import asyncio
+
             process = await asyncio.create_subprocess_exec(
-                sys.executable, "trigger_batch.py", mode, "INFO", "--output", results_file,
+                sys.executable,
+                "trigger_batch.py",
+                mode,
+                "INFO",
+                "--output",
+                results_file,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                stderr=asyncio.subprocess.PIPE,
             )
 
             stdout, stderr = await process.communicate()
@@ -89,7 +99,7 @@ class StockAnalysisOrchestrator:
 
             # 결과 파일 읽기
             if os.path.exists(results_file):
-                with open(results_file, 'r', encoding='utf-8') as f:
+                with open(results_file, "r", encoding="utf-8") as f:
                     results = json.load(f)
 
                 # 결과 저장
@@ -103,24 +113,30 @@ class StockAnalysisOrchestrator:
                     logger.info(f"{account_type} 계정 결과 사용")
                     for trigger_type, stocks in results[account_type].items():
                         for stock in stocks:
-                            if isinstance(stock, dict) and 'code' in stock:
-                                tickers.append({
-                                    'code': stock['code'],
-                                    'name': stock.get('name', '')
-                                })
+                            if isinstance(stock, dict) and "code" in stock:
+                                tickers.append(
+                                    {
+                                        "code": stock["code"],
+                                        "name": stock.get("name", ""),
+                                    }
+                                )
 
                 # 선택된 계정 타입에서 종목이 없으면 대체 방법 사용
                 if not tickers:
                     alt_type = "free" if account_type == "premium" else "premium"
                     if alt_type in results and results[alt_type]:
-                        logger.warning(f"{account_type} 계정 결과 없음, {alt_type} 계정 결과로 대체")
+                        logger.warning(
+                            f"{account_type} 계정 결과 없음, {alt_type} 계정 결과로 대체"
+                        )
                         for trigger_type, stocks in results[alt_type].items():
                             for stock in stocks:
-                                if isinstance(stock, dict) and 'code' in stock:
-                                    tickers.append({
-                                        'code': stock['code'],
-                                        'name': stock.get('name', '')
-                                    })
+                                if isinstance(stock, dict) and "code" in stock:
+                                    tickers.append(
+                                        {
+                                            "code": stock["code"],
+                                            "name": stock.get("name", ""),
+                                        }
+                                    )
 
                 logger.info(f"선정된 종목 수: {len(tickers)}")
                 return tickers
@@ -154,7 +170,13 @@ class StockAnalysisOrchestrator:
                 pdf_file = PDF_REPORTS_DIR / f"{report_file.stem}.pdf"
 
                 # 마크다운을 PDF로 변환
-                markdown_to_pdf(report_path, pdf_file, 'pdfkit', add_theme=True, enable_watermark=False)
+                markdown_to_pdf(
+                    report_path,
+                    pdf_file,
+                    "pdfkit",
+                    add_theme=True,
+                    enable_watermark=False,
+                )
 
                 logger.info(f"PDF 변환 완료: {pdf_file}")
                 pdf_paths.append(pdf_file)
@@ -186,23 +208,31 @@ class StockAnalysisOrchestrator:
         for report_pdf_path in report_pdf_paths:
             try:
                 # 텔레그램 메시지 생성
-                await generator.process_report(str(report_pdf_path), str(TELEGRAM_MSGS_DIR))
+                await generator.process_report(
+                    str(report_pdf_path), str(TELEGRAM_MSGS_DIR)
+                )
 
                 # 생성된 메시지 파일 경로 추정
                 report_file = Path(report_pdf_path)
-                ticker = report_file.stem.split('_')[0]
-                company_name = report_file.stem.split('_')[1]
+                ticker = report_file.stem.split("_")[0]
+                company_name = report_file.stem.split("_")[1]
 
-                message_path = TELEGRAM_MSGS_DIR / f"{ticker}_{company_name}_telegram.txt"
+                message_path = (
+                    TELEGRAM_MSGS_DIR / f"{ticker}_{company_name}_telegram.txt"
+                )
 
                 if message_path.exists():
                     logger.info(f"텔레그램 메시지 생성 완료: {message_path}")
                     message_paths.append(message_path)
                 else:
-                    logger.warning(f"텔레그램 메시지 파일이 예상 경로에 없습니다: {message_path}")
+                    logger.warning(
+                        f"텔레그램 메시지 파일이 예상 경로에 없습니다: {message_path}"
+                    )
 
             except Exception as e:
-                logger.error(f"{report_pdf_path} 텔레그램 메시지 생성 중 오류: {str(e)}")
+                logger.error(
+                    f"{report_pdf_path} 텔레그램 메시지 생성 중 오류: {str(e)}"
+                )
 
         return message_paths
 
@@ -218,6 +248,7 @@ class StockAnalysisOrchestrator:
 
         # 환경 변수에서 채널 ID 가져오기
         from dotenv import load_dotenv
+
         load_dotenv()
 
         chat_id = os.getenv("TELEGRAM_CHANNEL_ID")
@@ -233,9 +264,7 @@ class StockAnalysisOrchestrator:
 
             # 메시지 전송
             await bot_agent.process_messages_directory(
-                str(TELEGRAM_MSGS_DIR),
-                chat_id,
-                str(TELEGRAM_MSGS_DIR / "sent")
+                str(TELEGRAM_MSGS_DIR), chat_id, str(TELEGRAM_MSGS_DIR / "sent")
             )
 
             # PDF 파일 전송
@@ -257,11 +286,13 @@ class StockAnalysisOrchestrator:
         """
         트리거 실행 결과 정보를 텔레그램 채널로 즉시 전송
         """
-        logger.info(f"프리즘 시그널 얼럿 전송 시작 - 모드: {mode}, 계정 타입: {account_type}")
+        logger.info(
+            f"프리즘 시그널 얼럿 전송 시작 - 모드: {mode}, 계정 타입: {account_type}"
+        )
 
         try:
             # JSON 파일 읽기
-            with open(trigger_results_file, 'r', encoding='utf-8') as f:
+            with open(trigger_results_file, "r", encoding="utf-8") as f:
                 results = json.load(f)
 
             # 메타데이터 추출
@@ -271,14 +302,19 @@ class StockAnalysisOrchestrator:
             # 계정 타입 별 트리거 종목 정보 추출
             account_results = results.get(account_type, {})
             if not account_results:
-                logger.warning(f"{account_type} 계정 유형에 대한 트리거 결과가 없습니다.")
+                logger.warning(
+                    f"{account_type} 계정 유형에 대한 트리거 결과가 없습니다."
+                )
                 return False
 
             # 텔레그램 메시지 생성
-            message = self._create_trigger_alert_message(mode, account_type, account_results, trade_date)
+            message = self._create_trigger_alert_message(
+                mode, account_type, account_results, trade_date
+            )
 
             # 환경 변수에서 채널 ID 가져오기
             from dotenv import load_dotenv
+
             load_dotenv()
 
             chat_id = os.getenv("TELEGRAM_CHANNEL_ID")
@@ -364,7 +400,9 @@ class StockAnalysisOrchestrator:
 
                 elif "trade_value_ratio" in stock and "시총 대비" in trigger_type:
                     trade_value_ratio = stock.get("trade_value_ratio", 0)
-                    market_cap = stock.get("market_cap", 0) / 100000000  # 억원 단위로 변환
+                    market_cap = (
+                        stock.get("market_cap", 0) / 100000000
+                    )  # 억원 단위로 변환
                     message += f"  거래대금/시총 비율: {trade_value_ratio:.2f}%\n"
                     message += f"  시가총액: {market_cap:.2f}억원\n"
 
@@ -376,7 +414,9 @@ class StockAnalysisOrchestrator:
 
         # 푸터 메시지
         message += "💡 상세 분석 보고서는 약 10-30분 내 제공 예정\n"
-        message += "⚠️ 본 정보는 투자 참고용이며, 투자 결정과 책임은 투자자에게 있습니다."
+        message += (
+            "⚠️ 본 정보는 투자 참고용이며, 투자 결정과 책임은 투자자에게 있습니다."
+        )
 
         return message
 
@@ -411,7 +451,9 @@ class StockAnalysisOrchestrator:
 
         try:
             # 1. 트리거 배치 실행 - 비동기 방식으로 변경 (asyncio 리소스 관리 개선)
-            results_file = f"trigger_results_{mode}_{datetime.now().strftime('%Y%m%d')}.json"
+            results_file = (
+                f"trigger_results_{mode}_{datetime.now().strftime('%Y%m%d')}.json"
+            )
             tickers = await self.run_trigger_batch(mode, account_type)
 
             if not tickers:
@@ -421,7 +463,9 @@ class StockAnalysisOrchestrator:
             # 1-1. 트리거 결과를 텔레그램으로 즉시 전송
             if os.path.exists(results_file):
                 logger.info(f"트리거 결과 파일 확인됨: {results_file}")
-                alert_sent = await self.send_trigger_alert(mode, account_type, results_file)
+                alert_sent = await self.send_trigger_alert(
+                    mode, account_type, results_file
+                )
                 if alert_sent:
                     logger.info("프리즘 시그널 얼럿 전송 완료")
                 else:
@@ -450,11 +494,14 @@ class StockAnalysisOrchestrator:
                     logger.info("주식 트래킹 시스템 배치 실행 시작")
 
                     # 트래킹 에이전트 임포트
-                    from stock_tracking_enhanced_agent import EnhancedStockTrackingAgent as StockTrackingAgent
+                    from stock_tracking_enhanced_agent import (
+                        EnhancedStockTrackingAgent as StockTrackingAgent,
+                    )
                     from stock_tracking_agent import app as tracking_app
 
                     # 환경 변수에서 채널 ID 및 봇 토큰 가져오기
                     from dotenv import load_dotenv
+
                     load_dotenv()
 
                     chat_id = os.getenv("TELEGRAM_CHANNEL_ID")
@@ -465,12 +512,16 @@ class StockAnalysisOrchestrator:
                         return
 
                     if not telegram_token:
-                        logger.warning("텔레그램 봇 토큰이 설정되지 않았습니다. 텔레그램 메시지 전송이 제한될 수 있습니다.")
+                        logger.warning(
+                            "텔레그램 봇 토큰이 설정되지 않았습니다. 텔레그램 메시지 전송이 제한될 수 있습니다."
+                        )
 
                     # MCPApp 컨텍스트 매니저 사용
                     async with tracking_app.run():
                         # 텔레그램 토큰과 함께 에이전트 초기화
-                        tracking_agent = StockTrackingAgent(telegram_token=telegram_token)
+                        tracking_agent = StockTrackingAgent(
+                            telegram_token=telegram_token
+                        )
 
                         # 보고서 경로와 채널 ID 전달
                         tracking_success = await tracking_agent.run(pdf_paths, chat_id)
@@ -483,15 +534,19 @@ class StockAnalysisOrchestrator:
                 except Exception as e:
                     logger.error(f"트래킹 시스템 배치 실행 중 오류: {str(e)}")
                     import traceback
+
                     logger.error(traceback.format_exc())
             else:
-                logger.warning("생성된 보고서가 없어 트래킹 시스템 배치를 실행하지 않습니다.")
+                logger.warning(
+                    "생성된 보고서가 없어 트래킹 시스템 배치를 실행하지 않습니다."
+                )
 
             logger.info(f"전체 파이프라인 완료 - 모드: {mode}")
 
         except Exception as e:
             logger.error(f"파이프라인 실행 중 오류: {str(e)}")
             import traceback
+
             logger.error(traceback.format_exc())
 
     async def generate_reports(self, tickers, mode, timeout: int = None) -> list:
@@ -508,17 +563,22 @@ class StockAnalysisOrchestrator:
         for idx, ticker_info in enumerate(tickers, 1):
             # ticker_info가 dict일 경우
             if isinstance(ticker_info, dict):
-                ticker = ticker_info.get('code')
-                company_name = ticker_info.get('name', f"종목_{ticker}")
+                ticker = ticker_info.get("code")
+                company_name = ticker_info.get("name", f"종목_{ticker}")
             else:
                 ticker = ticker_info
                 company_name = f"종목_{ticker}"
 
-            logger.info(f"[{idx}/{len(tickers)}] 종목 분석 시작: {company_name}({ticker})")
+            logger.info(
+                f"[{idx}/{len(tickers)}] 종목 분석 시작: {company_name}({ticker})"
+            )
 
             # 출력 파일 경로 설정
             reference_date = datetime.now().strftime("%Y%m%d")
-            output_file = str(REPORTS_DIR / f"{ticker}_{company_name}_{reference_date}_{mode}_gpt4.1.md")
+            output_file = str(
+                REPORTS_DIR
+                / f"{ticker}_{company_name}_{reference_date}_{mode}_gpt4.1.md"
+            )
 
             try:
                 # main.py에서 직접 함수 임포트
@@ -529,37 +589,56 @@ class StockAnalysisOrchestrator:
                 report = await analyze_stock(
                     company_code=ticker,
                     company_name=company_name,
-                    reference_date=reference_date
+                    reference_date=reference_date,
                 )
 
                 # 결과 저장
                 if report and len(report.strip()) > 0:
                     with open(output_file, "w", encoding="utf-8") as f:
                         f.write(report)
-                    logger.info(f"[{idx}/{len(tickers)}] 보고서 생성 완료: {company_name}({ticker}) - {len(report)} 글자")
+                    logger.info(
+                        f"[{idx}/{len(tickers)}] 보고서 생성 완료: {company_name}({ticker}) - {len(report)} 글자"
+                    )
                     successful_reports.append(output_file)
                 else:
-                    logger.error(f"[{idx}/{len(tickers)}] 보고서 생성 실패: {company_name}({ticker}) - 내용이 비어 있음")
+                    logger.error(
+                        f"[{idx}/{len(tickers)}] 보고서 생성 실패: {company_name}({ticker}) - 내용이 비어 있음"
+                    )
 
             except Exception as e:
-                logger.error(f"[{idx}/{len(tickers)}] 분석 중 오류 발생: {company_name}({ticker}) - {str(e)}")
+                logger.error(
+                    f"[{idx}/{len(tickers)}] 분석 중 오류 발생: {company_name}({ticker}) - {str(e)}"
+                )
                 import traceback
+
                 logger.error(traceback.format_exc())
 
-
-        logger.info(f"보고서 생성 완료: 총 {len(successful_reports)}/{len(tickers)}개 성공")
+        logger.info(
+            f"보고서 생성 완료: 총 {len(successful_reports)}/{len(tickers)}개 성공"
+        )
 
         return successful_reports
+
 
 async def main():
     """
     메인 함수 - 명령줄 인터페이스
     """
-    parser = argparse.ArgumentParser(description="주식 분석 및 텔레그램 전송 오케스트레이터")
-    parser.add_argument("--mode", choices=["morning", "afternoon", "both"], default="both",
-                        help="실행 모드 (morning, afternoon, both)")
-    parser.add_argument("--account-type", choices=["free", "premium"], default="premium",
-                        help="계정 타입 (free, premium)")
+    parser = argparse.ArgumentParser(
+        description="주식 분석 및 텔레그램 전송 오케스트레이터"
+    )
+    parser.add_argument(
+        "--mode",
+        choices=["morning", "afternoon", "both"],
+        default="both",
+        help="실행 모드 (morning, afternoon, both)",
+    )
+    parser.add_argument(
+        "--account-type",
+        choices=["free", "premium"],
+        default="premium",
+        help="계정 타입 (free, premium)",
+    )
 
     args = parser.parse_args()
 
@@ -571,13 +650,16 @@ async def main():
     if args.mode == "afternoon" or args.mode == "both":
         await orchestrator.run_full_pipeline("afternoon", args.account_type)
 
+
 if __name__ == "__main__":
     # 휴일 체크
     from check_market_day import is_market_day
 
     if not is_market_day():
         current_date = datetime.now().date()  # datetime.now()를 사용
-        logger.info(f"오늘({current_date})은 주식시장 휴일입니다. 배치 작업을 실행하지 않습니다.")
+        logger.info(
+            f"오늘({current_date})은 주식시장 휴일입니다. 배치 작업을 실행하지 않습니다."
+        )
         sys.exit(0)
 
     # 영업일인 경우에만 타이머 스레드 시작 및 메인 함수 실행
@@ -588,6 +670,7 @@ if __name__ == "__main__":
         import time
         import os
         import signal
+
         time.sleep(7200)  # 120분 대기
         logger.warning("120분 타임아웃 도달: 프로세스 강제 종료")
         os.kill(os.getpid(), signal.SIGTERM)

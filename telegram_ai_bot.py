@@ -8,6 +8,7 @@
 - /history 명령어로 특정 종목의 분석 히스토리 확인
 - 채널 구독자만 사용 가능
 """
+
 import asyncio
 import json
 import logging
@@ -22,33 +23,36 @@ from queue import Queue
 from dotenv import load_dotenv
 from telegram import Update, InputFile
 from telegram.ext import (
-    Application, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler
+    Application,
+    CommandHandler,
+    MessageHandler,
+    filters,
+    ContextTypes,
+    ConversationHandler,
 )
 
-from analysis_manager import (
-    AnalysisRequest, analysis_queue, start_background_worker
-)
+from analysis_manager import AnalysisRequest, analysis_queue, start_background_worker
+
 # 내부 모듈 임포트
-from report_generator import (
-    generate_evaluation_response, get_cached_report
-)
+from report_generator import generate_evaluation_response, get_cached_report
 
 # 환경 변수 로드
 load_dotenv()
 
 # 로거 설정
 from logging.handlers import RotatingFileHandler
+
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[
         logging.StreamHandler(),
         RotatingFileHandler(
             f"ai_bot_{datetime.now().strftime('%Y%m%d')}.log",
-            maxBytes=10*1024*1024,  # 10MB
-            backupCount=5
-        )
-    ]
+            maxBytes=10 * 1024 * 1024,  # 10MB
+            backupCount=5,
+        ),
+    ],
 )
 logger = logging.getLogger(__name__)
 
@@ -59,12 +63,19 @@ HTML_REPORTS_DIR = Path("html_reports")
 HTML_REPORTS_DIR.mkdir(exist_ok=True)  # HTML 보고서 디렉토리
 
 # 대화 상태 정의
-CHOOSING_TICKER, ENTERING_AVGPRICE, ENTERING_PERIOD, ENTERING_TONE, ENTERING_BACKGROUND = range(5)
+(
+    CHOOSING_TICKER,
+    ENTERING_AVGPRICE,
+    ENTERING_PERIOD,
+    ENTERING_TONE,
+    ENTERING_BACKGROUND,
+) = range(5)
 REPORT_CHOOSING_TICKER = 0  # /report 명령어를 위한 상태
 HISTORY_CHOOSING_TICKER = 0  # /history 명령어를 위한 상태
 
 # 채널 ID
 CHANNEL_ID = int(os.getenv("TELEGRAM_CHANNEL_ID", "0"))
+
 
 class TelegramAIBot:
     """텔레그램 AI 대화형 봇"""
@@ -83,7 +94,9 @@ class TelegramAIBot:
         # 채널 ID 확인
         self.channel_id = int(os.getenv("TELEGRAM_CHANNEL_ID", "0"))
         if not self.channel_id:
-            logger.warning("텔레그램 채널 ID가 설정되지 않았습니다. 채널 구독 확인을 건너뜁니다.")
+            logger.warning(
+                "텔레그램 채널 ID가 설정되지 않았습니다. 채널 구독 확인을 건너뜁니다."
+            )
 
         # 종목 정보 초기화
         self.stock_map = {}
@@ -119,7 +132,7 @@ class TelegramAIBot:
             logger.info(f"종목 매핑 정보 로드 시도: {stock_map_file}")
 
             if os.path.exists(stock_map_file):
-                with open(stock_map_file, 'r', encoding='utf-8') as f:
+                with open(stock_map_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
                     self.stock_map = data.get("code_to_name", {})
                     self.stock_name_map = data.get("name_to_code", {})
@@ -149,16 +162,18 @@ class TelegramAIBot:
         report_conv_handler = ConversationHandler(
             entry_points=[
                 CommandHandler("report", self.handle_report_start),
-                MessageHandler(filters.Regex(r'^/report(@\w+)?$'), self.handle_report_start)
+                MessageHandler(
+                    filters.Regex(r"^/report(@\w+)?$"), self.handle_report_start
+                ),
             ],
             states={
                 REPORT_CHOOSING_TICKER: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_report_ticker_input)
+                    MessageHandler(
+                        filters.TEXT & ~filters.COMMAND, self.handle_report_ticker_input
+                    )
                 ]
             },
-            fallbacks=[
-                CommandHandler("cancel", self.handle_cancel)
-            ],
+            fallbacks=[CommandHandler("cancel", self.handle_cancel)],
             per_chat=False,
             per_user=True,
             conversation_timeout=300,
@@ -169,16 +184,19 @@ class TelegramAIBot:
         history_conv_handler = ConversationHandler(
             entry_points=[
                 CommandHandler("history", self.handle_history_start),
-                MessageHandler(filters.Regex(r'^/history(@\w+)?$'), self.handle_history_start)
+                MessageHandler(
+                    filters.Regex(r"^/history(@\w+)?$"), self.handle_history_start
+                ),
             ],
             states={
                 HISTORY_CHOOSING_TICKER: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_history_ticker_input)
+                    MessageHandler(
+                        filters.TEXT & ~filters.COMMAND,
+                        self.handle_history_ticker_input,
+                    )
                 ]
             },
-            fallbacks=[
-                CommandHandler("cancel", self.handle_cancel)
-            ],
+            fallbacks=[CommandHandler("cancel", self.handle_cancel)],
             per_chat=False,
             per_user=True,
             conversation_timeout=300,
@@ -190,30 +208,42 @@ class TelegramAIBot:
             entry_points=[
                 CommandHandler("evaluate", self.handle_evaluate_start),
                 # 그룹 채팅을 위한 패턴 추가
-                MessageHandler(filters.Regex(r'^/evaluate(@\w+)?$'), self.handle_evaluate_start)
+                MessageHandler(
+                    filters.Regex(r"^/evaluate(@\w+)?$"), self.handle_evaluate_start
+                ),
             ],
             states={
                 CHOOSING_TICKER: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_ticker_input)
+                    MessageHandler(
+                        filters.TEXT & ~filters.COMMAND, self.handle_ticker_input
+                    )
                 ],
                 ENTERING_AVGPRICE: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_avgprice_input)
+                    MessageHandler(
+                        filters.TEXT & ~filters.COMMAND, self.handle_avgprice_input
+                    )
                 ],
                 ENTERING_PERIOD: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_period_input)
+                    MessageHandler(
+                        filters.TEXT & ~filters.COMMAND, self.handle_period_input
+                    )
                 ],
                 ENTERING_TONE: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_tone_input)
+                    MessageHandler(
+                        filters.TEXT & ~filters.COMMAND, self.handle_tone_input
+                    )
                 ],
                 ENTERING_BACKGROUND: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_background_input)
-                ]
+                    MessageHandler(
+                        filters.TEXT & ~filters.COMMAND, self.handle_background_input
+                    )
+                ],
             },
             fallbacks=[
                 CommandHandler("cancel", self.handle_cancel),
                 # 다른 명령어도 추가
                 CommandHandler("start", self.handle_cancel),
-                CommandHandler("help", self.handle_cancel)
+                CommandHandler("help", self.handle_cancel),
             ],
             # 그룹 채팅에서 다른 사용자의 메시지 구분
             per_chat=False,
@@ -224,9 +254,9 @@ class TelegramAIBot:
         self.application.add_handler(conv_handler)
 
         # 일반 텍스트 메시지 - /help 또는 /start 안내
-        self.application.add_handler(MessageHandler(
-            filters.TEXT & ~filters.COMMAND, self.handle_default_message
-        ))
+        self.application.add_handler(
+            MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_default_message)
+        )
 
         # 오류 핸들러
         self.application.add_error_handler(self.handle_error)
@@ -240,11 +270,14 @@ class TelegramAIBot:
         try:
             # HTML 파일 전송
             if request.html_path and os.path.exists(request.html_path):
-                with open(request.html_path, 'rb') as file:
+                with open(request.html_path, "rb") as file:
                     await self.application.bot.send_document(
                         chat_id=request.chat_id,
-                        document=InputFile(file, filename=f"{request.company_name}_{request.stock_code}_분석.html"),
-                        caption=f"✅ {request.company_name} ({request.stock_code}) 분석 보고서가 완료되었습니다."
+                        document=InputFile(
+                            file,
+                            filename=f"{request.company_name}_{request.stock_code}_분석.html",
+                        ),
+                        caption=f"✅ {request.company_name} ({request.stock_code}) 분석 보고서가 완료되었습니다.",
                     )
             else:
                 # HTML 파일이 없으면 텍스트로 결과 전송
@@ -255,24 +288,24 @@ class TelegramAIBot:
                         summary = request.result[:max_length] + "...(이하 생략)"
                         await self.application.bot.send_message(
                             chat_id=request.chat_id,
-                            text=f"✅ {request.company_name} ({request.stock_code}) 분석 결과:\n\n{summary}"
+                            text=f"✅ {request.company_name} ({request.stock_code}) 분석 결과:\n\n{summary}",
                         )
                     else:
                         await self.application.bot.send_message(
                             chat_id=request.chat_id,
-                            text=f"✅ {request.company_name} ({request.stock_code}) 분석 결과:\n\n{request.result}"
+                            text=f"✅ {request.company_name} ({request.stock_code}) 분석 결과:\n\n{request.result}",
                         )
                 else:
                     await self.application.bot.send_message(
                         chat_id=request.chat_id,
-                        text=f"⚠️ {request.company_name} ({request.stock_code}) 분석 결과를 찾을 수 없습니다."
+                        text=f"⚠️ {request.company_name} ({request.stock_code}) 분석 결과를 찾을 수 없습니다.",
                     )
         except Exception as e:
             logger.error(f"결과 전송 중 오류: {str(e)}")
             logger.error(traceback.format_exc())
             await self.application.bot.send_message(
                 chat_id=request.chat_id,
-                text=f"⚠️ {request.company_name} ({request.stock_code}) 분석 결과 전송 중 오류가 발생했습니다."
+                text=f"⚠️ {request.company_name} ({request.stock_code}) 분석 결과 전송 중 오류가 발생했습니다.",
             )
 
     @staticmethod
@@ -284,16 +317,21 @@ class TelegramAIBot:
             import signal
 
             # 서버 프로세스 찾기
-            result = subprocess.run(["pgrep", "-f", "kospi_kosdaq_stock_server"],
-                                    capture_output=True, text=True)
+            result = subprocess.run(
+                ["pgrep", "-f", "kospi_kosdaq_stock_server"],
+                capture_output=True,
+                text=True,
+            )
 
             if result.returncode == 0:
-                for pid in result.stdout.strip().split('\n'):
+                for pid in result.stdout.strip().split("\n"):
                     if pid and pid.isdigit():
                         try:
                             # 프로세스 종료
                             os.kill(int(pid), signal.SIGTERM)
-                            logger.info(f"기존 kospi_kosdaq 서버 프로세스(PID: {pid}) 종료")
+                            logger.info(
+                                f"기존 kospi_kosdaq 서버 프로세스(PID: {pid}) 종료"
+                            )
                         except ProcessLookupError:
                             pass
                         except Exception as e:
@@ -302,7 +340,9 @@ class TelegramAIBot:
             logger.error(f"서버 프로세스 정리 중 오류: {str(e)}")
 
     @staticmethod
-    async def handle_default_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def handle_default_message(
+        update: Update, context: ContextTypes.DEFAULT_TYPE
+    ):
         """일반 메시지는 /help 또는 /start 안내"""
         # update.message이 None인지 확인
         if update.message is None:
@@ -352,10 +392,12 @@ class TelegramAIBot:
             "3. 5-10분 후 HTML 형식의 상세 보고서가 제공됩니다(요청이 많을 경우 더 길어짐)\n\n"
             "<b>주의:</b>\n"
             "이 봇은 채널 구독자만 사용할 수 있습니다.",
-            parse_mode="HTML"
+            parse_mode="HTML",
         )
 
-    async def handle_report_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def handle_report_start(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ):
         """보고서 명령어 처리 - 첫 단계"""
         user_id = update.effective_user.id
         user_name = update.effective_user.first_name
@@ -382,7 +424,9 @@ class TelegramAIBot:
 
         return REPORT_CHOOSING_TICKER
 
-    async def handle_report_ticker_input(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def handle_report_ticker_input(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ):
         """보고서 요청 종목 입력 처리"""
         user_id = update.effective_user.id
         user_input = update.message.text.strip()
@@ -411,11 +455,13 @@ class TelegramAIBot:
             stock_code=stock_code,
             company_name=stock_name,
             chat_id=chat_id,
-            message_id=waiting_message.message_id
+            message_id=waiting_message.message_id,
         )
 
         # 캐시된 보고서가 있는지 확인
-        is_cached, cached_content, cached_file, cached_html = get_cached_report(stock_code)
+        is_cached, cached_content, cached_file, cached_html = get_cached_report(
+            stock_code
+        )
 
         if is_cached:
             logger.info(f"캐시된 보고서 발견: {cached_file}")
@@ -438,7 +484,9 @@ class TelegramAIBot:
 
         return ConversationHandler.END
 
-    async def handle_history_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def handle_history_start(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ):
         """히스토리 명령어 처리 - 첫 단계"""
         user_id = update.effective_user.id
         user_name = update.effective_user.first_name
@@ -465,7 +513,9 @@ class TelegramAIBot:
 
         return HISTORY_CHOOSING_TICKER
 
-    async def handle_history_ticker_input(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def handle_history_ticker_input(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ):
         """히스토리 요청 종목 입력 처리"""
         user_id = update.effective_user.id
         user_input = update.message.text.strip()
@@ -497,7 +547,9 @@ class TelegramAIBot:
         history_msg = f"📋 {stock_name} ({stock_code}) 분석 히스토리:\n\n"
 
         for i, report in enumerate(reports[:5], 1):
-            report_date = datetime.fromtimestamp(report.stat().st_mtime).strftime('%Y-%m-%d %H:%M')
+            report_date = datetime.fromtimestamp(report.stat().st_mtime).strftime(
+                "%Y-%m-%d %H:%M"
+            )
             history_msg += f"{i}. {report_date}\n"
 
             # 파일 크기 추가
@@ -506,10 +558,14 @@ class TelegramAIBot:
 
             # 첫 줄 미리보기 추가
             try:
-                with open(report, 'r', encoding='utf-8') as f:
+                with open(report, "r", encoding="utf-8") as f:
                     first_line = next(f, "").strip()
                     if first_line:
-                        preview = first_line[:50] + "..." if len(first_line) > 50 else first_line
+                        preview = (
+                            first_line[:50] + "..."
+                            if len(first_line) > 50
+                            else first_line
+                        )
                         history_msg += f"   미리보기: {preview}\n"
             except Exception:
                 pass
@@ -541,7 +597,9 @@ class TelegramAIBot:
 
             # 운영자 ID 허용 리스트
             admin_ids_str = os.getenv("TELEGRAM_ADMIN_IDS", "")
-            admin_ids = [int(id_str) for id_str in admin_ids_str.split(",") if id_str.strip()]
+            admin_ids = [
+                int(id_str) for id_str in admin_ids_str.split(",") if id_str.strip()
+            ]
 
             # 운영자인 경우 항상 허용
             if user_id in admin_ids:
@@ -556,10 +614,10 @@ class TelegramAIBot:
 
             # 채널 멤버, 관리자, 생성자/소유자 모두 허용
             # 'creator'는 초기 버전에서 사용, 일부 버전에서는 'owner'로 변경될 수 있음
-            valid_statuses = ['member', 'administrator', 'creator', 'owner']
+            valid_statuses = ["member", "administrator", "creator", "owner"]
 
             # 채널 소유자인 경우 항상 허용
-            if member.status == 'creator' or getattr(member, 'is_owner', False):
+            if member.status == "creator" or getattr(member, "is_owner", False):
                 return True
 
             return member.status in valid_statuses
@@ -569,7 +627,9 @@ class TelegramAIBot:
             logger.error(f"상세 오류: {traceback.format_exc()}")
             return False
 
-    async def handle_evaluate_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def handle_evaluate_start(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ):
         """평가 명령어 처리 - 첫 단계"""
         user_id = update.effective_user.id
         user_name = update.effective_user.first_name
@@ -588,7 +648,9 @@ class TelegramAIBot:
         # 그룹 채팅인지 개인 채팅인지 확인
         is_group = update.effective_chat.type in ["group", "supergroup"]
 
-        logger.info(f"평가 명령 시작 - 사용자: {user_name}, 채팅타입: {'그룹' if is_group else '개인'}")
+        logger.info(
+            f"평가 명령 시작 - 사용자: {user_name}, 채팅타입: {'그룹' if is_group else '개인'}"
+        )
 
         # 그룹 채팅에서는 사용자 이름을 언급
         greeting = f"{user_name}님, " if is_group else ""
@@ -599,7 +661,9 @@ class TelegramAIBot:
         )
         return CHOOSING_TICKER
 
-    async def handle_ticker_input(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def handle_ticker_input(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ):
         """종목 입력 처리"""
         user_id = update.effective_user.id
         user_input = update.message.text.strip()
@@ -614,8 +678,8 @@ class TelegramAIBot:
             return CHOOSING_TICKER
 
         # 종목 정보 저장
-        context.user_data['ticker'] = stock_code
-        context.user_data['ticker_name'] = stock_name
+        context.user_data["ticker"] = stock_code
+        context.user_data["ticker_name"] = stock_name
 
         logger.info(f"종목 선택: {stock_name} ({stock_code})")
 
@@ -632,19 +696,17 @@ class TelegramAIBot:
     async def handle_avgprice_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
         """평균 매수가 입력 처리"""
         try:
-            avg_price = float(update.message.text.strip().replace(',', ''))
-            context.user_data['avg_price'] = avg_price
+            avg_price = float(update.message.text.strip().replace(",", ""))
+            context.user_data["avg_price"] = avg_price
 
             await update.message.reply_text(
-                f"보유 기간을 입력해주세요. (개월 수)\n"
-                f"예: 6 (6개월)"
+                f"보유 기간을 입력해주세요. (개월 수)\n예: 6 (6개월)"
             )
             return ENTERING_PERIOD
 
         except ValueError:
             await update.message.reply_text(
-                "숫자 형식으로 입력해주세요. 콤마는 제외해주세요.\n"
-                "예: 68500"
+                "숫자 형식으로 입력해주세요. 콤마는 제외해주세요.\n예: 68500"
             )
             return ENTERING_AVGPRICE
 
@@ -653,7 +715,7 @@ class TelegramAIBot:
         """보유 기간 입력 처리"""
         try:
             period = int(update.message.text.strip())
-            context.user_data['period'] = period
+            context.user_data["period"] = period
 
             # 다음 단계: 원하는 피드백 스타일/톤 입력 받기
             await update.message.reply_text(
@@ -663,17 +725,14 @@ class TelegramAIBot:
             return ENTERING_TONE
 
         except ValueError:
-            await update.message.reply_text(
-                "숫자 형식으로 입력해주세요.\n"
-                "예: 6"
-            )
+            await update.message.reply_text("숫자 형식으로 입력해주세요.\n예: 6")
             return ENTERING_PERIOD
 
     @staticmethod
     async def handle_tone_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
         """원하는 피드백 스타일/톤 입력 처리"""
         tone = update.message.text.strip()
-        context.user_data['tone'] = tone
+        context.user_data["tone"] = tone
 
         await update.message.reply_text(
             "종목을 매매하게 된 배경이나 주요 매매 히스토리가 있으시면 알려주세요.\n"
@@ -681,10 +740,14 @@ class TelegramAIBot:
         )
         return ENTERING_BACKGROUND
 
-    async def handle_background_input(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def handle_background_input(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ):
         """매매 배경 입력 처리 및 AI 응답 생성"""
         background = update.message.text.strip()
-        context.user_data['background'] = background if background.lower() != '없음' else ""
+        context.user_data["background"] = (
+            background if background.lower() != "없음" else ""
+        )
 
         # 응답 대기 메시지
         waiting_message = await update.message.reply_text(
@@ -692,12 +755,12 @@ class TelegramAIBot:
         )
 
         # AI 에이전트로 분석 요청
-        ticker = context.user_data['ticker']
-        ticker_name = context.user_data.get('ticker_name', f"종목_{ticker}")
-        avg_price = context.user_data['avg_price']
-        period = context.user_data['period']
-        tone = context.user_data['tone']
-        background = context.user_data['background']
+        ticker = context.user_data["ticker"]
+        ticker_name = context.user_data.get("ticker_name", f"종목_{ticker}")
+        avg_price = context.user_data["avg_price"]
+        period = context.user_data["period"]
+        tone = context.user_data["tone"]
+        background = context.user_data["background"]
         chat_id = update.effective_chat.id
 
         try:
@@ -711,7 +774,9 @@ class TelegramAIBot:
 
             # 응답이 비어있는지 확인
             if not response or not response.strip():
-                response = "죄송합니다. 응답 생성 중 오류가 발생했습니다. 다시 시도해주세요."
+                response = (
+                    "죄송합니다. 응답 생성 중 오류가 발생했습니다. 다시 시도해주세요."
+                )
                 logger.error(f"빈 응답이 생성되었습니다: {ticker_name}({ticker})")
 
             # 대기 메시지 삭제
@@ -721,9 +786,13 @@ class TelegramAIBot:
             await update.message.reply_text(response)
 
         except Exception as e:
-            logger.error(f"응답 생성 또는 전송 중 오류: {str(e)}, {traceback.format_exc()}")
+            logger.error(
+                f"응답 생성 또는 전송 중 오류: {str(e)}, {traceback.format_exc()}"
+            )
             await waiting_message.delete()
-            await update.message.reply_text("죄송합니다. 분석 중 오류가 발생했습니다. 다시 시도해주세요.")
+            await update.message.reply_text(
+                "죄송합니다. 분석 중 오류가 발생했습니다. 다시 시도해주세요."
+            )
 
         # 대화 종료
         return ConversationHandler.END
@@ -774,14 +843,18 @@ class TelegramAIBot:
         stock_input = stock_input.strip()
 
         # 이미 종목 코드인 경우 (6자리 숫자)
-        if re.match(r'^\d{6}$', stock_input):
+        if re.match(r"^\d{6}$", stock_input):
             stock_code = stock_input
             stock_name = self.stock_map.get(stock_code)
 
             if stock_name:
                 return stock_code, stock_name, None
             else:
-                return stock_code, f"종목_{stock_code}", "해당 종목 코드에 대한 정보가 없습니다. 코드가 정확한지 확인해주세요."
+                return (
+                    stock_code,
+                    f"종목_{stock_code}",
+                    "해당 종목 코드에 대한 정보가 없습니다. 코드가 정확한지 확인해주세요.",
+                )
 
         # 종목명으로 입력한 경우 - 정확히 일치하는 경우 확인
         if stock_input in self.stock_name_map:
@@ -800,14 +873,24 @@ class TelegramAIBot:
             return stock_code, stock_name, None
         elif len(possible_matches) > 1:
             # 여러 일치 항목이 있으면 오류 메시지 반환
-            match_info = "\n".join([f"{name} ({code})" for name, code in possible_matches[:5]])
+            match_info = "\n".join(
+                [f"{name} ({code})" for name, code in possible_matches[:5]]
+            )
             if len(possible_matches) > 5:
-                match_info += f"\n... 외 {len(possible_matches)-5}개"
+                match_info += f"\n... 외 {len(possible_matches) - 5}개"
 
-            return None, None, f"'{stock_input}'에 여러 일치하는 종목이 있습니다. 정확한 종목명이나 종목코드를 입력해주세요:\n{match_info}"
+            return (
+                None,
+                None,
+                f"'{stock_input}'에 여러 일치하는 종목이 있습니다. 정확한 종목명이나 종목코드를 입력해주세요:\n{match_info}",
+            )
         else:
             # 일치하는 항목이 없으면 오류 메시지 반환
-            return None, None, f"'{stock_input}'에 해당하는 종목을 찾을 수 없습니다. 정확한 종목명이나 종목코드를 입력해주세요."
+            return (
+                None,
+                None,
+                f"'{stock_input}'에 해당하는 종목을 찾을 수 없습니다. 정확한 종목명이나 종목코드를 입력해주세요.",
+            )
 
     async def process_results(self):
         """결과 큐에서 처리할 항목 확인"""
@@ -824,16 +907,20 @@ class TelegramAIBot:
                         request = self.pending_requests[request_id]
                         # 결과 전송 (메인 이벤트 루프에서 실행되므로 안전)
                         await self.send_report_result(request)
-                        logger.info(f"결과 전송 완료: {request.id} ({request.company_name})")
+                        logger.info(
+                            f"결과 전송 완료: {request.id} ({request.company_name})"
+                        )
                     else:
-                        logger.warning(f"요청 ID가 pending_requests에 없음: {request_id}")
+                        logger.warning(
+                            f"요청 ID가 pending_requests에 없음: {request_id}"
+                        )
 
                     # 큐 작업 완료 표시
                     self.result_queue.task_done()
-                
+
                 # 잠시 대기 (CPU 사용률 감소)
                 await asyncio.sleep(0.5)
-                
+
             except Exception as e:
                 logger.error(f"결과 처리 중 오류: {str(e)}")
                 logger.error(traceback.format_exc())
@@ -869,6 +956,7 @@ class TelegramAIBot:
 
             logger.info("텔레그램 AI 대화형 봇이 종료되었습니다.")
 
+
 async def shutdown(sig, loop):
     """Cleanup tasks tied to the service's shutdown."""
     logger.info(f"Received signal {sig.name}, shutting down...")
@@ -880,6 +968,7 @@ async def shutdown(sig, loop):
     logger.info(f"Cancelling {len(tasks)} outstanding tasks")
     await asyncio.gather(*tasks, return_exceptions=True)
     loop.stop()
+
 
 # 메인 실행 부분
 async def main():
@@ -898,6 +987,7 @@ async def main():
 
     bot = TelegramAIBot()
     await bot.run()
+
 
 if __name__ == "__main__":
     asyncio.run(main())

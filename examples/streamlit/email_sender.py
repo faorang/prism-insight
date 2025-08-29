@@ -7,6 +7,7 @@ import markdown.extensions.fenced_code
 import markdown.extensions.tables
 from config import SMTP_SERVER, SMTP_PORT, SENDER_EMAIL, SENDER_PASSWORD
 
+
 def convert_md_to_html(md_content: str) -> str:
     """마크다운을 HTML로 변환"""
     # GitHub 스타일의 CSS
@@ -33,10 +34,10 @@ def convert_md_to_html(md_content: str) -> str:
     html = markdown.markdown(
         md_content,
         extensions=[
-            'markdown.extensions.fenced_code',
-            'markdown.extensions.tables',
-            'markdown.extensions.toc'
-        ]
+            "markdown.extensions.fenced_code",
+            "markdown.extensions.tables",
+            "markdown.extensions.toc",
+        ],
     )
 
     # 완성된 HTML 문서
@@ -55,27 +56,32 @@ def convert_md_to_html(md_content: str) -> str:
 
     return complete_html
 
+
 def send_email(to_email: str, report_content: str) -> bool:
     """이메일 전송 함수"""
     try:
         # 이메일 메시지 생성
-        msg = MIMEMultipart('alternative')
-        msg['From'] = SENDER_EMAIL
-        msg['To'] = to_email
-        msg['Subject'] = "주식 종목 분석 보고서"
+        msg = MIMEMultipart("alternative")
+        msg["From"] = SENDER_EMAIL
+        msg["To"] = to_email
+        msg["Subject"] = "주식 종목 분석 보고서"
 
         # 1. HTML 버전 (메인 컨텐츠)
         html_content = convert_md_to_html(report_content)
-        msg.attach(MIMEText(html_content, 'html'))
+        msg.attach(MIMEText(html_content, "html"))
 
         # 2. 마크다운 파일 첨부
-        md_attachment = MIMEText(report_content, 'plain')
-        md_attachment.add_header('Content-Disposition', 'attachment', filename='analysis_report.md')
+        md_attachment = MIMEText(report_content, "plain")
+        md_attachment.add_header(
+            "Content-Disposition", "attachment", filename="analysis_report.md"
+        )
         msg.attach(md_attachment)
 
         # 3. HTML 파일 첨부
-        html_attachment = MIMEText(html_content, 'html')
-        html_attachment.add_header('Content-Disposition', 'attachment', filename='analysis_report.html')
+        html_attachment = MIMEText(html_content, "html")
+        html_attachment.add_header(
+            "Content-Disposition", "attachment", filename="analysis_report.html"
+        )
         msg.attach(html_attachment)
 
         # SMTP 서버 연결 및 로그인

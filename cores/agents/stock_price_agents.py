@@ -1,6 +1,9 @@
 from mcp_agent.agents.agent import Agent
 
-def create_price_volume_analysis_agent(company_name, company_code, reference_date, max_years_ago, max_years):
+
+def create_price_volume_analysis_agent(
+    company_name, company_code, reference_date, max_years_ago, max_years
+):
     """주가 및 거래량 분석 에이전트 생성"""
     return Agent(
         name="price_volume_analysis_agent",
@@ -60,11 +63,13 @@ def create_price_volume_analysis_agent(company_name, company_code, reference_dat
                         기업: {company_name} ({company_code})
                         ##분석일: {reference_date}(YYYYMMDD 형식)
                         """,
-        server_names=["kospi_kosdaq"]
+        server_names=["kospi_kosdaq"],
     )
 
 
-def create_investor_trading_analysis_agent(company_name, company_code, reference_date, max_years_ago, max_years):
+def create_investor_trading_analysis_agent(
+    company_name, company_code, reference_date, max_years_ago, max_years
+):
     """투자자 거래 동향 분석 에이전트 생성"""
     return Agent(
         name="investor_trading_analysis_agent",
@@ -124,5 +129,5 @@ def create_investor_trading_analysis_agent(company_name, company_code, reference
                         기업: {company_name} ({company_code})
                         ##분석일: {reference_date}(YYYYMMDD 형식)
                         """,
-        server_names=["kospi_kosdaq"]
+        server_names=["kospi_kosdaq"],
     )

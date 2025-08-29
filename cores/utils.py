@@ -12,7 +12,7 @@ URLS = {
     "경쟁사분석": "c1060001.aspx?cmp_cd={}",
     "지분현황": "c1070001.aspx?cmp_cd={}",
     "업종분석": "c1090001.aspx?cmp_cd={}",
-    "최근리포트": "c1080001.aspx?cmp_cd={}"
+    "최근리포트": "c1080001.aspx?cmp_cd={}",
 }
 
 
@@ -20,10 +20,10 @@ def clean_markdown(text: str) -> str:
     """마크다운 텍스트 정리"""
 
     # 1. 백틱 블록 제거
-    text = re.sub(r'```[^\n]*\n(.*?)\n```', r'\1', text, flags=re.DOTALL)
+    text = re.sub(r"```[^\n]*\n(.*?)\n```", r"\1", text, flags=re.DOTALL)
 
     # 2. 개행문자 리터럴을 실제 개행으로 변환
-    text = re.sub(r'\\n\\n', '\n\n', text)
+    text = re.sub(r"\\n\\n", "\n\n", text)
 
     return text
 
