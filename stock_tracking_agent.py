@@ -175,7 +175,8 @@ class StockTrackingAgent:
                     last_updated TEXT,
                     scenario TEXT,
                     target_price REAL,
-                    stop_loss REAL
+                    stop_loss REAL,
+                    quantity INTEGER NOT NULL DEFAULT 0
                 )
             """)
 
@@ -191,7 +192,19 @@ class StockTrackingAgent:
                     sell_date TEXT NOT NULL,
                     profit_rate REAL NOT NULL,
                     holding_days INTEGER NOT NULL,
-                    scenario TEXT
+                    scenario TEXT,
+                    quantity INTEGER NOT NULL
+                )
+            """)
+
+            # 잔고 테이블 생성
+            self.cursor.execute("""
+                CREATE TABLE IF NOT EXISTS portfolio_balance (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    account_id TEXT NOT NULL,             -- 계좌 식별자
+                    balance REAL NOT NULL DEFAULT 0,      -- 보유 금액
+                    currency TEXT NOT NULL DEFAULT 'KRW', -- 통화 단위
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
 
@@ -408,6 +421,78 @@ class StockTrackingAgent:
             return count
         except Exception as e:
             logger.error(f"보유 종목 수 조회 중 오류: {str(e)}")
+            return 0
+
+    async def _get_current_balance(self, account_id: str = "default_account") -> float:
+        """
+        현재 잔고 조회
+
+        Args:
+            account_id: 계좌 식별자
+
+        Returns:
+            float: 현재 잔고
+        """
+        try:
+            self.cursor.execute(
+                "SELECT balance FROM portfolio_balance WHERE account_id = ? ORDER BY updated_at DESC LIMIT 1",
+                (account_id,)
+            )
+            row = self.cursor.fetchone()
+            if row:
+                return float(row[0])
+            else:
+                # 잔고 정보가 없으면 0 반환
+                return 0.0
+        except Exception as e:
+            logger.error(f"잔고 조회 중 오류: {str(e)}")
+            return 0.0
+    async def _update_balance(self, amount: float, account_id: str = "default_account"):
+        """
+        잔고 업데이트
+
+        Args:
+            amount: 변경할 금액 (양수: 입금, 음수: 출금)
+            account_id: 계좌 식별자
+        """
+        try:
+            current_balance = await self._get_current_balance(account_id)
+            new_balance = current_balance + amount
+
+            self.cursor.execute(
+                """
+                INSERT INTO portfolio_balance (account_id, balance, updated_at)
+                VALUES (?, ?, ?)
+                """,
+                (account_id, new_balance, datetime.now())
+            )
+            self.conn.commit()
+            logger.info(f"잔고 업데이트: {current_balance:,.0f}원 -> {new_balance:,.0f}원")
+        except Exception as e:
+            logger.error(f"잔고 업데이트 중 오류: {str(e)}")
+    
+    async def _get_stock_quantity(self, ticker: str) -> int:
+        """
+        보유 종목의 수량 조회
+
+        Args:
+            ticker: 종목 코드
+
+        Returns:
+            int: 보유 수량
+        """
+        try:
+            self.cursor.execute(
+                "SELECT quantity FROM stock_holdings WHERE ticker = ?",
+                (ticker,)
+            )
+            row = self.cursor.fetchone()
+            if row:
+                return int(row[0])
+            else:
+                return 0
+        except Exception as e:
+            logger.error(f"{ticker} 보유 수량 조회 중 오류: {str(e)}")
             return 0
 
     async def _check_sector_diversity(self, sector: str) -> bool:
@@ -713,6 +798,22 @@ class StockTrackingAgent:
             if current_slots >= self.max_slots:
                 logger.warning(f"보유 종목이 이미 최대치({self.max_slots}개)입니다.")
                 return False
+            
+            # 잔고 확인
+            current_balance = await self._get_current_balance()
+            if current_balance < current_price:
+                logger.warning(f"잔고 부족: 현재 잔고 {current_balance:,.0f}원, 매수 필요금액 {current_price:,.0f}원")
+                return False
+            # 1/N 투자 전략, 투자 금액 계산
+            invest_amount = current_balance / (self.max_slots - current_slots)
+            if invest_amount < current_price and current_balance * 0.5 < current_price:
+                logger.warning(f"1/N 투자 전략에 따른 투자 금액이 현재 주가보다 적습니다: 투자 가능 금액 {invest_amount:,.0f}원, 현재 주가 {current_price:,.0f}원")
+                return False
+            quantity = int(invest_amount // current_price)
+            if quantity <= 0:
+                quantity = 1  # 최소 1주 매수
+            total_cost = quantity * current_price
+            logger.info(f"{ticker}({company_name}) 매수 시도: 수량 {quantity}주, 총 매수금액 {total_cost:,.0f}원")
 
             # 현재 시간
             now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -721,8 +822,8 @@ class StockTrackingAgent:
             self.cursor.execute(
                 """
                 INSERT INTO stock_holdings 
-                (ticker, company_name, buy_price, buy_date, current_price, last_updated, scenario, target_price, stop_loss) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (ticker, company_name, buy_price, buy_date, current_price, last_updated, scenario, target_price, stop_loss, quantity) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     ticker,
@@ -733,13 +834,16 @@ class StockTrackingAgent:
                     now,
                     json.dumps(scenario, ensure_ascii=False),
                     scenario.get('target_price', 0),
-                    scenario.get('stop_loss', 0)
+                    scenario.get('stop_loss', 0),
+                    quantity
                 )
             )
+            # 잔고 업데이트
+            await self._update_balance(-total_cost)
             self.conn.commit()
 
             # 매수 내역 메시지 추가
-            message = f"📈 신규 매수: {company_name}({ticker})\n" \
+            message = f"📈 신규 매수: {company_name}({ticker})-{quantity}주\n" \
                       f"매수가: {current_price:,.0f}원\n" \
                       f"목표가: {scenario.get('target_price', 0):,.0f}원\n" \
                       f"손절가: {scenario.get('stop_loss', 0):,.0f}원\n" \
@@ -862,6 +966,7 @@ class StockTrackingAgent:
             buy_date = stock_data.get('buy_date', '')
             current_price = stock_data.get('current_price', 0)
             scenario_json = stock_data.get('scenario', '{}')
+            quantity = await self._get_stock_quantity(ticker)
 
             # 수익률 계산
             profit_rate = ((current_price - buy_price) / buy_price) * 100
@@ -878,8 +983,8 @@ class StockTrackingAgent:
             self.cursor.execute(
                 """
                 INSERT INTO trading_history 
-                (ticker, company_name, buy_price, buy_date, sell_price, sell_date, profit_rate, holding_days, scenario) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (ticker, company_name, buy_price, buy_date, sell_price, sell_date, profit_rate, holding_days, scenario, quantity) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     ticker,
@@ -890,7 +995,8 @@ class StockTrackingAgent:
                     now,
                     profit_rate,
                     holding_days,
-                    scenario_json
+                    scenario_json,
+                    quantity
                 )
             )
 
@@ -899,13 +1005,15 @@ class StockTrackingAgent:
                 "DELETE FROM stock_holdings WHERE ticker = ?",
                 (ticker,)
             )
+            # 잔고 업데이트
+            await self._update_balance(current_price * quantity)
 
             # 변경사항 저장
             self.conn.commit()
 
             # 매도 메시지 추가
             arrow = "🔺" if profit_rate > 0 else "🔻" if profit_rate < 0 else "➖"
-            message = f"📉 매도: {company_name}({ticker})\n" \
+            message = f"📉 매도: {company_name}({ticker})-{quantity}주\n" \
                       f"매수가: {buy_price:,.0f}원\n" \
                       f"매도가: {current_price:,.0f}원\n" \
                       f"수익률: {arrow} {abs(profit_rate):.2f}%\n" \
