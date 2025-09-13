@@ -17,3 +17,10 @@ pdf_reports/
 perplexity-ask/dist/
 sqlite/stock_tracking_db
 telegram_messages/
+
+# trading/.gitignore
+trading/config/KIS*
+trading/config/*.token*
+trading/config/*.key
+trading/config/kis_devlp.yaml
+trading/config/kis_*.yaml

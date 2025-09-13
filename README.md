@@ -21,13 +21,14 @@ AI 기반 주식 분석 및 매매 시뮬레이션 시스템
 
 PRISM-INSIGHT는 **AI 분석 에이전트를 활용한 종합 주식 분석**을 핵심으로 하는 시스템입니다. 텔레그램 채널을 통해 매일 급등주를 자동으로 포착하고, 전문가 수준의 애널리스트 리포트를 생성하여 매매 시뮬레이션을 수행합니다.
 
-## 📈 '25.08.15 기준 매매 시뮬레이터 실적
+## 📈 '25.09.13 기준 매매 시뮬레이터 실적
 - 최초 시작일 : 2025.03.15
-- 총 거래 건수: 35건
-- 수익 거래: 14건
+- 총 거래 건수: 38건
+- 수익 거래: 17건
 - 손실 거래: 21건
-- 승률: 40.00%
-- **누적 수익률: 251.39%**
+- 승률: 44.74%
+- **누적 수익률: 371.70%**
+- **[매매 성과 요약 대시보드](https://claude.ai/public/artifacts/8958de2b-8a17-45e7-b46b-c95b1c7f4709)**
 
 ### 🎯 주요 기능
 
@@ -133,6 +134,24 @@ sudo yum install wkhtmltopdf
 ```bash
 cd perplexity-ask
 npm install
+```
+
+7. **한글 폰트 설치** (Linux 환경)
+
+Linux에서 차트 한글 표시를 위해 한글 폰트가 필요합니다.
+
+```bash
+# Rocky Linux 8 / CentOS / RHEL
+sudo dnf install google-nanum-fonts
+
+# Ubuntu 22.04+ / Debian
+./cores/ubuntu_font_installer.py 실행
+
+# 폰트 캐시 갱신
+sudo fc-cache -fv
+python3 -c "import matplotlib.font_manager as fm; fm.fontManager.rebuild()"
+
+참고: macOS와 Windows는 기본 한글 폰트가 지원되어 별도 설치 불필요
 ```
 
 ### 필수 설정 파일
