@@ -842,13 +842,18 @@ class StockTrackingAgent:
             await self._update_balance(-total_cost)
             self.conn.commit()
 
+            buy_score = scenario.get("buy_score", 0)
+            rank_bonus = scenario.get('rank_bonus',0)
+            effective_buy_score = buy_score + rank_bonus
+
             # 매수 내역 메시지 추가
             message = f"📈 신규 매수: {company_name}({ticker})-{quantity}주\n" \
                       f"매수가: {current_price:,.0f}원\n" \
                       f"목표가: {scenario.get('target_price', 0):,.0f}원\n" \
                       f"손절가: {scenario.get('stop_loss', 0):,.0f}원\n" \
                       f"투자기간: {scenario.get('investment_period', '단기')}\n" \
-                      f"산업군: {scenario.get('sector', '알 수 없음')}\n"
+                      f"산업군: {scenario.get('sector', '알 수 없음')}\n" \
+                      f"매수 점수: {effective_buy_score} (기본: {buy_score}, 랭킹 보너스: {rank_bonus})\n"
 
             # 거래대금 랭킹 정보가 있으면 추가
             if rank_change_msg:
@@ -1321,6 +1326,7 @@ class StockTrackingAgent:
                     logger.info(f"거래대금 랭킹 상승으로 매수 점수 +1 보너스: {company_name}({ticker})")
 
                 effective_buy_score = buy_score + rank_bonus
+                scenario['rank_bonus'] = rank_bonus  # 시나리오에 보너스 정보 추가
                 logger.info(f"최종 매수 점수: {effective_buy_score} (기본: {buy_score}, 랭킹 보너스: {rank_bonus})")
 
                 if analysis_result.get("decision") == "진입" and effective_buy_score >= min_score:
