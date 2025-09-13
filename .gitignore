@@ -5,3 +5,15 @@
 mcp_agent.config.yaml
 mcp_agent.secrets.yaml
 config.py
+*.md
+*.log
+*.json
+*.sqlite
+__pycache__
+node_modules
+uv.lock
+charts/
+pdf_reports/
+perplexity-ask/dist/
+sqlite/stock_tracking_db
+telegram_messages/
