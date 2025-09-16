@@ -1,6 +1,7 @@
 """
 보고서 생성 및 변환 모듈
 """
+
 import json
 import logging
 import os
@@ -55,8 +56,8 @@ def get_cached_report(stock_code: str) -> tuple:
         html_content = convert_to_html(content)
         html_file = save_html_report_from_content(
             stock_code,
-            os.path.basename(latest_file).split('_')[1],  # 회사명 추출
-            html_content
+            os.path.basename(latest_file).split("_")[1],  # 회사명 추출
+            html_content,
         )
 
     return True, content, latest_file, html_file
@@ -80,7 +81,10 @@ def convert_to_html(markdown_content: str) -> str:
         # 마크다운을 HTML로 변환
         html_content = markdown.markdown(
             markdown_content,
-            extensions=['markdown.extensions.fenced_code', 'markdown.extensions.tables']
+            extensions=[
+                "markdown.extensions.fenced_code",
+                "markdown.extensions.tables",
+            ],
         )
 
         # HTML 템플릿에 내용 삽입
@@ -138,7 +142,9 @@ def convert_to_html(markdown_content: str) -> str:
         return f"<p>보고서 변환 중 오류가 발생했습니다: {str(e)}</p>"
 
 
-def save_html_report_from_content(stock_code: str, company_name: str, html_content: str) -> Path:
+def save_html_report_from_content(
+    stock_code: str, company_name: str, html_content: str
+) -> Path:
     """HTML 내용을 파일로 저장"""
     reference_date = datetime.now().strftime("%Y%m%d")
     filename = f"{stock_code}_{company_name}_{reference_date}_analysis.html"
@@ -196,11 +202,13 @@ async def run():
 
 if __name__ == "__main__":
     asyncio.run(run())
-            """
+            """,
         ]
 
         logger.info(f"외부 프로세스 실행: {stock_code}")
-        process = subprocess.run(cmd, capture_output=True, text=True, timeout=600)  # 10분 타임아웃
+        process = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=600
+        )  # 10분 타임아웃
 
         # 출력 초기화 - 경고 방지를 위해 변수 미리 선언
         output = ""
@@ -217,17 +225,19 @@ if __name__ == "__main__":
                 # JSON 파싱
                 parsed_output = json.loads(json_str)
 
-                if parsed_output.get('success', False):
-                    result = parsed_output.get('result', '')
+                if parsed_output.get("success", False):
+                    result = parsed_output.get("result", "")
                     logger.info(f"외부 프로세스 결과: {len(result)} 글자")
                     return result
                 else:
-                    error = parsed_output.get('error', '알 수 없는 오류')
+                    error = parsed_output.get("error", "알 수 없는 오류")
                     logger.error(f"외부 프로세스 오류: {error}")
                     return f"분석 중 오류가 발생했습니다: {error}"
             else:
                 # 구분자를 찾을 수 없는 경우 - 프로세스 실행 자체에 문제가 있을 수 있음
-                logger.error(f"외부 프로세스 출력에서 결과 구분자를 찾을 수 없습니다: {output[:500]}")
+                logger.error(
+                    f"외부 프로세스 출력에서 결과 구분자를 찾을 수 없습니다: {output[:500]}"
+                )
                 # stderr에 에러 로그가 있는지 확인
                 if process.stderr:
                     logger.error(f"외부 프로세스 에러 출력: {process.stderr[:500]}")
@@ -243,20 +253,23 @@ if __name__ == "__main__":
     except Exception as e:
         logger.error(f"동기식 보고서 생성 중 오류: {str(e)}")
         import traceback
+
         logger.error(traceback.format_exc())
         return f"보고서 생성 중 오류가 발생했습니다: {str(e)}"
 
+
 import re
+
 
 def clean_model_response(response):
     # 마지막 평가 문장 패턴
-    final_analysis_pattern = r'이제 수집한 정보를 바탕으로.*평가를 해보겠습니다\.'
+    final_analysis_pattern = r"이제 수집한 정보를 바탕으로.*평가를 해보겠습니다\."
 
     # 중간 과정 및 도구 호출 관련 정보 제거
     # 1. '[Calling tool' 포함 라인 제거
-    lines = response.split('\n')
-    cleaned_lines = [line for line in lines if '[Calling tool' not in line]
-    temp_response = '\n'.join(cleaned_lines)
+    lines = response.split("\n")
+    cleaned_lines = [line for line in lines if "[Calling tool" not in line]
+    temp_response = "\n".join(cleaned_lines)
 
     # 2. 마지막 평가 문장이 있다면, 그 이후 내용만 유지
     final_statement_match = re.search(final_analysis_pattern, temp_response)
@@ -272,7 +285,10 @@ def clean_model_response(response):
 
     return cleaned_response
 
-async def generate_evaluation_response(ticker, ticker_name, avg_price, period, tone, background, report_path=None):
+
+async def generate_evaluation_response(
+    ticker, ticker_name, avg_price, period, tone, background, report_path=None
+):
     """
     종목 평가 AI 응답 생성
 
@@ -296,10 +312,12 @@ async def generate_evaluation_response(ticker, ticker_name, avg_price, period, t
             app_logger = app_instance.logger
 
             # 현재 날짜 정보 가져오기
-            current_date = datetime.now().strftime('%Y%m%d')
+            current_date = datetime.now().strftime("%Y%m%d")
 
             # 배경 정보 추가 (있는 경우)
-            background_text = f"\n- 매매 배경/히스토리: {background}" if background else ""
+            background_text = (
+                f"\n- 매매 배경/히스토리: {background}" if background else ""
+            )
 
             # 에이전트 생성
             agent = Agent(
@@ -410,7 +428,7 @@ async def generate_evaluation_response(ticker, ticker_name, avg_price, period, t
                             - 중요: 도구를 호출할 때는 사용자에게 "[Calling tool...]"과 같은 형식의 메시지를 표시하지 마세요. 
                               도구 호출은 내부 처리 과정이며 최종 응답에서는 도구 사용 결과만 자연스럽게 통합하여 제시해야 합니다.
                             """,
-                server_names=["perplexity", "kospi_kosdaq"]
+                server_names=["perplexity", "kospi_kosdaq"],
             )
 
             # LLM 연결
@@ -419,7 +437,7 @@ async def generate_evaluation_response(ticker, ticker_name, avg_price, period, t
             # 보고서 내용 확인
             report_content = ""
             if report_path and os.path.exists(report_path):
-                with open(report_path, 'r', encoding='utf-8') as f:
+                with open(report_path, "r", encoding="utf-8") as f:
                     report_content = f.read()
 
             # 응답 생성 - 주의: 중복된 지시사항은 제거하고 agent의 instruction 참조
@@ -430,9 +448,8 @@ async def generate_evaluation_response(ticker, ticker_name, avg_price, period, t
                         {report_content if report_content else "관련 보고서가 없습니다. 시장 데이터 조회와 perplexity 검색을 통해 최신 정보를 수집하여 평가해주세요."}
                         """,
                 request_params=RequestParams(
-                    model="claude-sonnet-4-20250514",
-                    maxTokens=3000
-                )
+                    model="claude-sonnet-4-20250514", maxTokens=3000
+                ),
             )
             app_logger.info(f"응답 생성 결과: {str(response)}")
 
@@ -441,6 +458,6 @@ async def generate_evaluation_response(ticker, ticker_name, avg_price, period, t
     except Exception as e:
         logger.error(f"응답 생성 중 오류: {str(e)}")
         import traceback
+
         logger.error(traceback.format_exc())
         return "죄송합니다. 평가 중 오류가 발생했습니다. 다시 시도해주세요."
-

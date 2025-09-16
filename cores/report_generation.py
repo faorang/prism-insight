@@ -1,4 +1,9 @@
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception_type,
+)
 from mcp_agent.agents.agent import Agent
 from mcp_agent.workflows.llm.augmented_llm import RequestParams
 from mcp_agent.workflows.llm.augmented_llm_openai import OpenAIAugmentedLLM
@@ -6,10 +11,14 @@ from mcp_agent.workflows.llm.augmented_llm_openai import OpenAIAugmentedLLM
 
 @retry(
     stop=stop_after_attempt(2),  # 최대 2번 시도 (초기 + 1번 재시도)
-    wait=wait_exponential(multiplier=1, min=10, max=30),  # 지수적으로 증가하는 대기 시간
-    retry=retry_if_exception_type(Exception)  # 모든 예외에 대해 재시도
+    wait=wait_exponential(
+        multiplier=1, min=10, max=30
+    ),  # 지수적으로 증가하는 대기 시간
+    retry=retry_if_exception_type(Exception),  # 모든 예외에 대해 재시도
 )
-async def generate_report(agent, section, company_name, company_code, reference_date, logger):
+async def generate_report(
+    agent, section, company_name, company_code, reference_date, logger
+):
     """에이전트를 사용하여 보고서 생성 - 재시도 로직 포함"""
     llm = await agent.attach_llm(OpenAIAugmentedLLM)
     report = await llm.generate_str(
@@ -34,26 +43,28 @@ async def generate_report(agent, section, company_name, company_code, reference_
             maxTokens=16000,
             max_iterations=3,
             parallel_tool_calls=True,
-            use_history=True
-        )
+            use_history=True,
+        ),
     )
     logger.info(f"Completed {section} - {len(report)} characters")
     return report
 
 
-async def generate_summary(section_reports, company_name, company_code, reference_date, logger):
+async def generate_summary(
+    section_reports, company_name, company_code, reference_date, logger
+):
     """섹션 보고서들을 바탕으로 요약 생성"""
     try:
         from mcp_agent.agents.agent import Agent
         from mcp_agent.workflows.llm.augmented_llm import RequestParams
         from mcp_agent.workflows.llm.augmented_llm_openai import OpenAIAugmentedLLM
-        
+
         # 모든 섹션을 포함한 종합 보고서 생성
         all_reports = ""
         for section, report in section_reports.items():
             all_reports += f"\n\n--- {section.upper()} ---\n\n"
             all_reports += report
-        
+
         logger.info(f"Generating executive summary for {company_name}...")
         summary_agent = Agent(
             name="summary_agent",
@@ -63,7 +74,7 @@ async def generate_summary(section_reports, company_name, company_code, referenc
                         투자자가 빠르게 읽고 핵심을 파악할 수 있는 요약을 제공하세요.
                         
                         ##분석일 : {reference_date}(YYYYMMDD 형식)
-                        """
+                        """,
         )
 
         llm = await summary_agent.attach_llm(OpenAIAugmentedLLM)
@@ -92,8 +103,8 @@ async def generate_summary(section_reports, company_name, company_code, referenc
                 maxTokens=6000,
                 max_iterations=2,
                 parallel_tool_calls=True,
-                use_history=True
-            )
+                use_history=True,
+            ),
         )
         return executive_summary
     except Exception as e:
@@ -101,12 +112,19 @@ async def generate_summary(section_reports, company_name, company_code, referenc
         return "# 핵심 투자 포인트\n\n분석 요약을 생성하는 데 문제가 발생했습니다."
 
 
-async def generate_investment_strategy(section_reports, combined_reports, company_name, company_code, reference_date, logger):
+async def generate_investment_strategy(
+    section_reports,
+    combined_reports,
+    company_name,
+    company_code,
+    reference_date,
+    logger,
+):
     """투자 전략 보고서 생성"""
     from mcp_agent.agents.agent import Agent
     from mcp_agent.workflows.llm.augmented_llm import RequestParams
     from mcp_agent.workflows.llm.augmented_llm_openai import OpenAIAugmentedLLM
-    
+
     try:
         logger.info(f"Processing investment_strategy for {company_name}...")
         investment_strategy_agent = Agent(
@@ -169,7 +187,7 @@ async def generate_investment_strategy(section_reports, combined_reports, compan
 
             기업: {company_name} ({company_code})
             ##분석일: {reference_date}(YYYYMMDD 형식)
-            """
+            """,
         )
 
         llm = await investment_strategy_agent.attach_llm(OpenAIAugmentedLLM)
@@ -199,10 +217,12 @@ async def generate_investment_strategy(section_reports, combined_reports, compan
                 maxTokens=16000,
                 max_iterations=3,
                 parallel_tool_calls=True,
-                use_history=True
-            )
+                use_history=True,
+            ),
         )
-        logger.info(f"Completed investment_strategy - {len(investment_strategy)} characters")
+        logger.info(
+            f"Completed investment_strategy - {len(investment_strategy)} characters"
+        )
         return investment_strategy
     except Exception as e:
         logger.error(f"Error processing investment_strategy: {e}")

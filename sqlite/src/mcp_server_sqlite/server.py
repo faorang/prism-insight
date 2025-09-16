@@ -12,12 +12,12 @@ from pydantic import AnyUrl
 from typing import Any
 
 # reconfigure UnicodeEncodeError prone default (i.e. windows-1252) to utf-8
-if sys.platform == "win32" and os.environ.get('PYTHONIOENCODING') is None:
+if sys.platform == "win32" and os.environ.get("PYTHONIOENCODING") is None:
     sys.stdin.reconfigure(encoding="utf-8")
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
 
-logger = logging.getLogger('mcp_sqlite_server')
+logger = logging.getLogger("mcp_sqlite_server")
 logger.info("Starting MCP SQLite Server")
 
 PROMPT_TEMPLATE = """
@@ -101,6 +101,7 @@ The provided XML tags are for the assistants understanding. Implore to make all 
 Start your first message fully in character with something like "Oh, Hey there! I see you've chosen the topic {topic}. Let's get started! 🚀"
 """
 
+
 class SqliteDatabase:
     def __init__(self, db_path: str):
         self.db_path = str(Path(db_path).expanduser())
@@ -134,7 +135,9 @@ class SqliteDatabase:
         logger.debug("Generated basic memo format")
         return memo
 
-    def _execute_query(self, query: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    def _execute_query(
+        self, query: str, params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
         """Execute a SQL query and return results as a list of dictionaries"""
         logger.debug(f"Executing query: {query}")
         try:
@@ -146,7 +149,13 @@ class SqliteDatabase:
                     else:
                         cursor.execute(query)
 
-                    if query.strip().upper().startswith(('INSERT', 'UPDATE', 'DELETE', 'CREATE', 'DROP', 'ALTER')):
+                    if (
+                        query.strip()
+                        .upper()
+                        .startswith(
+                            ("INSERT", "UPDATE", "DELETE", "CREATE", "DROP", "ALTER")
+                        )
+                    ):
                         conn.commit()
                         affected = cursor.rowcount
                         logger.debug(f"Write query affected {affected} rows")
@@ -158,6 +167,7 @@ class SqliteDatabase:
         except Exception as e:
             logger.error(f"Database error executing query: {e}")
             raise
+
 
 async def main(db_path: str):
     logger.info(f"Starting SQLite MCP Server with DB path: {db_path}")
@@ -212,7 +222,9 @@ async def main(db_path: str):
         ]
 
     @server.get_prompt()
-    async def handle_get_prompt(name: str, arguments: dict[str, str] | None) -> types.GetPromptResult:
+    async def handle_get_prompt(
+        name: str, arguments: dict[str, str] | None
+    ) -> types.GetPromptResult:
         logger.debug(f"Handling get_prompt request for {name} with args {arguments}")
         if name != "mcp-demo":
             logger.error(f"Unknown prompt: {name}")
@@ -246,7 +258,10 @@ async def main(db_path: str):
                 inputSchema={
                     "type": "object",
                     "properties": {
-                        "query": {"type": "string", "description": "SELECT SQL query to execute"},
+                        "query": {
+                            "type": "string",
+                            "description": "SELECT SQL query to execute",
+                        },
                     },
                     "required": ["query"],
                 },
@@ -257,7 +272,10 @@ async def main(db_path: str):
                 inputSchema={
                     "type": "object",
                     "properties": {
-                        "query": {"type": "string", "description": "SQL query to execute"},
+                        "query": {
+                            "type": "string",
+                            "description": "SQL query to execute",
+                        },
                     },
                     "required": ["query"],
                 },
@@ -268,7 +286,10 @@ async def main(db_path: str):
                 inputSchema={
                     "type": "object",
                     "properties": {
-                        "query": {"type": "string", "description": "CREATE TABLE SQL statement"},
+                        "query": {
+                            "type": "string",
+                            "description": "CREATE TABLE SQL statement",
+                        },
                     },
                     "required": ["query"],
                 },
@@ -287,7 +308,10 @@ async def main(db_path: str):
                 inputSchema={
                     "type": "object",
                     "properties": {
-                        "table_name": {"type": "string", "description": "Name of the table to describe"},
+                        "table_name": {
+                            "type": "string",
+                            "description": "Name of the table to describe",
+                        },
                     },
                     "required": ["table_name"],
                 },
@@ -298,7 +322,10 @@ async def main(db_path: str):
                 inputSchema={
                     "type": "object",
                     "properties": {
-                        "insight": {"type": "string", "description": "Business insight discovered from data analysis"},
+                        "insight": {
+                            "type": "string",
+                            "description": "Business insight discovered from data analysis",
+                        },
                     },
                     "required": ["insight"],
                 },
@@ -333,7 +360,9 @@ async def main(db_path: str):
                 _ = db._synthesize_memo()
 
                 # Notify clients that the memo resource has changed
-                await server.request_context.session.send_resource_updated(AnyUrl("memo://insights"))
+                await server.request_context.session.send_resource_updated(
+                    AnyUrl("memo://insights")
+                )
 
                 return [types.TextContent(type="text", text="Insight added to memo")]
 
@@ -356,7 +385,9 @@ async def main(db_path: str):
                 if not arguments["query"].strip().upper().startswith("CREATE TABLE"):
                     raise ValueError("Only CREATE TABLE statements are allowed")
                 db._execute_query(arguments["query"])
-                return [types.TextContent(type="text", text="Table created successfully")]
+                return [
+                    types.TextContent(type="text", text="Table created successfully")
+                ]
 
             else:
                 raise ValueError(f"Unknown tool: {name}")

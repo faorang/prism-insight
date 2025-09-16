@@ -21,10 +21,18 @@ if __name__ == "__main__":
     start = time.time()
 
     # 특정 날짜를 기준으로 분석 실행
-    result = asyncio.run(analyze_stock(company_code="035420", company_name="NAVER", reference_date="20250809"))
+    result = asyncio.run(
+        analyze_stock(
+            company_code="035420", company_name="NAVER", reference_date="20250809"
+        )
+    )
 
     # 결과 저장
-    with open(f"NAVER_분석보고서2_{datetime.now().strftime('%Y%m%d')}_gpt5.md", "w", encoding="utf-8") as f:
+    with open(
+        f"NAVER_분석보고서2_{datetime.now().strftime('%Y%m%d')}_gpt5.md",
+        "w",
+        encoding="utf-8",
+    ) as f:
         f.write(result)
 
     end = time.time()

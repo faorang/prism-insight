@@ -7,10 +7,10 @@ from telegram.error import TelegramError
 
 # 로깅 설정
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+
 
 class TelegramBotAgent:
     """
@@ -26,7 +26,9 @@ class TelegramBotAgent:
         """
         self.token = token or os.environ.get("TELEGRAM_BOT_TOKEN")
         if not self.token:
-            raise ValueError("텔레그램 봇 토큰이 필요합니다. 환경 변수 또는 파라미터로 제공해주세요.")
+            raise ValueError(
+                "텔레그램 봇 토큰이 필요합니다. 환경 변수 또는 파라미터로 제공해주세요."
+            )
 
         self.bot = Bot(token=self.token)
 
@@ -45,16 +47,19 @@ class TelegramBotAgent:
             # 특수 문자 이스케이프 처리
             if message:
                 import re
+
                 # Markdown에서 이스케이프가 필요한 특수 문자들
-                special_chars = r'(\_|\*|\[|\]|\(|\)|\~|\`|\>|\#|\+|\-|\=|\||\{|\}|\.|\\!)'
-                escaped_message = re.sub(special_chars, r'\\\1', message)
+                special_chars = (
+                    r"(\_|\*|\[|\]|\(|\)|\~|\`|\>|\#|\+|\-|\=|\||\{|\}|\.|\\!)"
+                )
+                escaped_message = re.sub(special_chars, r"\\\1", message)
             else:
                 escaped_message = message
 
             await self.bot.send_message(
                 chat_id=chat_id,
                 text=escaped_message,
-                parse_mode="MarkdownV2"  # 보다 안정적인 MarkdownV2로 변경
+                parse_mode="MarkdownV2",  # 보다 안정적인 MarkdownV2로 변경
             )
             logger.info(f"메시지 전송 성공: {chat_id}")
             return True
@@ -63,10 +68,7 @@ class TelegramBotAgent:
             # 에러 발생 시 일반 텍스트로 재시도
             try:
                 logger.info("일반 텍스트로 재시도합니다.")
-                await self.bot.send_message(
-                    chat_id=chat_id,
-                    text=message
-                )
+                await self.bot.send_message(chat_id=chat_id, text=message)
                 logger.info(f"메시지 전송 성공 (일반 텍스트): {chat_id}")
                 return True
             except TelegramError as e2:
@@ -86,12 +88,12 @@ class TelegramBotAgent:
             bool: 전송 성공 여부
         """
         try:
-            with open(document_path, 'rb') as document:
+            with open(document_path, "rb") as document:
                 await self.bot.send_document(
                     chat_id=chat_id,
                     document=document,
                     caption=caption,
-                    parse_mode="Markdown"  # Markdown 형식 지원
+                    parse_mode="Markdown",  # Markdown 형식 지원
                 )
             logger.info(f"파일 전송 성공: {document_path}")
             return True
@@ -136,7 +138,7 @@ class TelegramBotAgent:
         for msg_file in message_files:
             try:
                 # 파일 읽기
-                with open(msg_file, 'r', encoding='utf-8') as file:
+                with open(msg_file, "r", encoding="utf-8") as file:
                     message = file.read()
 
                 # 메시지 전송
@@ -153,7 +155,9 @@ class TelegramBotAgent:
                         logger.info(f"전송 완료 및 이동: {msg_file.name}")
                     else:
                         # sent_dir이 지정되지 않은 경우 파일 이름 변경으로 표시
-                        new_name = msg_file.with_name(f"{msg_file.stem}_sent{msg_file.suffix}")
+                        new_name = msg_file.with_name(
+                            f"{msg_file.stem}_sent{msg_file.suffix}"
+                        )
                         msg_file.rename(new_name)
                         logger.info(f"전송 완료 및 이름 변경: {new_name.name}")
 
@@ -166,14 +170,21 @@ class TelegramBotAgent:
         logger.info(f"총 {success_count}개의 메시지가 성공적으로 전송되었습니다.")
         return success_count
 
+
 async def main():
     """
     메인 함수
     """
     import argparse
 
-    parser = argparse.ArgumentParser(description="텔레그램 메시지 파일을 텔레그램 채널로 전송합니다.")
-    parser.add_argument("--dir", default="telegram_messages", help="텔레그램 메시지 파일이 있는 디렉토리")
+    parser = argparse.ArgumentParser(
+        description="텔레그램 메시지 파일을 텔레그램 채널로 전송합니다."
+    )
+    parser.add_argument(
+        "--dir",
+        default="telegram_messages",
+        help="텔레그램 메시지 파일이 있는 디렉토리",
+    )
     parser.add_argument("--token", help="텔레그램 봇 토큰 (환경 변수로도 설정 가능)")
     parser.add_argument("--chat-id", help="텔레그램 채널 ID (환경 변수로도 설정 가능)")
     parser.add_argument("--sent-dir", help="전송 완료된 파일을 이동할 디렉토리")
@@ -184,7 +195,9 @@ async def main():
     # 채널 ID 확인
     chat_id = args.chat_id or os.environ.get("TELEGRAM_CHANNEL_ID")
     if not chat_id:
-        logger.error("텔레그램 채널 ID가 필요합니다. 환경 변수 또는 --chat-id 파라미터로 제공해주세요.")
+        logger.error(
+            "텔레그램 채널 ID가 필요합니다. 환경 변수 또는 --chat-id 파라미터로 제공해주세요."
+        )
         return
 
     # 텔레그램 봇 에이전트 초기화
@@ -199,7 +212,7 @@ async def main():
 
         try:
             # 파일 읽기
-            with open(file_path, 'r', encoding='utf-8') as file:
+            with open(file_path, "r", encoding="utf-8") as file:
                 message = file.read()
 
             # 메시지 전송
@@ -213,6 +226,7 @@ async def main():
     else:
         # 디렉토리 내 모든 메시지 처리
         await bot_agent.process_messages_directory(args.dir, chat_id, args.sent_dir)
+
 
 if __name__ == "__main__":
     asyncio.run(main())

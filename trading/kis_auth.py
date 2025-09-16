@@ -35,9 +35,12 @@ from Crypto.Util.Padding import unpad
 
 from cryptography.fernet import Fernet
 
+
 class SecurityError(Exception):
     """보안 관련 오류"""
+
     pass
+
 
 clearConsole = lambda: os.system("cls" if os.name in ("nt", "dos") else "clear")
 
@@ -53,26 +56,28 @@ config_root = os.path.join(os.path.expanduser("~"), "src", "hantoo", ".HKIS", "c
 os.makedirs(config_root, exist_ok=True)
 
 # Unix/Linux에서 디렉토리 권한 설정 (소유자만 접근)
-if os.name != 'nt':
+if os.name != "nt":
     try:
         os.chmod(config_root, stat.S_IRWXU)  # 700 권한
     except:
         pass  # 권한 변경 실패 시 무시
 
+
 # 보안 강화된 토큰 파일명 생성
 def get_token_filename():
     """예측하기 어려운 토큰 파일명 생성"""
     # 기본: 날짜 기반 (기존 방식과 호환)
-    date_str = datetime.today().strftime('%Y%m%d')
+    date_str = datetime.today().strftime("%Y%m%d")
 
     # 보안 강화: 랜덤 서픽스 추가 (선택사항)
     # 환경변수로 보안 레벨 제어
-    if os.environ.get('KIS_SECURE_TOKEN', 'false').lower() == 'true':
+    if os.environ.get("KIS_SECURE_TOKEN", "false").lower() == "true":
         random_suffix = hashlib.md5(os.urandom(8)).hexdigest()[:8]
         return os.path.join(config_root, f"KIS_{date_str}_{random_suffix}.token")
     else:
         # 기존 방식 유지 (호환성)
         return os.path.join(config_root, f"KIS{date_str}")
+
 
 token_tmp = get_token_filename()
 
@@ -101,31 +106,36 @@ _base_headers = {
     "User-Agent": _cfg["my_agent"],
 }
 
+
 def _get_or_create_encryption_key():
     """암호화 키 생성 또는 로드"""
     key_file = os.path.join(config_root, ".token_key")
 
     if os.path.exists(key_file):
-        with open(key_file, 'rb') as f:
+        with open(key_file, "rb") as f:
             key = f.read()
     else:
         # 새 암호화 키 생성
         key = Fernet.generate_key()
-        with open(key_file, 'wb') as f:
+        with open(key_file, "wb") as f:
             f.write(key)
 
         # 키 파일 권한 설정 (최고 보안)
-        if os.name != 'nt':
+        if os.name != "nt":
             os.chmod(key_file, 0o600)
         else:
             # Windows: 파일 숨김 속성 설정
             try:
                 import ctypes
-                ctypes.windll.kernel32.SetFileAttributesW(key_file, 2)  # FILE_ATTRIBUTE_HIDDEN
+
+                ctypes.windll.kernel32.SetFileAttributesW(
+                    key_file, 2
+                )  # FILE_ATTRIBUTE_HIDDEN
             except:
                 pass
 
     return key
+
 
 # 토큰 발급 받아 저장 (토큰값, 토큰 유효시간,1일, 6시간 이내 발급신청시는 기존 토큰값과 동일, 발급시 알림톡 발송)
 def save_token(my_token, my_expired):
@@ -137,7 +147,7 @@ def save_token(my_token, my_expired):
         "token": my_token,
         "valid_date": valid_date.strftime("%Y-%m-%d %H:%M:%S"),
         "created_at": datetime.now().isoformat(),
-        "pid": os.getpid()
+        "pid": os.getpid(),
     }
 
     # 암호화 키 로드
@@ -146,10 +156,10 @@ def save_token(my_token, my_expired):
 
     # JSON을 문자열로 변환 후 암호화
     json_string = json.dumps(token_data, indent=2)
-    encrypted_data = fernet.encrypt(json_string.encode('utf-8'))
+    encrypted_data = fernet.encrypt(json_string.encode("utf-8"))
 
     # 암호화된 토큰 파일 작성
-    with open(token_tmp, 'wb') as f:  # 바이너리 모드로 저장
+    with open(token_tmp, "wb") as f:  # 바이너리 모드로 저장
         f.write(encrypted_data)
 
     # 강화된 파일 권한 설정
@@ -161,14 +171,14 @@ def save_token(my_token, my_expired):
     logging.info(f"Encrypted token saved: {token_tmp}")
 
 
-
 # 토큰 확인 (토큰값, 토큰 유효시간_1일, 6시간 이내 발급신청시는 기존 토큰값과 동일, 발급시 알림톡 발송)
 def read_token():
     """암호화된 토큰을 안전하게 읽기"""
     try:
         # 토큰 파일 찾기 (기존 로직 유지)
-        token_files = list(Path(config_root).glob("KIS*.token")) + \
-                      list(Path(config_root).glob("KIS*[!.token]"))
+        token_files = list(Path(config_root).glob("KIS*.token")) + list(
+            Path(config_root).glob("KIS*[!.token]")
+        )
 
         if not token_files:
             if os.path.exists(token_tmp):
@@ -185,29 +195,34 @@ def read_token():
 
         # 암호화된 토큰 파일 읽기 및 복호화
         try:
-            with open(latest_file, 'rb') as f:  # 바이너리 모드로 읽기
+            with open(latest_file, "rb") as f:  # 바이너리 모드로 읽기
                 encrypted_data = f.read()
                 decrypted_data = fernet.decrypt(encrypted_data)
-                token_data = json.loads(decrypted_data.decode('utf-8'))
+                token_data = json.loads(decrypted_data.decode("utf-8"))
 
-            valid_date_str = token_data['valid_date']
-            token = token_data['token']
+            valid_date_str = token_data["valid_date"]
+            token = token_data["token"]
 
         except Exception as decrypt_error:
             # 암호화되지 않은 기존 파일 지원 (하위 호환성)
-            logging.warning(f"Failed to decrypt token, trying legacy format: {decrypt_error}")
+            logging.warning(
+                f"Failed to decrypt token, trying legacy format: {decrypt_error}"
+            )
             try:
-                with open(latest_file, 'r', encoding='utf-8') as f:
+                with open(latest_file, "r", encoding="utf-8") as f:
                     token_data = json.load(f)
-                    valid_date_str = token_data['valid_date']
-                    token = token_data['token']
+                    valid_date_str = token_data["valid_date"]
+                    token = token_data["token"]
             except:
                 # YAML 형식도 시도
-                with open(latest_file, 'r', encoding='UTF-8') as f:
+                with open(latest_file, "r", encoding="UTF-8") as f:
                     import yaml
+
                     tkg_tmp = yaml.safe_load(f)  # safe_load로 변경!
-                    valid_date_str = datetime.strftime(tkg_tmp['valid-date'], "%Y-%m-%d %H:%M:%S")
-                    token = tkg_tmp['token']
+                    valid_date_str = datetime.strftime(
+                        tkg_tmp["valid-date"], "%Y-%m-%d %H:%M:%S"
+                    )
+                    token = tkg_tmp["token"]
 
         # 만료 시간 확인 (기존 로직)
         valid_date = datetime.strptime(valid_date_str, "%Y-%m-%d %H:%M:%S")
@@ -228,10 +243,11 @@ def read_token():
         logging.error(f"Error reading encrypted token: {e}")
         return None
 
+
 def _set_secure_file_permissions(file_path):
     """모든 OS에서 안전한 파일 권한 설정"""
     try:
-        if os.name == 'nt':  # Windows
+        if os.name == "nt":  # Windows
             # Windows에서 ACL 설정으로 소유자만 접근 가능
             try:
                 import win32security
@@ -241,25 +257,39 @@ def _set_secure_file_permissions(file_path):
                 # 현재 사용자 SID 획득
                 username = win32api.GetUserName()
                 domain = win32api.GetComputerName()
-                user_sid, domain, type = win32security.LookupAccountName(domain, username)
+                user_sid, domain, type = win32security.LookupAccountName(
+                    domain, username
+                )
 
                 # 새 ACL 생성 - 소유자만 접근
-                sd = win32security.GetFileSecurity(file_path, win32security.DACL_SECURITY_INFORMATION)
+                sd = win32security.GetFileSecurity(
+                    file_path, win32security.DACL_SECURITY_INFORMATION
+                )
                 dacl = win32security.ACL()
-                dacl.AddAccessAllowedAce(win32security.ACL_REVISION,
-                                         con.FILE_ALL_ACCESS, user_sid)
+                dacl.AddAccessAllowedAce(
+                    win32security.ACL_REVISION, con.FILE_ALL_ACCESS, user_sid
+                )
                 sd.SetSecurityDescriptorDacl(1, dacl, 0)
-                win32security.SetFileSecurity(file_path, win32security.DACL_SECURITY_INFORMATION, sd)
+                win32security.SetFileSecurity(
+                    file_path, win32security.DACL_SECURITY_INFORMATION, sd
+                )
 
                 logging.info(f"Windows ACL set for: {file_path}")
             except ImportError:
                 # pywin32가 없으면 기본적인 숨김 속성만 설정
                 try:
                     import ctypes
-                    ctypes.windll.kernel32.SetFileAttributesW(file_path, 2)  # FILE_ATTRIBUTE_HIDDEN
-                    logging.warning(f"Set hidden attribute for: {file_path} (install pywin32 for better security)")
+
+                    ctypes.windll.kernel32.SetFileAttributesW(
+                        file_path, 2
+                    )  # FILE_ATTRIBUTE_HIDDEN
+                    logging.warning(
+                        f"Set hidden attribute for: {file_path} (install pywin32 for better security)"
+                    )
                 except:
-                    logging.warning(f"Could not set Windows file attributes for: {file_path}")
+                    logging.warning(
+                        f"Could not set Windows file attributes for: {file_path}"
+                    )
         else:  # Unix/Linux/Mac
             # 600 권한 (소유자만 읽기/쓰기)
             os.chmod(file_path, stat.S_IRUSR | stat.S_IWUSR)
@@ -269,6 +299,7 @@ def _set_secure_file_permissions(file_path):
         logging.error(f"Failed to set secure file permissions for {file_path}: {e}")
         # 권한 설정 실패는 치명적 오류로 처리
         raise SecurityError(f"Cannot secure file permissions: {e}")
+
 
 # 오래된 토큰 파일 정리
 def cleanup_old_tokens():
@@ -310,7 +341,16 @@ def _getBaseHeader():
 def _setTRENV(cfg):
     nt1 = namedtuple(
         "KISEnv",
-        ["my_app", "my_sec", "my_acct", "my_prod", "my_htsid", "my_token", "my_url", "my_url_ws"],
+        [
+            "my_app",
+            "my_sec",
+            "my_acct",
+            "my_prod",
+            "my_htsid",
+            "my_token",
+            "my_url",
+            "my_url_ws",
+        ],
     )
     d = {
         "my_app": cfg["my_app"],  # 앱키
@@ -611,7 +651,7 @@ class APIRespError(APIResp):
 
 
 def _url_fetch(
-        api_url, ptr_id, tr_cont, params, appendHeaders=None, postFlag=False, hashFlag=True
+    api_url, ptr_id, tr_cont, params, appendHeaders=None, postFlag=False, hashFlag=True
 ):
     url = f"{getTREnv().my_url}{api_url}"
 
@@ -802,10 +842,10 @@ open_map: dict = {}
 
 
 def add_open_map(
-        name: str,
-        request: Callable[[str, str, ...], (dict, list[str])],
-        data: str | list[str],
-        kwargs: dict = None,
+    name: str,
+    request: Callable[[str, str, ...], (dict, list[str])],
+    data: str | list[str],
+    kwargs: dict = None,
 ):
     if open_map.get(name, None) is None:
         open_map[name] = {
@@ -824,11 +864,11 @@ data_map: dict = {}
 
 
 def add_data_map(
-        tr_id: str,
-        columns: list = None,
-        encrypt: str = None,
-        key: str = None,
-        iv: str = None,
+    tr_id: str,
+    columns: list = None,
+    encrypt: str = None,
+    key: str = None,
+    iv: str = None,
 ):
     if data_map.get(tr_id, None) is None:
         data_map[tr_id] = {"columns": [], "encrypt": False, "key": None, "iv": None}
@@ -933,12 +973,12 @@ class KISWebSocket:
     # func
     @classmethod
     async def send(
-            cls,
-            ws: websockets.ClientConnection,
-            request: Callable[[str, str, ...], (dict, list[str])],
-            tr_type: str,
-            data: str,
-            kwargs: dict = None,
+        cls,
+        ws: websockets.ClientConnection,
+        request: Callable[[str, str, ...], (dict, list[str])],
+        tr_type: str,
+        data: str,
+        kwargs: dict = None,
     ):
         k = {} if kwargs is None else kwargs
         msg, columns = request(tr_type, data, **k)
@@ -951,12 +991,12 @@ class KISWebSocket:
         smart_sleep()
 
     async def send_multiple(
-            self,
-            ws: websockets.ClientConnection,
-            request: Callable[[str, str, ...], (dict, list[str])],
-            tr_type: str,
-            data: list | str,
-            kwargs: dict = None,
+        self,
+        ws: websockets.ClientConnection,
+        request: Callable[[str, str, ...], (dict, list[str])],
+        tr_type: str,
+        data: list | str,
+        kwargs: dict = None,
     ):
         if type(data) is str:
             await self.send(ws, request, tr_type, data, kwargs)
@@ -968,28 +1008,28 @@ class KISWebSocket:
 
     @classmethod
     def subscribe(
-            cls,
-            request: Callable[[str, str, ...], (dict, list[str])],
-            data: list | str,
-            kwargs: dict = None,
+        cls,
+        request: Callable[[str, str, ...], (dict, list[str])],
+        data: list | str,
+        kwargs: dict = None,
     ):
         add_open_map(request.__name__, request, data, kwargs)
 
     def unsubscribe(
-            self,
-            ws: websockets.ClientConnection,
-            request: Callable[[str, str, ...], (dict, list[str])],
-            data: list | str,
+        self,
+        ws: websockets.ClientConnection,
+        request: Callable[[str, str, ...], (dict, list[str])],
+        data: list | str,
     ):
         self.send_multiple(ws, request, "2", data)
 
     # start
     def start(
-            self,
-            on_result: Callable[
-                [websockets.ClientConnection, str, pd.DataFrame, dict], None
-            ],
-            result_all_data: bool = False,
+        self,
+        on_result: Callable[
+            [websockets.ClientConnection, str, pd.DataFrame, dict], None
+        ],
+        result_all_data: bool = False,
     ):
         self.on_result = on_result
         self.result_all_data = result_all_data

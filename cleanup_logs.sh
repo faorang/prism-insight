@@ -13,6 +13,7 @@ LOG_PATTERNS=(
     "trigger_results_morning_*.json"
     "trigger_results_afternoon_*.json"
     "stock_tracking_*.log"
+    "enhanced_stock_tracking_*.log"
     "orchestrator_*.log"
 )
 

@@ -6,6 +6,7 @@
 2. 텔레그램 요약 메시지 생성
 3. 텔레그램 채널로 메시지 전송
 """
+
 import argparse
 import asyncio
 import logging
@@ -22,11 +23,13 @@ load_dotenv()
 # 로깅 설정
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler(f"telegram_pipeline_{datetime.now().strftime('%Y%m%d')}.log")
-    ]
+        logging.FileHandler(
+            f"telegram_pipeline_{datetime.now().strftime('%Y%m%d')}.log"
+        ),
+    ],
 )
 logger = logging.getLogger(__name__)
 
@@ -35,6 +38,7 @@ from telegram_summary_agent import TelegramSummaryGenerator, process_all_reports
 
 # telegram_bot_agent.py에서 필요한 함수 임포트
 from telegram_bot_agent import TelegramBotAgent
+
 
 async def run_pipeline(args):
     """
@@ -59,7 +63,9 @@ async def run_pipeline(args):
         elif args.date:
             date_filter = args.date
 
-        logger.info(f"파이프라인 시작 - 보고서 디렉토리: {reports_dir}, 날짜 필터: {date_filter or '없음'}")
+        logger.info(
+            f"파이프라인 시작 - 보고서 디렉토리: {reports_dir}, 날짜 필터: {date_filter or '없음'}"
+        )
 
         # 2. 텔레그램 요약 메시지 생성
         if args.generate or args.all:
@@ -69,7 +75,9 @@ async def run_pipeline(args):
             if args.report:
                 report_path = args.report
                 if not os.path.exists(report_path):
-                    logger.error(f"지정된 보고서 파일이 존재하지 않습니다: {report_path}")
+                    logger.error(
+                        f"지정된 보고서 파일이 존재하지 않습니다: {report_path}"
+                    )
                     return False
 
                 generator = TelegramSummaryGenerator()
@@ -79,7 +87,7 @@ async def run_pipeline(args):
                 await process_all_reports(
                     reports_dir=reports_dir,
                     output_dir=output_dir,
-                    date_filter=date_filter
+                    date_filter=date_filter,
                 )
 
             logger.info("텔레그램 요약 메시지 생성 완료")
@@ -91,7 +99,9 @@ async def run_pipeline(args):
             # 채널 ID 확인
             chat_id = args.chat_id or os.environ.get("TELEGRAM_CHANNEL_ID")
             if not chat_id:
-                logger.error("텔레그램 채널 ID가 필요합니다. 환경 변수 또는 --chat-id 파라미터로 제공해주세요.")
+                logger.error(
+                    "텔레그램 채널 ID가 필요합니다. 환경 변수 또는 --chat-id 파라미터로 제공해주세요."
+                )
                 return False
 
             # 텔레그램 봇 에이전트 초기화
@@ -110,7 +120,7 @@ async def run_pipeline(args):
 
                 try:
                     # 파일 읽기
-                    with open(file_path, 'r', encoding='utf-8') as file:
+                    with open(file_path, "r", encoding="utf-8") as file:
                         message = file.read()
 
                     # 메시지 전송
@@ -124,7 +134,9 @@ async def run_pipeline(args):
                     return False
             else:
                 # 디렉토리 내 모든 메시지 처리
-                await bot_agent.process_messages_directory(output_dir, chat_id, sent_dir)
+                await bot_agent.process_messages_directory(
+                    output_dir, chat_id, sent_dir
+                )
 
             logger.info("텔레그램 메시지 전송 완료")
 
@@ -136,33 +148,58 @@ async def run_pipeline(args):
         logger.error(f"파이프라인 실행 중 오류 발생: {e}")
         return False
 
+
 async def main():
     """
     메인 함수 - 명령줄 인터페이스
     """
     try:
-
-        parser = argparse.ArgumentParser(description="텔레그램 요약 메시지 생성 및 전송 파이프라인")
+        parser = argparse.ArgumentParser(
+            description="텔레그램 요약 메시지 생성 및 전송 파이프라인"
+        )
 
         # 공통 옵션
-        parser.add_argument("--reports-dir", default="reports", help="보고서 파일이 저장된 디렉토리 경로")
-        parser.add_argument("--output-dir", default="telegram_messages", help="텔레그램 메시지 저장 디렉토리 경로")
-        parser.add_argument("--sent-dir", help="전송 완료된 파일을 이동할 디렉토리 (기본값: output_dir/sent)")
+        parser.add_argument(
+            "--reports-dir",
+            default="reports",
+            help="보고서 파일이 저장된 디렉토리 경로",
+        )
+        parser.add_argument(
+            "--output-dir",
+            default="telegram_messages",
+            help="텔레그램 메시지 저장 디렉토리 경로",
+        )
+        parser.add_argument(
+            "--sent-dir",
+            help="전송 완료된 파일을 이동할 디렉토리 (기본값: output_dir/sent)",
+        )
         parser.add_argument("--date", help="특정 날짜의 보고서만 처리 (YYYYMMDD 형식)")
-        parser.add_argument("--today", action="store_true", help="오늘 날짜의 보고서만 처리")
+        parser.add_argument(
+            "--today", action="store_true", help="오늘 날짜의 보고서만 처리"
+        )
 
         # 단계 제어
-        parser.add_argument("--generate", action="store_true", help="텔레그램 요약 메시지 생성만 실행")
-        parser.add_argument("--send", action="store_true", help="텔레그램 메시지 전송만 실행")
-        parser.add_argument("--all", action="store_true", help="전체 파이프라인 실행 (생성 및 전송)")
+        parser.add_argument(
+            "--generate", action="store_true", help="텔레그램 요약 메시지 생성만 실행"
+        )
+        parser.add_argument(
+            "--send", action="store_true", help="텔레그램 메시지 전송만 실행"
+        )
+        parser.add_argument(
+            "--all", action="store_true", help="전체 파이프라인 실행 (생성 및 전송)"
+        )
 
         # 특정 파일 처리
         parser.add_argument("--report", help="특정 보고서 파일만 처리")
         parser.add_argument("--file", help="특정 텔레그램 메시지 파일만 전송")
 
         # 텔레그램 설정
-        parser.add_argument("--token", help="텔레그램 봇 토큰 (환경 변수로도 설정 가능)")
-        parser.add_argument("--chat-id", help="텔레그램 채널 ID (환경 변수로도 설정 가능)")
+        parser.add_argument(
+            "--token", help="텔레그램 봇 토큰 (환경 변수로도 설정 가능)"
+        )
+        parser.add_argument(
+            "--chat-id", help="텔레그램 채널 ID (환경 변수로도 설정 가능)"
+        )
 
         args = parser.parse_args()
 

@@ -1,5 +1,6 @@
 from mcp_agent.agents.agent import Agent
 
+
 def create_news_analysis_agent(company_name, company_code, reference_date):
     """뉴스 분석 에이전트 생성"""
     return Agent(
@@ -79,7 +80,7 @@ def create_news_analysis_agent(company_name, company_code, reference_date):
                         기업: {company_name} ({company_code})
                         분석일: {reference_date}(YYYYMMDD 형식)
                         """,
-        server_names=["perplexity"]
+        server_names=["perplexity"],
     )
 
 
@@ -145,5 +146,5 @@ def create_investment_strategy_agent(company_name, company_code, reference_date)
 
                 기업: {company_name} ({company_code})
                 ##분석일: {reference_date}(YYYYMMDD 형식)
-                """
+                """,
     )
