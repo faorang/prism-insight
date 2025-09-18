@@ -1253,6 +1253,40 @@ class StockTrackingAgent:
             )
             successful_trades = self.cursor.fetchone()[0] or 0
 
+            # 시장 수익률 계산 (KOSPI, KOSDAQ)
+            first_kospi_index = None
+            first_kosdaq_index = None
+            last_kospi_index = None
+            last_kosdaq_index = None
+            kosdaq_return = 0
+            kospi_return = 0
+            self.cursor.execute(
+                "select * from market_condition order by date desc limit 1"
+            )
+            last_day = self.cursor.fetchone()
+            if last_day:
+                last_kospi_index = last_day[1]
+                last_kosdaq_index = last_day[2]
+            self.cursor.execute(
+                "select * from market_condition order by date asc limit 1"
+            )
+            first_day = self.cursor.fetchone()
+            if first_day:
+                first_kospi_index = first_day[1]
+                first_kosdaq_index = first_day[2]
+            if (
+                first_kospi_index
+                and first_kosdaq_index
+                and last_kospi_index
+                and last_kosdaq_index
+            ):
+                kospi_return = (
+                    (last_kospi_index - first_kospi_index) / first_kospi_index
+                ) * 100
+                kosdaq_return = (
+                    (last_kosdaq_index - first_kosdaq_index) / first_kosdaq_index
+                ) * 100
+
             # 메시지 생성
             message = f"📊 프리즘 시뮬레이터 | 실시간 포트폴리오 ({datetime.now().strftime('%Y-%m-%d %H:%M')})\n\n"
 
@@ -1347,15 +1381,15 @@ class StockTrackingAgent:
 
             message += f"- 누적 수익률: {total_profit:.2f}%\n\n"
 
-            # 4. 강화된 면책 조항
-            message += "📝 안내사항:\n"
-            message += (
-                "- 이 보고서는 AI 기반 시뮬레이션 결과이며, 실제 매매와 무관합니다.\n"
-            )
-            message += "- 본 정보는 단순 참고용이며, 투자 결정과 책임은 전적으로 투자자에게 있습니다.\n"
-            message += (
-                "- 이 채널은 리딩방이 아니며, 특정 종목 매수/매도를 권유하지 않습니다."
-            )
+            if (
+                first_kospi_index
+                and first_kosdaq_index
+                and last_kospi_index
+                and last_kosdaq_index
+            ):
+                message += f"🔸 시장 수익률\n"
+                message += f"- KOSPI: {first_kospi_index:,.2f} → {last_kospi_index:,.2f} ({'+' if kospi_return > 0 else ''}{kospi_return:.2f}%)\n"
+                message += f"- KOSDAQ: {first_kosdaq_index:,.2f} → {last_kosdaq_index:,.2f} ({'+' if kosdaq_return > 0 else ''}{kosdaq_return:.2f}%)\n\n"
 
             return message
 

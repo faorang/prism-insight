@@ -450,6 +450,7 @@ class StockAnalysisOrchestrator:
         logger.info(f"전체 파이프라인 시작 - 모드: {mode}, 계정 타입: {account_type}")
 
         try:
+            pdf_paths = []
             if mode in ["morning", "afternoon"]:
                 # 1. 트리거 배치 실행 - 비동기 방식으로 변경 (asyncio 리소스 관리 개선)
                 results_file = (
@@ -542,6 +543,12 @@ class StockAnalysisOrchestrator:
                     "생성된 보고서가 없어 트래킹 시스템 배치를 실행하지 않습니다."
                 )
 
+            # 7. 실물 잔고 및 포트폴리오 동기화
+            try:
+                await sync_to_real_account()
+            except Exception as e:
+                logger.error(f"잔고 동기화 중 오류: {str(e)}")
+
             logger.info(f"전체 파이프라인 완료 - 모드: {mode}")
 
         except Exception as e:
@@ -619,6 +626,66 @@ class StockAnalysisOrchestrator:
         )
 
         return successful_reports
+
+
+async def sync_to_real_account():
+    """
+    실물 계좌 잔고 및 포트폴리오 동기화
+    """
+
+    # 로컬 모듈 import
+    from trading.domestic_stock_trading import DomesticStockTrading
+
+    try:
+        trader = DomesticStockTrading()
+
+        logger.info("포트폴리오 데이터 조회 중...")
+        portfolio = trader.get_portfolio()
+
+        logger.info("계좌 요약 데이터 조회 중...")
+        account_summary = trader.get_account_summary()
+
+        logger.info(f"데이터 조회 완료: 보유종목 {len(portfolio)}개")
+        message = "📊 **계좌 잔고 및 포트폴리오 현황**\n"
+
+        if account_summary:
+            total_eval = account_summary.get(
+                "total_eval_amount", 0
+            )  # 총 평가금액 = 예수금 + 평가금
+            total_profit = account_summary.get("total_profit_amount", 0)  # 총 평가손익
+            total_profit_rate = account_summary.get("total_profit_rate", 0)
+            balance = account_summary.get("available_amount", 0)  # 주문가능금액
+            logger.info(
+                f"계좌 요약: 총평가금액 {total_eval}, 총평가손익 {total_profit} ({total_profit_rate:.2f}%), 주문가능금액 {balance}"
+            )
+            # TODO: DB에 잔고 정보 업데이트 로직 추가
+
+        # 포트폴리오
+        if portfolio:
+            message += f"📈 **보유 종목** ({len(portfolio)}개)\n"
+            message += "-" * 30 + "\n"
+
+            for i, stock in enumerate(portfolio, 1):
+                stock_name = stock.get("stock_name", "알 수 없음")
+                stock_code = stock.get("stock_code", "")
+                quantity = stock.get("quantity", 0)
+                avg_price = stock.get("avg_price", 0)
+                current_price = stock.get("current_price", 0)
+                profit_amount = stock.get("profit_amount", 0)
+                profit_rate = stock.get("profit_rate", 0)
+                eval_amount = stock.get("eval_amount", 0)
+
+                # TODO: DB에 종목별 잔고 정보 업데이트 로직 추가
+                # buy_price = avg_price
+                # quantity = quantity
+                # current_price = current_price
+        else:
+            message += "📭 보유 종목이 없습니다.\n\n"
+        return portfolio, account_summary
+
+    except Exception as e:
+        logger.error(f"트레이딩 데이터 조회 중 오류: {str(e)}")
+        return [], {}
 
 
 async def main():

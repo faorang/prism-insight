@@ -481,16 +481,29 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
 
             # 추세 계산
             prices = df["종가"].values
+            prices_3 = df["종가"].iloc[-3:].values  # 최근 3일 종가
+
             x = np.arange(len(prices))
+            x_3 = np.arange(len(prices_3))
 
             # 선형 회귀로 추세 계산
             slope, _, _, _, _ = stats.linregress(x, prices)
+            slope_3, _, _, _, _ = stats.linregress(x_3, prices_3)
 
             # 가격 변화량 대비 추세 강도 계산
             price_range = np.max(prices) - np.min(prices)
+            price_range_3 = np.max(prices_3) - np.min(prices_3)
             normalized_slope = (
                 slope * len(prices) / price_range if price_range > 0 else 0
             )
+            normalized_slope_3 = (
+                slope_3 * len(prices_3) / price_range_3 if price_range_3 > 0 else 0
+            )
+            if normalized_slope * normalized_slope_3 < 0:
+                logger.info(
+                    f"{ticker} 추세 불일치: 전체 추세 {normalized_slope:.4f}, 최근 3일 추세 {normalized_slope_3:.4f}"
+                )
+                normalized_slope = 0  # 추세 불일치 시 중립으로 처리
 
             # 임계값 기반 추세 판단
             if normalized_slope > 0.15:  # 강한 상승 추세
