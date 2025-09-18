@@ -1089,7 +1089,7 @@ class StockTrackingAgent:
                 f"📉 매도: {company_name}({ticker})-{quantity}주\n"
                 f"매수가: {buy_price:,.0f}원\n"
                 f"매도가: {current_price:,.0f}원\n"
-                f"수익률: {arrow} {abs(profit_rate):.2f}%\n"
+                f"수익률: {arrow} {abs(profit_rate):.2f}%({((current_price - buy_price) * quantity):.2f}원)\n"
                 f"보유기간: {holding_days}일\n"
                 f"매도이유: {sell_reason}"
             )
@@ -1347,7 +1347,7 @@ class StockTrackingAgent:
                     sector_counts[sector] = sector_counts.get(sector, 0) + 1
 
                     profit_rate = ((current_price - buy_price) / buy_price) * 100 if buy_price else 0
-                    arrow = "🔴" if profit_rate > 0 else "🔵" if profit_rate < 0 else "➖"
+                    arrow = "🔴" if profit_rate > 0 else "🔵-" if profit_rate < 0 else "➖"
 
                     buy_datetime = (
                         datetime.strptime(buy_date, "%Y-%m-%d %H:%M:%S")

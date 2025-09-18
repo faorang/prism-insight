@@ -442,13 +442,17 @@ class StockAnalysisOrchestrator:
         logger.info(f"전체 파이프라인 시작 - 모드: {mode}")
 
         try:
-            # 1. 트리거 배치 실행 - 비동기 방식으로 변경 (asyncio 리소스 관리 개선)
-            results_file = f"trigger_results_{mode}_{datetime.now().strftime('%Y%m%d')}.json"
-            tickers = await self.run_trigger_batch(mode)
+            results_file = ''
+            if mode in ["morning", "afternoon"]:
+                # 1. 트리거 배치 실행 - 비동기 방식으로 변경 (asyncio 리소스 관리 개선)
+                results_file = f"trigger_results_{mode}_{datetime.now().strftime('%Y%m%d')}.json"
+                tickers = await self.run_trigger_batch(mode)
 
-            if not tickers:
-                logger.warning("선정된 종목이 없습니다. 프로세스 종료.")
-                return
+                if not tickers:
+                    logger.warning("선정된 종목이 없습니다. 프로세스 종료.")
+                    return
+            
+            pdf_paths = []
 
             # 1-1. 트리거 결과를 텔레그램으로 즉시 전송
             if os.path.exists(results_file):
@@ -677,7 +681,7 @@ async def main():
     메인 함수 - 명령줄 인터페이스
     """
     parser = argparse.ArgumentParser(description="주식 분석 및 텔레그램 전송 오케스트레이터")
-    parser.add_argument("--mode", choices=["morning", "afternoon", "both"], default="both",
+    parser.add_argument("--mode", choices=["morning", "afternoon", "both", "sell"], default="both",
                         help="실행 모드 (morning, afternoon, both)")
 
     args = parser.parse_args()
@@ -685,7 +689,7 @@ async def main():
     orchestrator = StockAnalysisOrchestrator()
 
     if args.mode == "sell":
-        await orchestrator.run_full_pipeline("sell", args.account_type)
+        await orchestrator.run_full_pipeline("sell")
 
     if args.mode == "morning" or args.mode == "both":
         await orchestrator.run_full_pipeline("morning")
