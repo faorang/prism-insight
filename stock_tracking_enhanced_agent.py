@@ -122,6 +122,36 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
             logger.error(f"시장 상태 분석 중 오류: {str(e)}")
             return 0, 0  # 오류 시 중립 상태로 가정
 
+    async def _update_stop_loss(self, ticker, stop_loss):
+        try:
+            # Ticker 정보 조회
+            self.cursor.execute(
+                "SELECT * FROM stock_holdings WHERE ticker = ?", (ticker,)
+            )
+            stock_data = self.cursor.fetchone()
+            if not stock_data:
+                logger.warning(f"{ticker} 보유 종목이 아니어서 손절가 업데이트 불가")
+                return False
+            # Get scenario JSON
+            scenario_str = stock_data[6]  # Assuming scenario is the 6th column
+            scenario = json.loads(scenario_str) if scenario_str else {}
+            scenario["stop_loss"] = stop_loss
+
+            self.cursor.execute(
+                """
+                UPDATE stock_holdings
+                SET stop_loss = ?, scenario = ?
+                WHERE ticker = ?
+                """,
+                (stop_loss, json.dumps(scenario, ensure_ascii=False), ticker),
+            )
+            self.conn.commit()
+            logger.info(f"{ticker} 손절가 업데이트: {stop_loss:,.0f}원")
+            return True
+        except Exception as e:
+            logger.error(f"{ticker} 손절가 업데이트 중 오류: {str(e)}")
+            return False
+
     def _calculate_trend(self, price_series):
         """가격 시리즈의 추세 분석 (양수: 상승, 음수: 하락)"""
         # 단순 선형 회귀로 추세 계산
@@ -481,29 +511,17 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
 
             # 추세 계산
             prices = df["종가"].values
-            prices_3 = df["종가"].iloc[-3:].values  # 최근 3일 종가
 
             x = np.arange(len(prices))
-            x_3 = np.arange(len(prices_3))
 
             # 선형 회귀로 추세 계산
             slope, _, _, _, _ = stats.linregress(x, prices)
-            slope_3, _, _, _, _ = stats.linregress(x_3, prices_3)
 
             # 가격 변화량 대비 추세 강도 계산
             price_range = np.max(prices) - np.min(prices)
-            price_range_3 = np.max(prices_3) - np.min(prices_3)
             normalized_slope = (
                 slope * len(prices) / price_range if price_range > 0 else 0
             )
-            normalized_slope_3 = (
-                slope_3 * len(prices_3) / price_range_3 if price_range_3 > 0 else 0
-            )
-            if normalized_slope * normalized_slope_3 < 0:
-                logger.info(
-                    f"{ticker} 추세 불일치: 전체 추세 {normalized_slope:.4f}, 최근 3일 추세 {normalized_slope_3:.4f}"
-                )
-                normalized_slope = 0  # 추세 불일치 시 중립으로 처리
 
             # 임계값 기반 추세 판단
             if normalized_slope > 0.15:  # 강한 상승 추세
@@ -566,6 +584,17 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
             if target_price > 0 and current_price >= target_price:
                 # 강한 상승 추세면 계속 보유 (예외 케이스)
                 if trend >= 2:
+                    import update_stop_loss
+
+                    new_stop_loss = update_stop_loss.atr_trailing_stop_ratchet(ticker)
+                    if (
+                        new_stop_loss > 0
+                        and new_stop_loss > stop_loss
+                        and new_stop_loss < current_price
+                    ):
+                        # 손절가를 현재가보다 낮고 기존 손절가보다 높게 업데이트
+                        await self._update_stop_loss(ticker, new_stop_loss)
+
                     return False, "목표가 달성했으나 강한 상승 추세로 보유 유지"
                 return True, f"목표가 달성 (목표가: {target_price:,.0f}원)"
 
@@ -646,3 +675,21 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
         except Exception as e:
             logger.error(f"매도 분석 중 오류: {str(e)}")
             return False, "분석 오류"
+
+
+if __name__ == "__main__":
+    import asyncio
+
+    async def main():
+        import update_stop_loss
+
+        agent = EnhancedStockTrackingAgent(
+            db_path="stock_tracking_db.sqlite", telegram_token=None
+        )
+        await agent.initialize()
+        new_stop_loss = update_stop_loss.atr_trailing_stop_ratchet("439260")
+        await agent._update_stop_loss(
+            "439260", new_stop_loss
+        )  # 예시: 대한 조선 손절가 업데이트
+
+    # asyncio.run(main())
