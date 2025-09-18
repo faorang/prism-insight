@@ -594,8 +594,12 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
                     ):
                         # 손절가를 현재가보다 낮고 기존 손절가보다 높게 업데이트
                         await self._update_stop_loss(ticker, new_stop_loss)
-
-                    return False, "목표가 달성했으나 강한 상승 추세로 보유 유지"
+                        return (
+                            False,
+                            f"목표가 달성했으나 강한 상승 추세로 보유 유지하고 손절가 업데이트({new_stop_loss:,.0f}원)",
+                        )
+                    else:
+                        return False, "목표가 달성했으나 강한 상승 추세로 보유 유지"
                 return True, f"목표가 달성 (목표가: {target_price:,.0f}원)"
 
             # 3. 시장 상태와 추세에 따른 매도 조건 (시장 환경 고려)

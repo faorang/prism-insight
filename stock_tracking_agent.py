@@ -1329,10 +1329,14 @@ class StockTrackingAgent:
 
                     # 시나리오에서 섹터 정보 추출
                     sector = "알 수 없음"
+                    stop_loss = 0
+                    target_price = 0
                     try:
                         if isinstance(scenario_str, str):
                             scenario_data = json.loads(scenario_str)
                             sector = scenario_data.get("sector", "알 수 없음")
+                            stop_loss = scenario_data.get("stop_loss", 0)
+                            target_price = scenario_data.get("target_price", 0)
                     except:
                         pass
 
@@ -1357,6 +1361,7 @@ class StockTrackingAgent:
 
                     message += f"- {company_name}({ticker}) [{sector}]\n"
                     message += f"  매수가: {buy_price:,.0f}원 / 현재가: {current_price:,.0f}원\n"
+                    message += f"  익절가: {target_price:,.0f}원 / 손절가: {stop_loss:,.0f}원\n"
                     message += f"  수익률: {arrow} {abs(profit_rate):.2f}% / 보유기간: {days_passed}일\n\n"
 
                 # 산업군 분포 추가
