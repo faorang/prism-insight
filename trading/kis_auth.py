@@ -91,7 +91,7 @@ if not os.path.exists(token_tmp):
 with open(os.path.join(config_root, "kis_devlp.yaml"), encoding="UTF-8") as f:
     _cfg = yaml.safe_load(f)
 
-_TRENV = tuple()
+_TRENV = None
 _last_auth_time = datetime.now()
 _autoReAuth = False
 _DEBUG = False
@@ -189,6 +189,10 @@ def read_token():
         # 가장 최근 파일 선택
         latest_file = max(token_files, key=lambda f: f.stat().st_mtime)
 
+        # 파일이 비어있는지 확인
+        if latest_file.stat().st_size == 0:
+            return None
+
         # 암호화 키 로드
         key = _get_or_create_encryption_key()
         fernet = Fernet(key)
@@ -197,11 +201,17 @@ def read_token():
         try:
             with open(latest_file, "rb") as f:  # 바이너리 모드로 읽기
                 encrypted_data = f.read()
+                if not encrypted_data:
+                    return None
                 decrypted_data = fernet.decrypt(encrypted_data)
                 token_data = json.loads(decrypted_data.decode("utf-8"))
 
-            valid_date_str = token_data["valid_date"]
-            token = token_data["token"]
+            # 안전한 데이터 접근
+            if not token_data or 'valid_date' not in token_data or 'token' not in token_data:
+                return None
+
+            valid_date_str = token_data['valid_date']
+            token = token_data['token']
 
         except Exception as decrypt_error:
             # 암호화되지 않은 기존 파일 지원 (하위 호환성)
@@ -209,27 +219,43 @@ def read_token():
                 f"Failed to decrypt token, trying legacy format: {decrypt_error}"
             )
             try:
-                with open(latest_file, "r", encoding="utf-8") as f:
-                    token_data = json.load(f)
-                    valid_date_str = token_data["valid_date"]
-                    token = token_data["token"]
+                with open(latest_file, 'r', encoding='utf-8') as f:
+                    content = f.read().strip()
+                    if not content:
+                        return None
+                    token_data = json.loads(content)
+                    
+                    # 안전한 데이터 접근
+                    if not token_data or 'valid_date' not in token_data or 'token' not in token_data:
+                        return None
+                        
+                    valid_date_str = token_data['valid_date']
+                    token = token_data['token']
             except:
                 # YAML 형식도 시도
-                with open(latest_file, "r", encoding="UTF-8") as f:
-                    import yaml
-
-                    tkg_tmp = yaml.safe_load(f)  # safe_load로 변경!
-                    valid_date_str = datetime.strftime(
-                        tkg_tmp["valid-date"], "%Y-%m-%d %H:%M:%S"
-                    )
-                    token = tkg_tmp["token"]
+                try:
+                    with open(latest_file, 'r', encoding='UTF-8') as f:
+                        content = f.read().strip()
+                        if not content:
+                            return None
+                        import yaml
+                        tkg_tmp = yaml.safe_load(content)  # safe_load로 변경!
+                        
+                        # 안전한 데이터 접근
+                        if not tkg_tmp or 'valid-date' not in tkg_tmp or 'token' not in tkg_tmp:
+                            return None
+                            
+                        valid_date_str = datetime.strftime(tkg_tmp['valid-date'], "%Y-%m-%d %H:%M:%S")
+                        token = tkg_tmp['token']
+                except:
+                    return None
 
         # 만료 시간 확인 (기존 로직)
         valid_date = datetime.strptime(valid_date_str, "%Y-%m-%d %H:%M:%S")
         now = datetime.now()
 
         if valid_date > now:
-            logging.info(f"Valid encrypted token found (expires: {valid_date})")
+            logging.info(f"Valid token found (expires: {valid_date})")
             return token
         else:
             logging.info(f"Token expired at {valid_date}")
@@ -240,7 +266,7 @@ def read_token():
             return None
 
     except Exception as e:
-        logging.error(f"Error reading encrypted token: {e}")
+        logging.error(f"Error reading token: {e}")
         return None
 
 
@@ -413,8 +439,8 @@ def changeTREnv(token_key, svr="prod", product=_cfg["my_prod"]):
     cfg["my_url"] = _cfg[svr]
 
     try:
-        my_token = _TRENV.my_token
-    except AttributeError:
+        my_token = _TRENV.my_token if _TRENV is not None else ""
+    except (AttributeError, TypeError):
         my_token = ""
     cfg["my_token"] = my_token if token_key else token_key
     cfg["my_url_ws"] = _cfg["ops" if svr == "prod" else "vops"]
@@ -465,6 +491,8 @@ def auth(svr="prod", product=_cfg["my_prod"], url=None):
             save_token(my_token, my_expired)  # 새로 발급 받은 토큰 저장
         else:
             print("Get Authentification token fail!\nYou have to restart your app!!!")
+            # 토큰 발급 실패 시에도 기본 환경 설정 (빈 토큰으로)
+            changeTREnv("", svr, product)
             return
     else:
         my_token = saved_token  # 기존 발급 토큰 확인되어 기존 토큰 사용
@@ -503,6 +531,8 @@ def smart_sleep():
 
 
 def getTREnv():
+    if _TRENV is None:
+        raise RuntimeError("인증이 완료되지 않았습니다. auth() 함수를 먼저 호출하세요.")
     return _TRENV
 
 

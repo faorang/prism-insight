@@ -48,20 +48,18 @@ class StockAnalysisOrchestrator:
     def __init__(self):
         """초기화"""
         self.selected_tickers = {}  # 선정된 종목 정보 저장
-        self.account_type = "premium"  # 기본값은 premium
 
-    async def run_trigger_batch(self, mode, account_type="premium"):
+    async def run_trigger_batch(self, mode):
         """
         트리거 배치 실행 및 결과 저장 (비동기 버전)
 
         Args:
             mode (str): 'morning' 또는 'afternoon'
-            account_type (str): 'free' 또는 'premium'
 
         Returns:
             list: 선정된 종목 코드 리스트
         """
-        logger.info(f"트리거 배치 실행 시작: {mode} (계정 타입: {account_type})")
+        logger.info(f"트리거 배치 실행 시작: {mode}")
         try:
             # 배치 프로세스 실행
             import subprocess
@@ -87,11 +85,26 @@ class StockAnalysisOrchestrator:
 
             stdout, stderr = await process.communicate()
 
-            # 로그 출력
+            # 로그 출력 - 인코딩 문제 해결
             if stdout:
-                logger.info(f"배치 출력:\n{stdout.decode('utf-8')}")
+                try:
+                    stdout_text = stdout.decode('utf-8')
+                except UnicodeDecodeError:
+                    try:
+                        stdout_text = stdout.decode('cp949')  # Windows 한국어 인코딩
+                    except UnicodeDecodeError:
+                        stdout_text = stdout.decode('utf-8', errors='ignore')
+                logger.info(f"배치 출력:\n{stdout_text}")
+                
             if stderr:
-                logger.warning(f"배치 오류:\n{stderr.decode('utf-8')}")
+                try:
+                    stderr_text = stderr.decode('utf-8')
+                except UnicodeDecodeError:
+                    try:
+                        stderr_text = stderr.decode('cp949')  # Windows 한국어 인코딩
+                    except UnicodeDecodeError:
+                        stderr_text = stderr.decode('utf-8', errors='ignore')
+                logger.warning(f"배치 오류:\n{stderr_text}")
 
             if process.returncode != 0:
                 logger.error(f"배치 프로세스 실패: 종료 코드 {process.returncode}")
@@ -107,36 +120,20 @@ class StockAnalysisOrchestrator:
 
                 # 종목 코드 추출 - JSON 구조에 맞게 수정
                 tickers = []
+                ticker_codes = set()  # 중복 확인용
 
-                # 지정된 계정 타입에서 종목 추출
-                if account_type in results and results[account_type]:
-                    logger.info(f"{account_type} 계정 결과 사용")
-                    for trigger_type, stocks in results[account_type].items():
+                # 트리거 타입별로 종목 추출 (metadata 제외)
+                for trigger_type, stocks in results.items():
+                    if trigger_type != "metadata" and isinstance(stocks, list):
                         for stock in stocks:
-                            if isinstance(stock, dict) and "code" in stock:
-                                tickers.append(
-                                    {
-                                        "code": stock["code"],
-                                        "name": stock.get("name", ""),
-                                    }
-                                )
-
-                # 선택된 계정 타입에서 종목이 없으면 대체 방법 사용
-                if not tickers:
-                    alt_type = "free" if account_type == "premium" else "premium"
-                    if alt_type in results and results[alt_type]:
-                        logger.warning(
-                            f"{account_type} 계정 결과 없음, {alt_type} 계정 결과로 대체"
-                        )
-                        for trigger_type, stocks in results[alt_type].items():
-                            for stock in stocks:
-                                if isinstance(stock, dict) and "code" in stock:
-                                    tickers.append(
-                                        {
-                                            "code": stock["code"],
-                                            "name": stock.get("name", ""),
-                                        }
-                                    )
+                            if isinstance(stock, dict) and 'code' in stock:
+                                code = stock['code']
+                                if code not in ticker_codes:  # 중복 제거
+                                    ticker_codes.add(code)
+                                    tickers.append({
+                                        'code': code,
+                                        'name': stock.get('name', '')
+                                    })
 
                 logger.info(f"선정된 종목 수: {len(tickers)}")
                 return tickers
@@ -282,13 +279,11 @@ class StockAnalysisOrchestrator:
         except Exception as e:
             logger.error(f"텔레그램 메시지 전송 중 오류: {str(e)}")
 
-    async def send_trigger_alert(self, mode, account_type, trigger_results_file):
+    async def send_trigger_alert(self, mode, trigger_results_file):
         """
         트리거 실행 결과 정보를 텔레그램 채널로 즉시 전송
         """
-        logger.info(
-            f"프리즘 시그널 얼럿 전송 시작 - 모드: {mode}, 계정 타입: {account_type}"
-        )
+        logger.info(f"프리즘 시그널 얼럿 전송 시작 - 모드: {mode}")
 
         try:
             # JSON 파일 읽기
@@ -299,18 +294,19 @@ class StockAnalysisOrchestrator:
             metadata = results.get("metadata", {})
             trade_date = metadata.get("trade_date", datetime.now().strftime("%Y%m%d"))
 
-            # 계정 타입 별 트리거 종목 정보 추출
-            account_results = results.get(account_type, {})
-            if not account_results:
-                logger.warning(
-                    f"{account_type} 계정 유형에 대한 트리거 결과가 없습니다."
-                )
+            # 트리거 종목 정보 추출 - 직접 리스트인 경우 처리
+            all_results = {}
+            for key, value in results.items():
+                if key != "metadata" and isinstance(value, list):
+                    # value가 직접 종목 리스트인 경우
+                    all_results[key] = value
+
+            if not all_results:
+                logger.warning(f"트리거 결과가 없습니다.")
                 return False
 
             # 텔레그램 메시지 생성
-            message = self._create_trigger_alert_message(
-                mode, account_type, account_results, trade_date
-            )
+            message = self._create_trigger_alert_message(mode, all_results, trade_date)
 
             # 환경 변수에서 채널 ID 가져오기
             from dotenv import load_dotenv
@@ -346,7 +342,7 @@ class StockAnalysisOrchestrator:
             logger.error(f"프리즘 시그널 얼럿 생성 중 오류: {str(e)}")
             return False
 
-    def _create_trigger_alert_message(self, mode, account_type, results, trade_date):
+    def _create_trigger_alert_message(self, mode, results, trade_date):
         """
         트리거 결과를 기반으로 텔레그램 알림 메시지 생성
         """
@@ -361,11 +357,8 @@ class StockAnalysisOrchestrator:
             title = "🔔 오후 프리즘 시그널 얼럿"
             time_desc = "장 마감 후"
 
-        # 계정 등급 표시
-        tier_mark = "⭐" if account_type == "premium" else ""
-
         # 메시지 헤더
-        message = f"{title} {tier_mark}\n"
+        message = f"{title}\n"
         message += f"📅 {formatted_date} {time_desc} 포착된 관심종목\n\n"
 
         # 트리거별 종목 정보 추가
@@ -439,39 +432,30 @@ class StockAnalysisOrchestrator:
         else:
             return "🔎"
 
-    async def run_full_pipeline(self, mode, account_type="premium"):
+    async def run_full_pipeline(self, mode):
         """
         전체 파이프라인 실행
 
         Args:
             mode (str): 'morning' 또는 'afternoon'
-            account_type (str): 'free' 또는 'premium'
         """
-        logger.info(f"전체 파이프라인 시작 - 모드: {mode}, 계정 타입: {account_type}")
+        logger.info(f"전체 파이프라인 시작 - 모드: {mode}")
 
         try:
-            pdf_paths = []
-            if mode in ["morning", "afternoon"]:
-                # 1. 트리거 배치 실행 - 비동기 방식으로 변경 (asyncio 리소스 관리 개선)
-                results_file = (
-                    f"trigger_results_{mode}_{datetime.now().strftime('%Y%m%d')}.json"
-                )
-                tickers = await self.run_trigger_batch(mode, account_type)
+            # 1. 트리거 배치 실행 - 비동기 방식으로 변경 (asyncio 리소스 관리 개선)
+            results_file = f"trigger_results_{mode}_{datetime.now().strftime('%Y%m%d')}.json"
+            tickers = await self.run_trigger_batch(mode)
 
-                if not tickers:
-                    logger.warning("선정된 종목이 없습니다. 프로세스 종료.")
-                    return
+            if not tickers:
+                logger.warning("선정된 종목이 없습니다. 프로세스 종료.")
+                return
 
-                # 1-1. 트리거 결과를 텔레그램으로 즉시 전송
-                if os.path.exists(results_file):
-                    logger.info(f"트리거 결과 파일 확인됨: {results_file}")
-                    alert_sent = await self.send_trigger_alert(
-                        mode, account_type, results_file
-                    )
-                    if alert_sent:
-                        logger.info("프리즘 시그널 얼럿 전송 완료")
-                    else:
-                        logger.warning("프리즘 시그널 얼럿 전송 실패")
+            # 1-1. 트리거 결과를 텔레그램으로 즉시 전송
+            if os.path.exists(results_file):
+                logger.info(f"트리거 결과 파일 확인됨: {results_file}")
+                alert_sent = await self.send_trigger_alert(mode, results_file)
+                if alert_sent:
+                    logger.info("프리즘 시그널 얼럿 전송 완료")
                 else:
                     logger.warning(f"트리거 결과 파일이 없습니다: {results_file}")
 
@@ -692,21 +676,9 @@ async def main():
     """
     메인 함수 - 명령줄 인터페이스
     """
-    parser = argparse.ArgumentParser(
-        description="주식 분석 및 텔레그램 전송 오케스트레이터"
-    )
-    parser.add_argument(
-        "--mode",
-        choices=["morning", "afternoon", "both", "sell"],
-        default="both",
-        help="실행 모드 (morning, afternoon, both)",
-    )
-    parser.add_argument(
-        "--account-type",
-        choices=["free", "premium"],
-        default="premium",
-        help="계정 타입 (free, premium)",
-    )
+    parser = argparse.ArgumentParser(description="주식 분석 및 텔레그램 전송 오케스트레이터")
+    parser.add_argument("--mode", choices=["morning", "afternoon", "both"], default="both",
+                        help="실행 모드 (morning, afternoon, both)")
 
     args = parser.parse_args()
 
@@ -716,10 +688,10 @@ async def main():
         await orchestrator.run_full_pipeline("sell", args.account_type)
 
     if args.mode == "morning" or args.mode == "both":
-        await orchestrator.run_full_pipeline("morning", args.account_type)
+        await orchestrator.run_full_pipeline("morning")
 
     if args.mode == "afternoon" or args.mode == "both":
-        await orchestrator.run_full_pipeline("afternoon", args.account_type)
+        await orchestrator.run_full_pipeline("afternoon")
 
 
 if __name__ == "__main__":

@@ -285,10 +285,95 @@ def clean_model_response(response):
 
     return cleaned_response
 
+async def generate_follow_up_response(ticker, ticker_name, conversation_context, user_question, tone):
+    """
+    추가 질문에 대한 AI 응답 생성 (Agent 방식 사용)
+    
+    Args:
+        ticker (str): 종목 코드
+        ticker_name (str): 종목명
+        conversation_context (str): 이전 대화 컨텍스트
+        user_question (str): 사용자의 새 질문
+        tone (str): 응답 톤
+    
+    Returns:
+        str: AI 응답
+    """
+    try:
+        # MCPApp 초기화
+        app = MCPApp(name="telegram_ai_bot_followup")
 
-async def generate_evaluation_response(
-    ticker, ticker_name, avg_price, period, tone, background, report_path=None
-):
+        async with app.run() as app_instance:
+            app_logger = app_instance.logger
+
+            # 현재 날짜 정보 가져오기
+            current_date = datetime.now().strftime('%Y%m%d')
+
+            # 에이전트 생성
+            agent = Agent(
+                name="followup_agent",
+                instruction=f"""당신은 텔레그램 채팅에서 주식 평가 후속 질문에 답변하는 전문가입니다.
+                            
+                            ## 기본 정보
+                            - 현재 날짜: {current_date}
+                            - 종목 코드: {ticker}
+                            - 종목 이름: {ticker_name}
+                            - 대화 스타일: {tone}
+                            
+                            ## 이전 대화 컨텍스트
+                            {conversation_context}
+                            
+                            ## 사용자의 새로운 질문
+                            {user_question}
+                            
+                            ## 응답 가이드라인
+                            1. 이전 대화에서 제공한 정보와 일관성을 유지하세요
+                            2. 필요한 경우 추가 데이터를 조회할 수 있습니다:
+                               - get_stock_ohlcv: 최신 주가 데이터 조회
+                               - get_stock_trading_volume: 투자자별 거래 데이터
+                               - perplexity_ask: 최신 뉴스나 정보 검색
+                            3. 사용자가 요청한 스타일({tone})을 유지하세요
+                            4. 텔레그램 메시지 형식으로 자연스럽게 작성하세요
+                            5. 이모티콘을 적극 활용하세요 (📈 📉 💰 🔥 💎 🚀 등)
+                            6. 마크다운 형식은 사용하지 마세요
+                            7. 2000자 이내로 작성하세요
+                            8. 이전 대화의 맥락을 고려하여 답변하세요
+                            
+                            ## 주의사항
+                            - 사용자의 질문이 이전 대화와 관련이 있다면, 그 맥락을 참고하여 답변
+                            - 새로운 정보가 필요한 경우에만 도구를 사용
+                            - 도구 호출 과정을 사용자에게 노출하지 마세요
+                            """,
+                server_names=["perplexity", "kospi_kosdaq"]
+            )
+
+            # LLM 연결
+            llm = await agent.attach_llm(AnthropicAugmentedLLM)
+
+            # 응답 생성
+            response = await llm.generate_str(
+                message=f"""사용자의 추가 질문에 대해 답변해주세요.
+                        
+                        이전 대화를 참고하되, 사용자의 새 질문에 집중하여 답변하세요.
+                        필요한 경우 최신 데이터를 조회하여 정확한 정보를 제공하세요.
+                        """,
+                request_params=RequestParams(
+                    model="claude-sonnet-4-20250514",
+                    maxTokens=2000
+                )
+            )
+            app_logger.info(f"추가 질문 응답 생성 결과: {str(response)[:100]}...")
+
+            return clean_model_response(response)
+
+    except Exception as e:
+        logger.error(f"추가 응답 생성 중 오류: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return "죄송합니다. 응답 생성 중 오류가 발생했습니다. 다시 시도해주세요."
+
+
+async def generate_evaluation_response(ticker, ticker_name, avg_price, period, tone, background, report_path=None):
     """
     종목 평가 AI 응답 생성
 
@@ -334,7 +419,7 @@ async def generate_evaluation_response(
                             
                             ## 데이터 수집 및 분석 단계
                             1. get_stock_ohlcv 툴을 사용하여 종목({ticker})의 최신 주가 데이터 및 거래량을 조회하세요.
-                               - fromdate와 todate는 최근 1개월의 날짜를 사용하세요. (fromdate, todate 포맷은 YYYYMMDD입니다)
+                               - fromdate와 todate는 현재 날짜({current_date})를 이용하여 최근 1개월의 날짜를 사용하세요. (fromdate, todate 포맷은 YYYYMMDD입니다)
                                - 최신 종가와 전일 대비 변동률, 거래량 추이를 반드시 파악하세요.
                                - 최신 종가를 이용해 다음과 같이 수익률을 계산하세요:
                                  * 수익률(%) = ((현재가 - 평균매수가) / 평균매수가) * 100
@@ -343,13 +428,13 @@ async def generate_evaluation_response(
                                
                                
                             2. get_stock_trading_volume 툴을 사용하여 투자자별 거래 데이터를 분석하세요.
-                               - 동일하게 최근 1개월 데이터를 사용하세요. (fromdate, todate 포맷은 YYYYMMDD입니다)
+                               - fromdate와 todate는 현재 날짜({current_date})를 이용하여 최근 1개월의 날짜를 사용하세요. (fromdate, todate 포맷은 YYYYMMDD입니다)
                                - 기관, 외국인, 개인 등 투자자별 매수/매도 패턴을 파악하고 해석하세요.
                             
-                            3. perplexity_ask 툴을 사용하여 다음 정보를 검색하세요. 최대한 1개의 쿼리로 통합해서 검색해주세요:
-                               - "종목코드 {ticker}의 정확한 회사 {ticker_name}에 대한 최근 뉴스 및 실적 분석 (유사 이름의 다른 회사와 혼동하지 말 것. 정확히 이 종목코드 {ticker}에 해당하는 {ticker_name} 회사만 검색. 날짜 기준: {current_date})"
-                               - "{ticker_name}(종목코드: {ticker}) 소속 업종 동향 및 전망 (날짜 기준: {current_date})"
-                               - "글로벌과 국내 증시 현황 및 전망 (날짜 기준: {current_date})"
+                            3. perplexity_ask 툴을 사용하여 다음 정보를 검색하세요. 최대한 1개의 쿼리로 통합해서 현재날짜({current_date}) 기준으로 검색해주세요:
+                               - "종목코드 {ticker}의 정확한 회사 {ticker_name}에 대한 최근 뉴스 및 실적 분석 (유사 이름의 다른 회사와 혼동하지 말 것. 정확히 이 종목코드 {ticker}에 해당하는 {ticker_name} 회사만 검색."
+                               - "{ticker_name}(종목코드: {ticker}) 소속 업종 동향 및 전망"
+                               - "글로벌과 국내 증시 현황 및 전망"
                                
                             4. 필요에 따라 추가 데이터를 수집하세요.
                             5. 수집된 모든 정보를 종합적으로 분석하여 종목 평가에 활용하세요.

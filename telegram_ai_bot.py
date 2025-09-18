@@ -34,7 +34,11 @@ from telegram.ext import (
 from analysis_manager import AnalysisRequest, analysis_queue, start_background_worker
 
 # 내부 모듈 임포트
-from report_generator import generate_evaluation_response, get_cached_report
+from report_generator import (
+    generate_evaluation_response, get_cached_report, generate_follow_up_response
+)
+from datetime import datetime, timedelta
+from typing import Dict, Optional
 
 # 환경 변수 로드
 load_dotenv()
@@ -78,6 +82,49 @@ HISTORY_CHOOSING_TICKER = 0  # /history 명령어를 위한 상태
 # 채널 ID
 CHANNEL_ID = int(os.getenv("TELEGRAM_CHANNEL_ID", "0"))
 
+class ConversationContext:
+    """대화 컨텍스트 관리"""
+    def __init__(self):
+        self.message_id = None
+        self.chat_id = None
+        self.user_id = None
+        self.ticker = None
+        self.ticker_name = None
+        self.avg_price = None
+        self.period = None
+        self.tone = None
+        self.background = None
+        self.conversation_history = []
+        self.created_at = datetime.now()
+        self.last_updated = datetime.now()
+    
+    def add_to_history(self, role: str, content: str):
+        self.conversation_history.append({
+            "role": role,
+            "content": content,
+            "timestamp": datetime.now().isoformat()
+        })
+        self.last_updated = datetime.now()
+    
+    def get_context_for_llm(self) -> str:
+        context = f"""
+종목 정보: {self.ticker_name} ({self.ticker})
+평균 매수가: {self.avg_price:,.0f}원
+보유 기간: {self.period}개월
+피드백 스타일: {self.tone}
+매매 배경: {self.background if self.background else "없음"}
+
+이전 대화 내역:"""
+        
+        for item in self.conversation_history:
+            role_label = "AI 답변" if item['role'] == 'assistant' else "사용자 질문"
+            context += f"\n\n{role_label}: {item['content']}"
+        
+        return context
+    
+    def is_expired(self, hours: int = 24) -> bool:
+        return (datetime.now() - self.last_updated) > timedelta(hours=hours)
+
 
 class TelegramAIBot:
     """텔레그램 AI 대화형 봇"""
@@ -112,6 +159,9 @@ class TelegramAIBot:
 
         # 결과 처리 큐 추가
         self.result_queue = Queue()
+        
+        # 대화 컨텍스트 저장소 추가
+        self.conversation_contexts: Dict[int, ConversationContext] = {}
 
         # 봇 어플리케이션 생성
         self.application = Application.builder().token(self.token).build()
@@ -125,7 +175,20 @@ class TelegramAIBot:
 
         self.scheduler = AsyncIOScheduler()
         self.scheduler.add_job(self.load_stock_map, "interval", hours=12)
+        # 만료된 컨텍스트 정리 작업 추가
+        self.scheduler.add_job(self.cleanup_expired_contexts, "interval", hours=1)
         self.scheduler.start()
+    
+    def cleanup_expired_contexts(self):
+        """만료된 대화 컨텍스트 정리"""
+        expired_keys = []
+        for msg_id, context in self.conversation_contexts.items():
+            if context.is_expired(hours=24):
+                expired_keys.append(msg_id)
+        
+        for key in expired_keys:
+            del self.conversation_contexts[key]
+            logger.info(f"만료된 컨텍스트 삭제: 메시지 ID {key}")
 
     def load_stock_map(self):
         """
@@ -163,6 +226,12 @@ class TelegramAIBot:
         # 기본 명령어
         self.application.add_handler(CommandHandler("start", self.handle_start))
         self.application.add_handler(CommandHandler("help", self.handle_help))
+        
+        # 답장(Reply) 핸들러 - ConversationHandler보다 먼저 등록
+        self.application.add_handler(MessageHandler(
+            filters.REPLY & filters.TEXT & ~filters.COMMAND,
+            self.handle_reply_to_evaluation
+        ))
 
         # 보고서 명령어 핸들러
         report_conv_handler = ConversationHandler(
@@ -266,6 +335,81 @@ class TelegramAIBot:
 
         # 오류 핸들러
         self.application.add_error_handler(self.handle_error)
+    
+    async def handle_reply_to_evaluation(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """평가 응답에 대한 답장 처리"""
+        if not update.message or not update.message.reply_to_message:
+            return
+        
+        # 답장 대상 메시지 ID 확인
+        replied_to_msg_id = update.message.reply_to_message.message_id
+        
+        # 저장된 컨텍스트 확인
+        if replied_to_msg_id not in self.conversation_contexts:
+            # 컨텍스트가 없으면 일반 메시지로 처리
+            return
+        
+        conv_context = self.conversation_contexts[replied_to_msg_id]
+        
+        # 컨텍스트 만료 확인
+        if conv_context.is_expired():
+            await update.message.reply_text(
+                "이전 대화 세션이 만료되었습니다. 새로운 평가를 시작하려면 /evaluate 명령어를 사용해주세요."
+            )
+            del self.conversation_contexts[replied_to_msg_id]
+            return
+        
+        # 사용자 메시지 가져오기
+        user_question = update.message.text.strip()
+        
+        # 대기 메시지
+        waiting_message = await update.message.reply_text(
+            "추가 질문에 대해 분석 중입니다... 잠시만 기다려주세요. 💭"
+        )
+        
+        try:
+            # 대화 히스토리에 사용자 질문 추가
+            conv_context.add_to_history("user", user_question)
+            
+            # LLM에 전달할 컨텍스트 생성
+            full_context = conv_context.get_context_for_llm()
+            
+            # AI 응답 생성 (Agent 방식 사용)
+            response = await generate_follow_up_response(
+                conv_context.ticker,
+                conv_context.ticker_name,
+                full_context,
+                user_question,
+                conv_context.tone
+            )
+            
+            # 서버 프로세스 정리
+            self.cleanup_server_processes()
+            
+            # 대기 메시지 삭제
+            await waiting_message.delete()
+            
+            # 응답 전송
+            sent_message = await update.message.reply_text(
+                response + "\n\n💡 추가 질문이 있으시면 이 메시지에 답장(Reply)해주세요."
+            )
+            
+            # 대화 히스토리에 AI 응답 추가
+            conv_context.add_to_history("assistant", response)
+            
+            # 새 메시지 ID로 컨텍스트 업데이트
+            conv_context.message_id = sent_message.message_id
+            conv_context.user_id = update.effective_user.id
+            self.conversation_contexts[sent_message.message_id] = conv_context
+            
+            logger.info(f"추가 질문 처리 완료: 사용자 {update.effective_user.id}")
+            
+        except Exception as e:
+            logger.error(f"추가 질문 처리 중 오류: {str(e)}, {traceback.format_exc()}")
+            await waiting_message.delete()
+            await update.message.reply_text(
+                "죄송합니다. 추가 질문 처리 중 오류가 발생했습니다. 다시 시도해주세요."
+            )
 
     async def send_report_result(self, request: AnalysisRequest):
         """분석 결과를 텔레그램으로 전송"""
@@ -362,11 +506,12 @@ class TelegramAIBot:
         """시작 명령어 처리"""
         user = update.effective_user
         await update.message.reply_text(
-            f"안녕하세요, {user.first_name}님! 저는 프리즘 어드바이 봇입니다.\n\n"
+            f"안녕하세요, {user.first_name}님! 저는 프리즘 어드바이저 봇입니다.\n\n"
             "저는 보유하신 종목에 대한 평가를 제공합니다.\n"
             "/evaluate - 보유 종목 평가 시작\n"
             "/report - 상세 분석 보고서 요청\n"
             "/history - 특정 종목의 분석 히스토리 확인\n\n"
+            "💡 평가 응답에 답장(Reply)하여 추가 질문을 할 수 있습니다!\n\n"
             "이 봇은 '프리즘 인사이트' 채널 구독자만 사용할 수 있습니다.\n"
             "채널에서는 장 시작과 마감 시 AI가 선별한 특징주 3개를 소개하고,\n"
             "각 종목에 대한 AI에이전트가 작성한 고퀄리티의 상세 분석 보고서를 제공합니다.\n\n"
@@ -391,7 +536,12 @@ class TelegramAIBot:
             "3. 평균 매수가 입력\n"
             "4. 보유 기간 입력\n"
             "5. 원하는 피드백 스타일 입력\n"
-            "6. 매매 배경 입력 (선택사항)\n\n"
+            "6. 매매 배경 입력 (선택사항)\n"
+            "7. 💡 AI 응답에 답장(Reply)하여 추가 질문 가능!\n\n"
+            "<b>✨ 추가 질문 기능:</b>\n"
+            "• AI의 평가 메시지에 답장하여 추가 질문\n"
+            "• 이전 대화 컨텍스트를 유지하여 연속적인 대화 가능\n"
+            "• 24시간 동안 대화 세션 유지\n\n"
             "<b>상세 분석 보고서 요청:</b>\n"
             "1. /report 명령어 입력\n"
             "2. 종목 코드 또는 이름 입력\n"
@@ -789,7 +939,26 @@ class TelegramAIBot:
             await waiting_message.delete()
 
             # 응답 전송
-            await update.message.reply_text(response)
+            sent_message = await update.message.reply_text(
+                response + "\n\n💡 추가 질문이 있으시면 이 메시지에 답장(Reply)해주세요."
+            )
+            
+            # 대화 컨텍스트 저장
+            conv_context = ConversationContext()
+            conv_context.message_id = sent_message.message_id
+            conv_context.chat_id = chat_id
+            conv_context.user_id = update.effective_user.id
+            conv_context.ticker = ticker
+            conv_context.ticker_name = ticker_name
+            conv_context.avg_price = avg_price
+            conv_context.period = period
+            conv_context.tone = tone
+            conv_context.background = background
+            conv_context.add_to_history("assistant", response)
+            
+            # 컨텍스트 저장
+            self.conversation_contexts[sent_message.message_id] = conv_context
+            logger.info(f"대화 컨텍스트 저장: 메시지 ID {sent_message.message_id}")
 
         except Exception as e:
             logger.error(

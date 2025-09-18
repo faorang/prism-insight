@@ -130,11 +130,14 @@ class StockTrackingAgent:
             - 이 종목의 성장 가능성은 명확한가?
             - 이 종목은 현재 거래활동 증가나 관심 상승을 보이는가? (신규 추가)
             - 이 종목은 현재 포트폴리오와 적절한 분산효과를 제공하는가?
+            - 이 종목의 거래량 증가가 실질적인 가격 상승으로 이어지고 있는가?
+            - 이 종목의 급등/급락 패턴이 기술적으로 건전한 투자 신호인가?
             
             **모멘텀 요소 특별 고려사항:**
             - 최근 거래량이 평소보다 크게 증가한 경우: 긍정적 요소로 고려
             - 투자자별 거래량에서 기관/외인 매수 우위: 긍정적 신호
             - 개인 투자자 대비 기관 투자자 순매수 증가: 신뢰도 높은 신호
+            - 거래량 급증과 주가 움직임의 일관성 확인 필수
             - 이러한 모멘텀 신호들이 확인될 때는 기존 매수 기준을 다소 완화하여 적용
             
             분석 보고서의 '투자 전략 및 의견' 섹션에 특히 주목하세요.
@@ -1343,14 +1346,8 @@ class StockTrackingAgent:
                     # 산업군 카운트 업데이트
                     sector_counts[sector] = sector_counts.get(sector, 0) + 1
 
-                    profit_rate = (
-                        ((current_price - buy_price) / buy_price) * 100
-                        if buy_price
-                        else 0
-                    )
-                    arrow = (
-                        "🔺" if profit_rate > 0 else "🔻-" if profit_rate < 0 else "➖"
-                    )
+                    profit_rate = ((current_price - buy_price) / buy_price) * 100 if buy_price else 0
+                    arrow = "🔴" if profit_rate > 0 else "🔵" if profit_rate < 0 else "➖"
 
                     buy_datetime = (
                         datetime.strptime(buy_date, "%Y-%m-%d %H:%M:%S")
