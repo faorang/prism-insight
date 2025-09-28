@@ -582,7 +582,10 @@ class StockTrackingAgent:
                 """,
                 request_params=RequestParams(
                     model="gpt-5",
-                    maxTokens=10000
+                    maxTokens=10000,
+                    metadata={
+                        "service_tier":"flex"
+                    }
                 )
             )
 
@@ -1216,6 +1219,22 @@ class StockTrackingAgent:
             self.cursor.execute("SELECT COUNT(*) FROM trading_history WHERE profit_rate > 0")
             successful_trades = self.cursor.fetchone()[0] or 0
 
+            # 시장 지수 정보 조회
+            first_kospi = last_kospi = first_kosdaq = last_kosdaq = 0
+            try:
+                # first market condition
+                self.cursor.execute("select kospi_index, kosdaq_index from  market_condition order by date asc limit 1")
+                first_kospi = self.cursor.fetchone()[0] or 0
+                first_kosdaq = self.cursor.fetchone()[1] or 0
+
+                # last market condition
+                self.cursor.execute("select  kospi_index, kosdaq_index from  market_condition order by date desc limit 1")
+                last_kospi = self.cursor.fetchone()[0] or 0
+                last_kosdaq = self.cursor.fetchone()[1] or 0
+            except Exception as e:
+                logger.error(f"시장 지수 조회 중 오류: {str(e)}")
+                first_kospi = last_kospi = first_kosdaq = last_kosdaq = 0
+
             # 메시지 생성
             message = f"📊 프리즘 시뮬레이터 | 실시간 포트폴리오 ({datetime.now().strftime('%Y-%m-%d %H:%M')})\n\n"
 
@@ -1296,7 +1315,19 @@ class StockTrackingAgent:
             else:
                 message += f"- 승률: 0.00%\n"
 
-            message += f"- 누적 수익률: {total_profit:.2f}%\n\n"
+            message += f"- 누적 수익률: {total_profit:.2f}%\n"
+
+            # 시장 지수 변화
+            if first_kospi > 0 and last_kospi > 0:
+                kospi_change = ((last_kospi - first_kospi) / first_kospi) * 100
+                kosdaq_change = ((last_kosdaq - first_kosdaq) / first_kosdaq) * 100 if first_kosdaq > 0 else 0
+                message += f"📈 시장 지수 변화:\n"
+                message += f"- KOSPI: {first_kospi:.2f} → {last_kospi:.2f} ({'+' if kospi_change >= 0 else ''}{kospi_change:.2f}%)\n"
+                if first_kosdaq > 0:
+                    message += f"- KOSDAQ: {first_kosdaq:.2f} → {last_kosdaq:.2f} ({'+' if kosdaq_change >= 0 else ''}{kosdaq_change:.2f}%)\n"
+                message += "\n\n"
+            else:
+                message += "\n"
 
             # 4. 강화된 면책 조항
             message += "📝 안내사항:\n"

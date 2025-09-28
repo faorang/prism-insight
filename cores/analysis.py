@@ -75,6 +75,10 @@ async def analyze_stock(company_code: str = "000660", company_name: str = "SK하
                     logger.error(f"Final failure processing {section}: {e}")
                     section_reports[section] = f"분석 실패: {section}"
 
+                import time
+                logger.info(f"Setting 61 seconds delay to handle rate limits...")
+                time.sleep(61)  # 각 섹션 사이에 61초 대기
+
         # 6. 다른 보고서들의 내용을 통합
         combined_reports = ""
         for section in base_sections:

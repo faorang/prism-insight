@@ -27,7 +27,9 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 # 설정파일 로딩
-CONFIG_FILE = TRADING_DIR / "config" / "kis_devlp.yaml"
+import os
+config_root = os.path.join(os.path.expanduser("~"), "src", "hantoo", ".HKIS", "config")
+CONFIG_FILE = config_root / "config" / "kis_devlp.yaml"
 with open(CONFIG_FILE, encoding="UTF-8") as f:
     _cfg = yaml.load(f, Loader=yaml.FullLoader)
 

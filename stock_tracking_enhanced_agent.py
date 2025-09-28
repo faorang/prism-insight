@@ -623,7 +623,10 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
                 """,
                 request_params=RequestParams(
                     model="gpt-5",
-                    maxTokens=6000
+                    maxTokens=6000,
+                    metadata={
+                        "service_tier":"flex"
+                    }
                 )
             )
 
