@@ -295,6 +295,11 @@ def trigger_morning_value_to_cap_ratio(trade_date: str, snapshot: pd.DataFrame, 
     logger.info(f"입력 데이터 검증 완료 - snapshot: {len(snapshot)}개, cap_df: {len(cap_df)}개")
 
     try:
+        # "시가총액" 컬럼이 있으면 먼저 삭제
+        if "시가총액" in snapshot.columns:
+            snapshot = snapshot.drop("시가총액", axis=1)
+            logger.debug("'시가총액' 컬럼이 snapshot에 존재하여 삭제했습니다.")
+
         # 시가총액 데이터와 OHLCV 데이터 병합
         logger.debug("시가총액 데이터 병합 시작")
         merged = snapshot.merge(cap_df[["시가총액"]], left_index=True, right_index=True, how="inner").copy()

@@ -26,6 +26,8 @@ sys.path.insert(0, str(TRADING_DIR))
 
 # 설정파일 로딩
 CONFIG_FILE = TRADING_DIR / "config" / "kis_devlp.yaml"
+config_root = os.path.join(os.path.expanduser("~"), "src", "hantoo", ".HKIS", "config")
+CONFIG_FILE = os.path.join(config_root, "kis_devlp.yaml")
 with open(CONFIG_FILE, encoding="UTF-8") as f:
     _cfg = yaml.load(f, Loader=yaml.FullLoader)
 

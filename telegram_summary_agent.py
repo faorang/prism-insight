@@ -228,6 +228,9 @@ class TelegramSummaryGenerator:
         """
         텔레그램 메시지 생성 (평가 및 최적화 기능 추가)
         """
+        prompt_message = f"""다음은 {metadata['stock_name']}({metadata['stock_code']}) 종목에 대한 상세 분석은 하지 않음""" 
+        return "분석 생략"
+
         # 현재 날짜 설정 (YYYY.MM.DD 형식)
         current_date = datetime.now().strftime("%Y.%m.%d")
 

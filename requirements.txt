@@ -6,7 +6,7 @@ requests~=2.32.3
 aiohttp~=3.11.13
 python-dateutil~=2.9.0.post0
 email-validator
-openai~=1.64.0
+openai~=1.109.1
 anthropic~=0.64.0
 markdown>=3.3.0
 python-telegram-bot>=20.0
@@ -59,3 +59,6 @@ scipy
 cryptography>=42.0.8,<45.0.0
 
 APScheduler==3.11.0
+
+uv
+uvx
