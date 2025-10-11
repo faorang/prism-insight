@@ -1224,13 +1224,17 @@ class StockTrackingAgent:
             try:
                 # first market condition
                 self.cursor.execute("select kospi_index, kosdaq_index from  market_condition order by date asc limit 1")
-                first_kospi = self.cursor.fetchone()[0] or 0
-                first_kosdaq = self.cursor.fetchone()[1] or 0
+                row = self.cursor.fetchone()
+                if row:
+                    first_kospi = row[0]
+                    first_kosdaq = row[1]
 
                 # last market condition
-                self.cursor.execute("select  kospi_index, kosdaq_index from  market_condition order by date desc limit 1")
-                last_kospi = self.cursor.fetchone()[0] or 0
-                last_kosdaq = self.cursor.fetchone()[1] or 0
+                self.cursor.execute("select kospi_index, kosdaq_index from  market_condition order by date desc limit 1")
+                row = self.cursor.fetchone()
+                if row:
+                    last_kospi = row[0]
+                    last_kosdaq = row[1]
             except Exception as e:
                 logger.error(f"시장 지수 조회 중 오류: {str(e)}")
                 first_kospi = last_kospi = first_kosdaq = last_kosdaq = 0
