@@ -348,8 +348,8 @@ def trigger_morning_value_to_cap_ratio(trade_date: str, snapshot: pd.DataFrame, 
         merged["전일대비등락률"] = ((merged["종가"] - prev["종가"]) / prev["종가"]) * 100  # 증권사 앱과 동일
         merged["상승여부"] = merged["종가"] > merged["시가"]
 
-        # 시총 필터링 - 최소 100억원 이상 종목
-        merged = merged[merged["시가총액"] >= 10000000000]
+        # 시총 필터링 - 최소 500억원 이상 종목
+        merged = merged[merged["시가총액"] >= 50000000000]
         if merged.empty:
             logger.warning("시총 필터링 후 종목이 없습니다")
             return pd.DataFrame()

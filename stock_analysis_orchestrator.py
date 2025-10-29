@@ -85,7 +85,7 @@ class StockAnalysisOrchestrator:
                     except UnicodeDecodeError:
                         stdout_text = stdout.decode('utf-8', errors='ignore')
                 logger.info(f"배치 출력:\n{stdout_text}")
-                
+
             if stderr:
                 try:
                     stderr_text = stderr.decode('utf-8')
@@ -414,42 +414,52 @@ class StockAnalysisOrchestrator:
         logger.info(f"전체 파이프라인 시작 - 모드: {mode}")
 
         try:
-            # 1. 트리거 배치 실행 - 비동기 방식으로 변경 (asyncio 리소스 관리 개선)
-            results_file = f"trigger_results_{mode}_{datetime.now().strftime('%Y%m%d')}.json"
-            tickers = await self.run_trigger_batch(mode)
+            # 0. 현재 보유 중인 포트폴리오 종목 갯수 확인
+            import my_portfolio
+            from stock_tracking_agent import StockTrackingAgent
+            portfolio_count = await my_portfolio.get_portfolio_stock_count()
+            logger.info(f"현재 보유 중인 포트폴리오 종목 갯수: {portfolio_count}/{StockTrackingAgent.MAX_SLOTS}")
 
-            if not tickers:
-                logger.warning("선정된 종목이 없습니다. 프로세스 종료.")
-                return
-
-            # 1-1. 트리거 결과를 텔레그램으로 즉시 전송
-            if os.path.exists(results_file):
-                logger.info(f"트리거 결과 파일 확인됨: {results_file}")
-                alert_sent = await self.send_trigger_alert(mode, results_file)
-                if alert_sent:
-                    logger.info("프리즘 시그널 얼럿 전송 완료")
-                else:
-                    logger.warning("프리즘 시그널 얼럿 전송 실패")
+            is_portfolio_full = portfolio_count >= StockTrackingAgent.MAX_SLOTS
+            if is_portfolio_full:
+                logger.warning("포트폴리오 종목 갯수가 최대치에 도달했습니다. 신규 종목 추가가 제한될 수 있습니다.")
             else:
-                logger.warning(f"트리거 결과 파일이 없습니다: {results_file}")
+                # 1. 트리거 배치 실행 - 비동기 방식으로 변경 (asyncio 리소스 관리 개선)
+                results_file = f"trigger_results_{mode}_{datetime.now().strftime('%Y%m%d')}.json"
+                tickers = await self.run_trigger_batch(mode)
 
-            # 2. 보고서 생성 - 중요: 여기에 await 추가!
-            report_paths = await self.generate_reports(tickers, mode, timeout=600)
-            if not report_paths:
-                logger.warning("생성된 보고서가 없습니다. 프로세스 종료.")
-                return
+                if not tickers:
+                    logger.warning("선정된 종목이 없습니다. 프로세스 종료.")
+                    return
 
-            # 3. PDF 변환
-            pdf_paths = await self.convert_to_pdf(report_paths)
+                # 1-1. 트리거 결과를 텔레그램으로 즉시 전송
+                if os.path.exists(results_file):
+                    logger.info(f"트리거 결과 파일 확인됨: {results_file}")
+                    alert_sent = await self.send_trigger_alert(mode, results_file)
+                    if alert_sent:
+                        logger.info("프리즘 시그널 얼럿 전송 완료")
+                    else:
+                        logger.warning("프리즘 시그널 얼럿 전송 실패")
+                else:
+                    logger.warning(f"트리거 결과 파일이 없습니다: {results_file}")
 
-            # 4. 텔레그램 메시지 생성
-            message_paths = await self.generate_telegram_messages(pdf_paths)
+                # 2. 보고서 생성 - 중요: 여기에 await 추가!
+                report_paths = await self.generate_reports(tickers, mode, timeout=600)
+                if not report_paths:
+                    logger.warning("생성된 보고서가 없습니다. 프로세스 종료.")
+                    return
 
-            # 5. 텔레그램 메시지 및 PDF 전송
-            await self.send_telegram_messages(message_paths, pdf_paths)
+                # 3. PDF 변환
+                pdf_paths = await self.convert_to_pdf(report_paths)
+
+                # 4. 텔레그램 메시지 생성
+                message_paths = await self.generate_telegram_messages(pdf_paths)
+
+                # 5. 텔레그램 메시지 및 PDF 전송
+                await self.send_telegram_messages(message_paths, pdf_paths)
 
             # 6. 트랙킹 시스템 배치
-            if pdf_paths:
+            if pdf_paths or is_portfolio_full:
                 try:
                     logger.info("주식 트래킹 시스템 배치 실행 시작")
 

@@ -43,7 +43,7 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
             name="sell_decision_agent",
             instruction="""당신은 보유 종목의 매도 시점을 결정하는 전문 분석가입니다.
             현재 보유 중인 종목의 데이터를 종합적으로 분석하여 매도할지 계속 보유할지 결정해야 합니다.
-            
+
             ### ⚠️ 중요: 매매 시스템 특성
             **이 시스템은 분할매매가 불가능합니다. 매도 결정 시 해당 종목을 100% 전량 매도합니다.**
             - 부분 매도, 점진적 매도, 물타기 등은 불가능
@@ -52,97 +52,97 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
             - **일시적 조정**과 **추세 전환**을 명확히 구분 필요
             - 1~2일 하락은 조정으로 간주, 3일 이상 하락+거래량 감소는 추세 전환 의심
             - 재진입 비용(시간+기회비용)을 고려해 성급한 매도 지양
-            
+
             ### 매도 결정 우선순위 (수익은 길게!)
-            
+
             **1순위: 리스크 관리 (손절)**
             - 손절가 도달: 원칙적 즉시 전량 매도
             - 예외: 당일 강한 반등 + 거래량 급증 시 1일 유예 고려 (단, 강한 상승 모멘텀 & 손실 7% 미만일 때만)
             - 급격한 하락(-5% 이상): 추세가 꺾였는지 확인 후 전량 손절 여부 결정
             - 시장 충격 상황: 방어적 전량 매도 고려
-            
+
             **2순위: 수익 실현 (익절) - 추세 우선**
             **핵심 원칙: 목표가 도달 시 즉시 매도 금지. 추세가 지속되면 목표가 이후에도 보유**
-            
+
             목표가 달성 시 반드시 다음 평가:
-            
+
             ✅ **추세 지속 신호 (하나라도 있으면 보유 고려):**
             - 최근 주가 흐름이 상승세 유지 (대부분의 날 상승)
             - 외국인/기관 순매수 지속
             - 거래량이 꾸준히 유지되거나 증가
             - 주요 이평선(5일/20일) 위에서 지지
             - 상승 모멘텀이 여전히 강함 (RSI 고점 유지)
-            
+
             ⚠️ **명확한 추세 약화 (모두 해당되면 매도 고려):**
             - 최근 며칠간 하락세로 전환 (연속 하락 또는 대부분 하락)
             - 거래량이 급격히 감소 (관심 소멸)
             - 외국인/기관 동반 순매도 전환
             - 주요 기술적 지지선 이탈
             - 과도한 급등 후 피로 신호 (RSI 극단적 고점 + 거래량 급감)
-            
+
             💡 **Trailing Stop 전략 (목표가 돌파 후):**
             - 목표가 초과 후 고점 대비 **-3~5%** 도달 시 매도
             - 예: 목표가 95,000원 → 고점 97,000원 → 92,000~94,000원 도달 시 매도
             - 최대 관찰 기간: **5~7 거래일**
             - 추세가 명확히 꺾이면 즉시 매도
-            
+
             **3순위: 시간 관리**
             - 단기(~1개월): 목표가 달성 시 적극 매도
             - 중기(1~3개월): 추세 보면서 trailing 적용
             - 장기(3개월~): 펀더멘털 변화 확인
             - 투자 기간 만료 근접: 수익/손실 상관없이 전량 정리 고려
             - 장기 보유 후 저조한 성과: 기회비용 관점에서 전량 매도 고려
-            
+
             **시장 환경 반영:**
             - 약세장: 목표가 도달 시 즉시 매도 고려 (방어적)
             - 강세장: Trailing Stop으로 수익 극대화 (공격적)
             - 중립장: 기본 원칙 적용
-            
+
             ### 분석 요소
-            
+
             **기본 수익률 정보:**
             - 현재 수익률과 목표 수익률 비교
             - 손실 규모와 허용 가능한 손실 한계
             - 투자 기간 대비 성과 평가
-            
+
             **기술적 분석:**
             - 최근 주가 추세 분석 (상승/하락/횡보)
             - 거래량 변화 패턴 분석
             - 지지선/저항선 근처 위치 확인
             - 박스권 내 현재 위치 (하락 리스크 vs 상승 여력)
             - 모멘텀 지표 (상승/하락 가속도)
-            
+
             **시장 환경 분석:**
             - 전체 시장 상황 (강세장/약세장/중립)
             - 시장 변동성 수준
-            
+
             **포트폴리오 관점:**
             - 전체 포트폴리오 내 비중과 위험도
             - 시장상황과 포트폴리오 상황을 고려한 리밸런싱 필요성
-            
+
             ### 도구 사용 지침
-            
+
             **time-get_current_time:** 현재 시간 획득
-            
+
             **kospi_kosdaq tool로 확인:**
             1. get_stock_ohlcv: 최근 14일 가격/거래량 데이터로 추세 분석
             2. get_stock_trading_volume: 기관/외국인 매매 동향 확인
             3. get_index_ohlcv: 코스피/코스닥 시장 지수 정보 확인
-            
+
             **sqlite tool로 확인:**
             1. 현재 포트폴리오 전체 현황
             2. 현재 종목의 매매 정보
             3. **DB 업데이트**: portfolio_adjustment에서 목표가/손절가 조정이 필요하면 UPDATE 쿼리 실행
-            
+
             **신중한 조정 원칙:**
             - 포트폴리오 조정은 투자 원칙과 일관성을 해치므로 정말 필요할 때만 수행
             - 단순 단기 변동이나 노이즈로 인한 조정은 지양
             - 펀더멘털 변화, 시장 구조 변화 등 명확한 근거가 있을 때만 조정
-            
+
             **중요**: 반드시 도구를 활용하여 최신 데이터를 확인한 후 종합적으로 판단하세요.
-            
+
             ### 응답 형식
-            
+
             JSON 형식으로 다음과 같이 응답해주세요:
             {
                 "should_sell": true 또는 false,
@@ -162,7 +162,7 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
                     "urgency": "high/medium/low - 조정의 긴급도"
                 }
             }
-            
+
             **portfolio_adjustment 작성 가이드:**
             - **매우 신중하게 판단**: 잦은 조정은 투자 원칙을 해치므로 정말 필요할 때만
             - needed=true 조건: 시장 환경 급변, 종목 펀더멘털 변화, 기술적 구조 변화 등
@@ -218,25 +218,25 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
                 ticker TEXT NOT NULL,
                 decision_date TEXT NOT NULL,
                 decision_time TEXT NOT NULL,
-                
+
                 current_price REAL NOT NULL,
                 should_sell BOOLEAN NOT NULL,
                 sell_reason TEXT,
                 confidence INTEGER,
-                
+
                 technical_trend TEXT,
                 volume_analysis TEXT,
                 market_condition_impact TEXT,
                 time_factor TEXT,
-                
+
                 portfolio_adjustment_needed BOOLEAN,
                 adjustment_reason TEXT,
                 new_target_price REAL,
                 new_stop_loss REAL,
                 adjustment_urgency TEXT,
-                
+
                 full_json_data TEXT NOT NULL,
-                
+
                 created_at TEXT DEFAULT (datetime('now', 'localtime')),
                 FOREIGN KEY (ticker) REFERENCES stock_holdings(ticker)
             )
@@ -290,7 +290,7 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
             current_date = dt.datetime.now().strftime("%Y-%m-%d")
             self.cursor.execute(
                 """
-                INSERT OR REPLACE INTO market_condition 
+                INSERT OR REPLACE INTO market_condition
                 (date, kospi_index, kosdaq_index, condition, volatility)
                 VALUES (?, ?, ?, ?, ?)
                 """,
@@ -511,7 +511,7 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
 
                     self.message_queue.append(skip_message)
                     logger.info(f"매수 보류: {company_name}({ticker}) - {reason}")
-                    
+
                     # 관망 종목을 watchlist_history 테이블에 저장
                     await self._save_watchlist_item(
                         ticker=ticker,
@@ -524,7 +524,7 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
                         scenario=scenario,
                         sector=sector
                     )
-                    
+
                     continue
 
                 # 진입 결정이면 매수 처리
@@ -596,7 +596,7 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
     ) -> bool:
         """
         매수하지 않는 종목을 watchlist_history 테이블에 저장
-        
+
         Args:
             ticker: 종목 코드
             company_name: 종목명
@@ -607,14 +607,14 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
             skip_reason: 보류 이유
             scenario: 시나리오 전체 정보
             sector: 산업군
-            
+
         Returns:
             bool: 저장 성공 여부
         """
         try:
             # 현재 시간
             now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            
+
             # 시나리오에서 필요한 정보 추출
             target_price = scenario.get('target_price', 0)
             stop_loss = scenario.get('stop_loss', 0)
@@ -624,14 +624,14 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
             sector_outlook = scenario.get('sector_outlook', '')
             market_condition = scenario.get('market_condition', '')
             rationale = scenario.get('rationale', '')
-            
+
             # DB에 저장
             self.cursor.execute(
                 """
-                INSERT INTO watchlist_history 
-                (ticker, company_name, current_price, analyzed_date, buy_score, min_score, 
-                 decision, skip_reason, target_price, stop_loss, investment_period, sector, 
-                 scenario, portfolio_analysis, valuation_analysis, sector_outlook, 
+                INSERT INTO watchlist_history
+                (ticker, company_name, current_price, analyzed_date, buy_score, min_score,
+                 decision, skip_reason, target_price, stop_loss, investment_period, sector,
+                 scenario, portfolio_analysis, valuation_analysis, sector_outlook,
                  market_condition, rationale)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
@@ -657,10 +657,10 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
                 )
             )
             self.conn.commit()
-            
+
             logger.info(f"{ticker}({company_name}) 관망 종목 저장 완료 - 점수: {buy_score}/{min_score}, 이유: {skip_reason}")
             return True
-            
+
         except Exception as e:
             logger.error(f"{ticker} watchlist 저장 중 오류: {str(e)}")
             logger.error(traceback.format_exc())
@@ -742,7 +742,7 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
 
             # 현재 포트폴리오 정보 수집
             self.cursor.execute("""
-                SELECT ticker, company_name, buy_price, current_price, scenario 
+                SELECT ticker, company_name, buy_price, current_price, scenario
                 FROM stock_holdings
             """)
             holdings = [dict(row) for row in self.cursor.fetchall()]
@@ -767,6 +767,13 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
             산업군 분포: {json.dumps(sector_distribution, ensure_ascii=False)}
             투자 기간 분포: {json.dumps(investment_periods, ensure_ascii=False)}
             """
+            index_profit_rate_result = await self.get_index_profit_rate()
+            if index_profit_rate_result:
+                try:
+                    portfolio_info += f"""시장 지수 수익률: {json.dumps(index_profit_rate_result, ensure_ascii=False)}"""
+                except:
+                    pass
+            logger.info(f"{portfolio_info}")
 
             # LLM 호출하여 매도 의사결정 생성
             llm = await self.sell_decision_agent.attach_llm(OpenAIAugmentedLLM)
@@ -774,24 +781,24 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
             response = await llm.generate_str(
                 message=f"""
                 다음 보유 종목에 대한 매도 의사결정을 수행해주세요.
-                
+
                 ### 종목 기본 정보:
                 - 종목명: {company_name}({ticker})
                 - 매수가: {buy_price:,.0f}원
-                - 현재가: {current_price:,.0f}원  
+                - 현재가: {current_price:,.0f}원
                 - 목표가: {target_price:,.0f}원
                 - 손절가: {stop_loss:,.0f}원
                 - 수익률: {profit_rate:.2f}%
                 - 보유기간: {days_passed}일
                 - 투자기간: {period}
                 - 섹터: {sector}
-                
+
                 ### 현재 포트폴리오 상황:
                 {portfolio_info}
-                
+
                 ### 매매 시나리오 정보:
                 {json.dumps(trading_scenarios, ensure_ascii=False) if trading_scenarios else "시나리오 정보 없음"}
-                
+
                 ### 분석 요청:
                 위 정보를 바탕으로 kospi_kosdaq과 sqlite 도구를 활용하여 최신 데이터를 확인하고,
                 매도할지 계속 보유할지 결정해주세요.
@@ -834,16 +841,16 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
                 confidence = decision_json.get("confidence", 5)
                 analysis_summary = decision_json.get("analysis_summary", {})
                 portfolio_adjustment = decision_json.get("portfolio_adjustment", {})
-                
+
                 logger.info(f"{ticker}({company_name}) AI 매도 결정: {'매도' if should_sell else '보유'} (확신도: {confidence}/10)")
                 logger.info(f"매도 사유: {sell_reason}")
-                
+
                 # ===== 핵심: should_sell 분기에 따른 DB 처리 (에러가 나도 메인 플로우는 계속 진행) =====
                 try:
                     if should_sell:
                         # 매도 결정 시: holding_decisions 테이블에서 삭제
                         await self._delete_holding_decision(ticker)
-                        
+
                         # 매도 시 analysis_summary를 sell_reason에 추가
                         if analysis_summary:
                             detailed_reason = self._format_sell_reason_with_analysis(sell_reason, analysis_summary)
@@ -851,7 +858,7 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
                     else:
                         # 보유 결정 시: holding_decisions 테이블에 저장/업데이트
                         await self._save_holding_decision(ticker, current_price, decision_json)
-                        
+
                         # portfolio_adjustment 처리
                         if portfolio_adjustment.get("needed", False):
                             await self._process_portfolio_adjustment(ticker, company_name, portfolio_adjustment, analysis_summary)
@@ -859,13 +866,13 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
                     # DB 조작 실패해도 메인 플로우는 계속 진행
                     logger.error(f"{ticker} holding_decisions DB 처리 중 오류 (메인 플로우 계속 진행): {str(db_err)}")
                     logger.error(traceback.format_exc())
-                
+
                 return should_sell, sell_reason
 
             except Exception as json_err:
                 logger.error(f"매도 결정 JSON 파싱 오류: {json_err}")
                 logger.error(f"원본 응답: {response}")
-                
+
                 # 파싱 실패 시 기존 알고리즘으로 폴백
                 logger.warning(f"{ticker} AI 분석 실패, 기존 알고리즘으로 폴백")
                 return await self._fallback_sell_decision(stock_data)
@@ -873,7 +880,7 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
         except Exception as e:
             logger.error(f"{stock_data.get('ticker', '') if 'ticker' in locals() else '알 수 없는 종목'} AI 매도 분석 중 오류: {str(e)}")
             logger.error(traceback.format_exc())
-            
+
             # 오류 시 기존 알고리즘으로 폴백
             return await self._fallback_sell_decision(stock_data)
 
@@ -978,17 +985,17 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
             # 조정이 필요하지 않으면 리턴
             if not portfolio_adjustment.get("needed", False):
                 return
-            
+
             # 긴급도 확인 - low인 경우 실제 업데이트는 하지 않고 로그만
             urgency = portfolio_adjustment.get("urgency", "low").lower()
             if urgency == "low":
                 logger.info(f"{ticker} 포트폴리오 조정 제안 (urgency=low): {portfolio_adjustment.get('reason', '')}")
                 return
-                
+
             db_updated = False
             update_message = ""
             adjustment_reason = portfolio_adjustment.get("reason", "AI 분석 결과")
-            
+
             # 목표가 조정
             new_target_price = portfolio_adjustment.get("new_target_price")
             if new_target_price is not None:
@@ -1003,7 +1010,7 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
                     db_updated = True
                     update_message += f"목표가: {target_price_num:,.0f}원으로 조정\n"
                     logger.info(f"{ticker} 목표가 AI 조정: {target_price_num:,.0f}원 (긴급도: {urgency})")
-            
+
             # 손절가 조정
             new_stop_loss = portfolio_adjustment.get("new_stop_loss")
             if new_stop_loss is not None:
@@ -1018,7 +1025,7 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
                     db_updated = True
                     update_message += f"손절가: {stop_loss_num:,.0f}원으로 조정\n"
                     logger.info(f"{ticker} 손절가 AI 조정: {stop_loss_num:,.0f}원 (긴급도: {urgency})")
-            
+
             # DB가 업데이트되었으면 텔레그램 메시지 생성
             if db_updated:
                 urgency_emoji = {"high": "🚨", "medium": "⚠️", "low": "💡"}.get(urgency, "🔄")
@@ -1026,18 +1033,18 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
                 message += update_message
                 message += f"조정 근거: {adjustment_reason}\n"
                 message += f"긴급도: {urgency.upper()}\n"
-                
+
                 # 분석 요약 추가
                 if analysis_summary:
                     message += f"기술적 추세: {analysis_summary.get('technical_trend', 'N/A')}\n"
                     message += f"시장 환경 영향: {analysis_summary.get('market_condition_impact', 'N/A')}"
-                
+
                 self.message_queue.append(message)
                 logger.info(f"{ticker} AI 기반 포트폴리오 조정 완료: {update_message.strip()}")
             else:
                 # 조정이 필요하다고 했지만 실제 값이 없는 경우
                 logger.warning(f"{ticker} 포트폴리오 조정 요청됐지만 구체적 값 없음: {portfolio_adjustment}")
-            
+
         except Exception as e:
             logger.error(f"{ticker} portfolio adjustment 처리 중 오류: {str(e)}")
             logger.error(traceback.format_exc())
@@ -1048,24 +1055,24 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
             # 이미 숫자 타입인 경우
             if isinstance(value, (int, float)):
                 return float(value)
-            
+
             # 문자열인 경우
             if isinstance(value, str):
                 # 쉼표 제거하고 공백 제거
                 cleaned_value = value.replace(',', '').replace(' ', '')
                 # "원" 제거 (혹시 포함되어 있을 경우)
                 cleaned_value = cleaned_value.replace('원', '')
-                
+
                 # 빈 문자열 체크
                 if not cleaned_value:
                     return 0.0
-                
+
                 # 숫자로 변환
                 return float(cleaned_value)
-            
+
             # null이나 기타 타입인 경우
             return 0.0
-            
+
         except (ValueError, TypeError) as e:
             logger.warning(f"숫자 변환 실패: {value} -> {str(e)}")
             return 0.0
@@ -1074,12 +1081,12 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
         """
         보유 종목의 AI 매도 판단 결과를 holding_decisions 테이블에 저장
         (실패해도 메인 플로우에 영향 없음)
-        
+
         Args:
             ticker: 종목 코드
             current_price: 현재가
             decision_json: AI 판단 결과 JSON
-            
+
         Returns:
             bool: 저장 성공 여부
         """
@@ -1087,36 +1094,36 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
             now = datetime.now()
             decision_date = now.strftime("%Y-%m-%d")
             decision_time = now.strftime("%H:%M:%S")
-            
+
             # JSON에서 데이터 추출
             should_sell = decision_json.get("should_sell", False)
             sell_reason = decision_json.get("sell_reason", "")
             confidence = decision_json.get("confidence", 0)
-            
+
             analysis_summary = decision_json.get("analysis_summary", {})
             technical_trend = analysis_summary.get("technical_trend", "")
             volume_analysis = analysis_summary.get("volume_analysis", "")
             market_condition_impact = analysis_summary.get("market_condition_impact", "")
             time_factor = analysis_summary.get("time_factor", "")
-            
+
             portfolio_adjustment = decision_json.get("portfolio_adjustment", {})
             adjustment_needed = portfolio_adjustment.get("needed", False)
             adjustment_reason = portfolio_adjustment.get("reason", "")
             new_target_price = self._safe_number_conversion(portfolio_adjustment.get("new_target_price"))
             new_stop_loss = self._safe_number_conversion(portfolio_adjustment.get("new_stop_loss"))
             adjustment_urgency = portfolio_adjustment.get("urgency", "low")
-            
+
             # 전체 JSON을 문자열로 저장
             full_json_data = json.dumps(decision_json, ensure_ascii=False)
-            
+
             # 기존 데이터 삭제 후 새로 삽입 (같은 ticker의 최신 판단만 유지)
             self.cursor.execute("DELETE FROM holding_decisions WHERE ticker = ?", (ticker,))
-            
+
             # 새 판단 삽입
             self.cursor.execute("""
                 INSERT INTO holding_decisions (
-                    ticker, decision_date, decision_time, current_price, should_sell, 
-                    sell_reason, confidence, technical_trend, volume_analysis, 
+                    ticker, decision_date, decision_time, current_price, should_sell,
+                    sell_reason, confidence, technical_trend, volume_analysis,
                     market_condition_impact, time_factor, portfolio_adjustment_needed,
                     adjustment_reason, new_target_price, new_stop_loss, adjustment_urgency,
                     full_json_data
@@ -1128,11 +1135,11 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
                 adjustment_reason, new_target_price, new_stop_loss, adjustment_urgency,
                 full_json_data
             ))
-            
+
             self.conn.commit()
             logger.info(f"{ticker} 보유 판단 저장 완료 - should_sell: {should_sell}, confidence: {confidence}")
             return True
-            
+
         except Exception as e:
             logger.error(f"{ticker} 보유 판단 저장 실패 (메인 플로우 계속): {str(e)}")
             logger.error(traceback.format_exc())
@@ -1142,10 +1149,10 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
         """
         매도된 종목의 판단 데이터를 holding_decisions 테이블에서 삭제
         (실패해도 메인 플로우에 영향 없음)
-        
+
         Args:
             ticker: 종목 코드
-            
+
         Returns:
             bool: 삭제 성공 여부
         """
@@ -1154,7 +1161,7 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
             self.conn.commit()
             logger.info(f"{ticker} 매도 판단 데이터 삭제 완료")
             return True
-            
+
         except Exception as e:
             logger.error(f"{ticker} 매도 판단 삭제 실패 (메인 플로우 계속): {str(e)}")
             return False
@@ -1163,24 +1170,24 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
         """매도 이유에 분석 요약 추가"""
         try:
             detailed_reason = sell_reason
-            
+
             if analysis_summary:
                 detailed_reason += "\n\n📊 상세 분석:"
-                
+
                 if analysis_summary.get('technical_trend'):
                     detailed_reason += f"\n• 기술적 추세: {analysis_summary['technical_trend']}"
-                
+
                 if analysis_summary.get('volume_analysis'):
                     detailed_reason += f"\n• 거래량 분석: {analysis_summary['volume_analysis']}"
-                
+
                 if analysis_summary.get('market_condition_impact'):
                     detailed_reason += f"\n• 시장 환경: {analysis_summary['market_condition_impact']}"
-                
+
                 if analysis_summary.get('time_factor'):
                     detailed_reason += f"\n• 시간 요인: {analysis_summary['time_factor']}"
-            
+
             return detailed_reason
-            
+
         except Exception as e:
             logger.error(f"매도 이유 포맷팅 중 오류: {str(e)}")
             return sell_reason

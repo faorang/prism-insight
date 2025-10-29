@@ -48,17 +48,17 @@ app = MCPApp(name="stock_tracking")
 
 class StockTrackingAgent:
     """주식 트래킹 및 매매 에이전트"""
-    
+
     # 상수 정의
     MAX_SLOTS = 10  # 최대 보유 가능 종목 수
     MAX_SAME_SECTOR = 3  # 동일 산업군 최대 보유 수
     SECTOR_CONCENTRATION_RATIO = 0.3  # 섹터 집중도 제한 비율
-    
+
     # 투자 기간 상수
     PERIOD_SHORT = "단기"  # 1개월 이내
     PERIOD_MEDIUM = "중기"  # 1~3개월
     PERIOD_LONG = "장기"  # 3개월 이상
-    
+
     # 매수 점수 기준
     SCORE_STRONG_BUY = 8  # 강력 매수
     SCORE_CONSIDER = 7  # 매수 고려
@@ -100,83 +100,83 @@ class StockTrackingAgent:
             instruction="""당신은 신중하고 분석적인 주식 매매 시나리오 생성 전문가입니다.
             기본적으로는 가치투자 원칙을 따르되, 상승 모멘텀이 확인될 때는 보다 적극적으로 진입합니다.
             주식 분석 보고서를 읽고 매매 시나리오를 JSON 형식으로 생성해야 합니다.
-            
+
             ## 매매 시스템 특성
             ⚠️ **핵심**: 이 시스템은 분할매매가 불가능합니다.
             - 매수: 포트폴리오의 10% 비중(1슬롯)으로 100% 매수
             - 매도: 1슬롯 보유분 100% 전량 매도
             - 올인/올아웃 방식이므로 더욱 신중한 판단 필요
-            
+
             ### ⚠️ 리스크 관리 최우선 원칙 (손실은 짧게!)
 
             **손절가 설정 철칙:**
             - 손절가는 매수가 기준 **-5% ~ -7% 이내** 우선 적용
             - 손절가 도달 시 **원칙적으로 즉시 전량 매도** (매도 에이전트가 판단)
             - **예외 허용**: 당일 강한 반등 + 거래량 급증 시 1일 유예 가능 (단, 손실 -7% 미만일 때만)
-            
+
             **Risk/Reward Ratio 필수:**
             - 목표 수익률이 10%면 → 손절은 최대 -5%
             - 목표 수익률이 15%면 → 손절은 최대 -7%
             - **손절폭은 원칙적으로 -7%를 넘지 않도록 설정**
-            
+
             **지지선이 -7% 밖에 있는 경우:**
             - **우선 선택**: 진입을 재검토하거나 점수를 하향 조정
             - **차선 선택**: 지지선을 손절가로 하되, 다음 조건 충족 필수:
               * Risk/Reward Ratio 2:1 이상 확보 (목표가를 더 높게)
               * 지지선의 강력함을 명확히 확인 (박스권 하단, 장기 이평선 등)
               * 손절폭이 -10%를 초과하지 않도록 제한
-            
+
             **100% 올인/올아웃의 위험성:**
             - 한 번의 큰 손실(-15%)은 복구에 +17.6% 필요
             - 작은 손실(-5%)은 복구에 +5.3%만 필요
             - 따라서 **손절이 멀면 진입하지 않는 게 낫다**
-            
+
             **예시:**
             - 매수가 18,000원, 지지선 15,500원 → 손실폭 -13.9% (❌ 진입 부적합)
             - 이 경우: 진입을 포기하거나, 목표가를 30,000원 이상(+67%)으로 상향
-            
+
             ## 분석 프로세스
-            
+
             ### 1. 포트폴리오 현황 분석
             stock_holdings 테이블에서 다음 정보를 확인하세요:
             - 현재 보유 종목 수 (최대 10개 슬롯)
             - 산업군 분포 (특정 산업군 과다 노출 여부)
             - 투자 기간 분포 (단기/중기/장기 비율)
             - 포트폴리오 평균 수익률
-            
+
             ### 2. 종목 평가 (1~10점)
             - **8~10점**: 매수 적극 고려 (동종업계 대비 저평가 + 강한 모멘텀)
             - **7점**: 매수 고려 (밸류에이션 추가 확인 필요)
-            - **6점 이하**: 매수 부적합 (고평가 또는 부정적 전망)
-            
+            - **6점 이하**: 매수 부적합 (고평가 또는 부정적 전망 또는 1,000원 이하의 동전주)
+
             ### 3. 진입 결정 필수 확인사항
-            
+
             #### 3-1. 밸류에이션 분석 (최우선)
             perplexity-ask tool을 활용하여 확인:
             - "[종목명] PER PBR vs [업종명] 업계 평균 밸류에이션 비교"
             - "[종목명] vs 동종업계 주요 경쟁사 밸류에이션 비교"
-            
+
             #### 3-2. 기본 체크리스트
             - 재무 건전성 (부채비율, 현금흐름)
             - 성장 동력 (명확하고 지속가능한 성장 근거)
             - 업계 전망 (업종 전반의 긍정적 전망)
             - 기술적 신호 (상승 모멘텀, 지지선, 박스권 내 현재 위치에서 하락 리스크)
             - 개별 이슈 (최근 호재/악재)
-            
+
             #### 3-3. 포트폴리오 제약사항
             - 보유 종목 7개 이상 → 8점 이상만 고려
             - 동일 산업군 2개 이상 → 매수 신중 검토
             - 충분한 상승여력 필요 (목표가 대비 10% 이상)
-            
+
             #### 3-4. 시장 상황 반영
             - 보고서의 '시장 분석' 섹션의 시장 리스크 레벨과 권장 현금 보유 비율을 확인
             - **최대 보유 종목 수 결정**:
               * 시장 리스크 Low + 현금 비율 ~10% → 최대 9~10개
-              * 시장 리스크 Medium + 현금 비율 ~20% → 최대 7~8개  
+              * 시장 리스크 Medium + 현금 비율 ~20% → 최대 7~8개
               * 시장 리스크 High + 현금 비율 30%+ → 최대 6~7개
             - RSI 과매수권(70+) 또는 단기 과열 언급 시 신규 매수 신중히 접근
             - 최대 종목 수는 매 실행 시 재평가하되, 상향 조정은 신중하게, 리스크 증가 시 즉시 하향 조정
-            
+
             ### 4. 모멘텀 가산점 요소
             다음 신호 확인 시 매수 점수 가산:
             - 거래량 급증 (관심 상승)
@@ -185,44 +185,44 @@ class StockTrackingAgent:
             - 기술적 돌파2 (박스권 상향 돌파)
             - 동종업계 대비 저평가
             - 업종 전반 긍정적 전망
-            
+
             ### 5. 최종 진입 가이드
             - 7점 + 강한 모멘텀 + 저평가 → 진입 고려
             - 8점 + 보통 조건 + 긍정적 전망 → 진입 고려
             - 9점 이상 + 밸류에이션 매력 → 적극 진입
             - 명시적 경고나 부정적 전망 시 보수적 접근
-            
+
             ## 도구 사용 가이드
             - 거래량/투자자별 매매: kospi_kosdaq-get_stock_ohlcv, kospi_kosdaq-get_stock_trading_volume
             - 밸류에이션 비교: perplexity_ask tool
             - 현재 시간: time-get_current_time tool
             - 데이터 조회 기준: 보고서의 '발행일: ' 날짜
-            
+
             ## 보고서 주요 확인 섹션
             - '투자 전략 및 의견': 핵심 투자 의견
             - '최근 주요 뉴스 요약': 업종 동향과 뉴스
             - '기술적 분석': 주가, 목표가, 손절가 정보
-            
+
             ## JSON 응답 형식
-            
+
             **중요**: key_levels의 가격 필드는 반드시 다음 형식 중 하나로 작성하세요:
             - 단일 숫자: 1700 또는 "1700"
-            - 쉼표 포함: "1,700" 
+            - 쉼표 포함: "1,700"
             - 범위 표현: "1700~1800" 또는 "1,700~1,800" (중간값 사용됨)
             - ❌ 금지: "1,700원", "약 1,700원", "최소 1,700" 같은 설명 문구 포함
-            
+
             **key_levels 예시**:
             올바른 예시:
             "primary_support": 1700
             "primary_support": "1,700"
             "primary_support": "1700~1750"
             "secondary_resistance": "2,000~2,050"
-            
+
             잘못된 예시 (파싱 실패 가능):
             "primary_support": "약 1,700원"
             "primary_support": "1,700원 부근"
             "primary_support": "최소 1,700"
-            
+
             {
                 "portfolio_analysis": "현재 포트폴리오 상황 요약",
                 "valuation_analysis": "동종업계 밸류에이션 비교 결과",
@@ -247,7 +247,7 @@ class StockTrackingAgent:
                     },
                     "sell_triggers": [
                         "익절 조건 1:  목표가/저항선 관련",
-                        "익절 조건 2: 상승 모멘텀 소진 관련", 
+                        "익절 조건 2: 상승 모멘텀 소진 관련",
                         "손절 조건 1: 지지선 이탈 관련",
                         "손절 조건 2: 하락 가속 관련",
                         "시간 조건: 횡보/장기보유 관련"
@@ -567,6 +567,35 @@ class StockTrackingAgent:
             logger.error(f"산업군 다양성 확인 중 오류: {str(e)}")
             return True  # 오류 발생 시 기본적으로 제한하지 않음
 
+    async def get_index_profit_rate(self):
+        # 시장 지수 정보 조회
+        first_kospi = last_kospi = first_kosdaq = last_kosdaq = 0
+        first_date = last_date = ""
+        try:
+            # first market condition
+            self.cursor.execute("select kospi_index, kosdaq_index, date from  market_condition order by date asc limit 1")
+            row = self.cursor.fetchone()
+            if row:
+                first_kospi = row[0]
+                first_kosdaq = row[1]
+                first_date = row[2]
+
+            # last market condition
+            self.cursor.execute("select kospi_index, kosdaq_index, date from  market_condition order by date desc limit 1")
+            row = self.cursor.fetchone()
+            if row:
+                last_kospi = row[0]
+                last_kosdaq = row[1]
+                last_date = row[2]
+        except Exception as e:
+            logger.error(f"시장 지수 조회 중 오류: {str(e)}")
+            first_kospi = last_kospi = first_kosdaq = last_kosdaq = 0
+            return None
+        return {'start_date': first_date, 'end_date': last_date,
+                'kospi_profit_rate': f'{round(((last_kospi - first_kospi) / first_kospi * 100),2) if first_kospi > 0 else 0}%',
+                'kosdaq_profit_rate': f'{round(((last_kosdaq - first_kosdaq) / first_kosdaq * 100),2) if first_kosdaq > 0 else 0 }%'
+        }
+
     async def _extract_trading_scenario(self, report_content: str, rank_change_msg: str = "") -> Dict[str, Any]:
         """
         보고서에서 매매 시나리오 추출
@@ -584,7 +613,7 @@ class StockTrackingAgent:
 
             # 현재 포트폴리오 정보 수집
             self.cursor.execute("""
-                SELECT ticker, company_name, buy_price, current_price, scenario 
+                SELECT ticker, company_name, buy_price, current_price, scenario
                 FROM stock_holdings
             """)
             holdings = [dict(row) for row in self.cursor.fetchall()]
@@ -615,6 +644,13 @@ class StockTrackingAgent:
             산업군 분포: {json.dumps(sector_distribution, ensure_ascii=False)}
             투자 기간 분포: {json.dumps(investment_periods, ensure_ascii=False)}
             """
+            index_profit_rate_result = await self.get_index_profit_rate()
+            if index_profit_rate_result:
+                try:
+                    portfolio_info += f"""시장 지수 수익률: {json.dumps(index_profit_rate_result, ensure_ascii=False)}"""
+                except:
+                    pass
+            logger.info(f"{portfolio_info}")
 
             # LLM 호출하여 매매 시나리오 생성
             llm = await self.trading_agent.attach_llm(OpenAIAugmentedLLM)
@@ -622,13 +658,13 @@ class StockTrackingAgent:
             response = await llm.generate_str(
                 message=f"""
                 다음은 주식 종목에 대한 AI 분석 보고서입니다. 이 보고서를 기반으로 매매 시나리오를 생성해주세요.
-                
+
                 ### 현재 포트폴리오 상황:
                 {portfolio_info}
-                
+
                 ### 거래대금 분석:
                 {rank_change_msg}
-                
+
                 ### 보고서 내용:
                 {report_content}
                 """,
@@ -650,22 +686,22 @@ class StockTrackingAgent:
                     """JSON 문법 오류 수정"""
                     # 1. 마지막 쉼표 제거
                     json_str = re.sub(r',(\s*[}\]])', r'\1', json_str)
-                    
+
                     # 2. 배열 뒤에 객체 속성이 오는 경우 쉼표 추가
                     # ] 다음에 " 가 오면 쉼표 추가 (배열 끝나고 새 속성 시작)
                     json_str = re.sub(r'(\])\s*(\n\s*")', r'\1,\2', json_str)
-                    
+
                     # 3. 객체 뒤에 객체 속성이 오는 경우 쉼표 추가
                     # } 다음에 " 가 오면 쉼표 추가 (객체 끝나고 새 속성 시작)
                     json_str = re.sub(r'(})\s*(\n\s*")', r'\1,\2', json_str)
-                    
+
                     # 4. 숫자나 문자열 뒤에 속성이 오는 경우 쉼표 추가
                     # 숫자 또는 "로 끝나는 문자열 다음에 새 줄과 "가 오면 쉼표 추가
                     json_str = re.sub(r'([0-9]|")\s*(\n\s*")', r'\1,\2', json_str)
-                    
+
                     # 5. 중복 쉼표 제거
                     json_str = re.sub(r',\s*,', ',', json_str)
-                    
+
                     return json_str
 
                 # 마크다운 코드 블록에서 JSON 추출 시도 (```json ... ```)
@@ -699,26 +735,26 @@ class StockTrackingAgent:
                 # 추가 복구 시도: 더 강력한 JSON 수정
                 try:
                     clean_response = re.sub(r'```(?:json)?|```', '', response).strip()
-                    
+
                     # 모든 가능한 JSON 문법 오류 수정
                     # 1. 배열/객체 끝 다음에 속성이 오는 경우 쉼표 추가
                     clean_response = re.sub(r'(\]|\})\s*(\n\s*"[^"]+"\s*:)', r'\1,\2', clean_response)
-                    
+
                     # 2. 값 다음에 속성이 오는 경우 쉼표 추가
                     clean_response = re.sub(r'(["\d\]\}])\s*\n\s*("[^"]+"\s*:)', r'\1,\n    \2', clean_response)
-                    
+
                     # 3. 마지막 쉼표 제거
                     clean_response = re.sub(r',(\s*[}\]])', r'\1', clean_response)
-                    
+
                     # 4. 중복 쉼표 제거
                     clean_response = re.sub(r',\s*,+', ',', clean_response)
-                    
+
                     scenario_json = json.loads(clean_response)
                     logger.info(f"추가 복구로 파싱된 시나리오: {json.dumps(scenario_json, ensure_ascii=False)}")
                     return scenario_json
                 except Exception as e:
                     logger.error(f"추가 복구 시도도 실패: {str(e)}")
-                    
+
                     # 최후의 시도: json_repair 라이브러리 사용 가능한 경우
                     try:
                         import json_repair
@@ -819,10 +855,10 @@ class StockTrackingAgent:
     def _parse_price_value(self, value: Any) -> float:
         """
         가격 값을 파싱하여 숫자로 변환
-        
+
         Args:
             value: 가격 값 (숫자, 문자열, 범위 등)
-            
+
         Returns:
             float: 파싱된 가격 (실패 시 0)
         """
@@ -830,18 +866,18 @@ class StockTrackingAgent:
             # 이미 숫자인 경우
             if isinstance(value, (int, float)):
                 return float(value)
-            
+
             # 문자열인 경우
             if isinstance(value, str):
                 # 쉼표 제거
                 value = value.replace(',', '')
-                
+
                 # 범위 표현 체크 (예: "2000~2050", "1,700-1,800")
                 range_patterns = [
                     r'(\d+(?:\.\d+)?)\s*[-~]\s*(\d+(?:\.\d+)?)',  # 2000~2050 or 2000-2050
                     r'(\d+(?:\.\d+)?)\s*~\s*(\d+(?:\.\d+)?)',     # 2000 ~ 2050
                 ]
-                
+
                 for pattern in range_patterns:
                     match = re.search(pattern, value)
                     if match:
@@ -849,12 +885,12 @@ class StockTrackingAgent:
                         low = float(match.group(1))
                         high = float(match.group(2))
                         return (low + high) / 2
-                
+
                 # 단일 숫자 추출 시도
                 number_match = re.search(r'(\d+(?:\.\d+)?)', value)
                 if number_match:
                     return float(number_match.group(1))
-            
+
             return 0
         except Exception as e:
             logger.warning(f"가격 값 파싱 실패: {value} - {str(e)}")
@@ -904,8 +940,8 @@ class StockTrackingAgent:
             # 보유종목 테이블에 추가
             self.cursor.execute(
                 """
-                INSERT INTO stock_holdings 
-                (ticker, company_name, buy_price, buy_date, current_price, last_updated, scenario, target_price, stop_loss) 
+                INSERT INTO stock_holdings
+                (ticker, company_name, buy_price, buy_date, current_price, last_updated, scenario, target_price, stop_loss)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
@@ -933,7 +969,7 @@ class StockTrackingAgent:
             # 밸류에이션 분석 정보가 있으면 추가
             if scenario.get('valuation_analysis'):
                 message += f"밸류에이션: {scenario.get('valuation_analysis')}\n"
-            
+
             # 섹터 전망 정보가 있으면 추가
             if scenario.get('sector_outlook'):
                 message += f"업종 전망: {scenario.get('sector_outlook')}\n"
@@ -943,19 +979,19 @@ class StockTrackingAgent:
                 message += f"거래대금 분석: {rank_change_msg}\n"
 
             message += f"투자근거: {scenario.get('rationale', '정보 없음')}\n"
-            
+
             # 매매 시나리오 포맷팅
             trading_scenarios = scenario.get('trading_scenarios', {})
             if trading_scenarios and isinstance(trading_scenarios, dict):
                 message += "\n" + "="*40 + "\n"
                 message += "📋 매매 시나리오\n"
                 message += "="*40 + "\n\n"
-                
+
                 # 1. 핵심 가격대 (Key Levels)
                 key_levels = trading_scenarios.get('key_levels', {})
                 if key_levels:
                     message += "💰 핵심 가격대:\n"
-                    
+
                     # 저항선
                     primary_resistance = self._parse_price_value(key_levels.get('primary_resistance', 0))
                     secondary_resistance = self._parse_price_value(key_levels.get('secondary_resistance', 0))
@@ -965,10 +1001,10 @@ class StockTrackingAgent:
                             message += f"    • 2차: {secondary_resistance:,.0f}원\n"
                         if primary_resistance:
                             message += f"    • 1차: {primary_resistance:,.0f}원\n"
-                    
+
                     # 현재가 표시
                     message += f"  ━━ 현재가: {current_price:,.0f}원 ━━\n"
-                    
+
                     # 지지선
                     primary_support = self._parse_price_value(key_levels.get('primary_support', 0))
                     secondary_support = self._parse_price_value(key_levels.get('secondary_support', 0))
@@ -978,14 +1014,14 @@ class StockTrackingAgent:
                             message += f"    • 1차: {primary_support:,.0f}원\n"
                         if secondary_support:
                             message += f"    • 2차: {secondary_support:,.0f}원\n"
-                    
+
                     # 거래량 기준
                     volume_baseline = key_levels.get('volume_baseline', '')
                     if volume_baseline:
                         message += f"  📊 거래량 기준: {volume_baseline}\n"
-                    
+
                     message += "\n"
-                
+
                 # 2. 매도 시그널
                 sell_triggers = trading_scenarios.get('sell_triggers', [])
                 if sell_triggers:
@@ -1000,10 +1036,10 @@ class StockTrackingAgent:
                             emoji = "⏰"
                         else:
                             emoji = "•"
-                        
+
                         message += f"  {emoji} {trigger}\n"
                     message += "\n"
-                
+
                 # 3. 보유 조건
                 hold_conditions = trading_scenarios.get('hold_conditions', [])
                 if hold_conditions:
@@ -1011,7 +1047,7 @@ class StockTrackingAgent:
                     for condition in hold_conditions:
                         message += f"  • {condition}\n"
                     message += "\n"
-                
+
                 # 4. 포트폴리오 맥락
                 portfolio_context = trading_scenarios.get('portfolio_context', '')
                 if portfolio_context:
@@ -1142,8 +1178,8 @@ class StockTrackingAgent:
             # 매매 내역 테이블에 추가
             self.cursor.execute(
                 """
-                INSERT INTO trading_history 
-                (ticker, company_name, buy_price, buy_date, sell_price, sell_date, profit_rate, holding_days, scenario) 
+                INSERT INTO trading_history
+                (ticker, company_name, buy_price, buy_date, sell_price, sell_date, profit_rate, holding_days, scenario)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
@@ -1199,8 +1235,8 @@ class StockTrackingAgent:
 
             # 보유 종목 목록 조회
             self.cursor.execute(
-                """SELECT ticker, company_name, buy_price, buy_date, current_price, 
-                   scenario, target_price, stop_loss, last_updated 
+                """SELECT ticker, company_name, buy_price, buy_date, current_price,
+                   scenario, target_price, stop_loss, last_updated
                    FROM stock_holdings"""
             )
             holdings = [dict(row) for row in self.cursor.fetchall()]
@@ -1275,8 +1311,8 @@ class StockTrackingAgent:
                 else:
                     # 현재가 업데이트
                     self.cursor.execute(
-                        """UPDATE stock_holdings 
-                           SET current_price = ?, last_updated = ? 
+                        """UPDATE stock_holdings
+                           SET current_price = ?, last_updated = ?
                            WHERE ticker = ?""",
                         (current_price, now, ticker)
                     )
@@ -1574,7 +1610,7 @@ class StockTrackingAgent:
                 try:
                     # 텔레그램 메시지 길이 제한 (4096자)
                     MAX_MESSAGE_LENGTH = 4096
-                    
+
                     if len(message) <= MAX_MESSAGE_LENGTH:
                         # 메시지가 짧으면 한 번에 전송
                         await self.telegram_bot.send_message(
@@ -1585,7 +1621,7 @@ class StockTrackingAgent:
                         # 메시지가 길면 분할 전송
                         parts = []
                         current_part = ""
-                        
+
                         for line in message.split('\n'):
                             if len(current_part) + len(line) + 1 <= MAX_MESSAGE_LENGTH:
                                 current_part += line + '\n'
@@ -1593,10 +1629,10 @@ class StockTrackingAgent:
                                 if current_part:
                                     parts.append(current_part.rstrip())
                                 current_part = line + '\n'
-                        
+
                         if current_part:
                             parts.append(current_part.rstrip())
-                        
+
                         # 분할된 메시지 전송
                         for i, part in enumerate(parts, 1):
                             await self.telegram_bot.send_message(
@@ -1604,7 +1640,7 @@ class StockTrackingAgent:
                                 text=f"[{i}/{len(parts)}]\n{part}"
                             )
                             await asyncio.sleep(0.5)  # 분할 메시지 간 짧은 지연
-                    
+
                     logger.info(f"텔레그램 메시지 전송 완료: {chat_id}")
                 except TelegramError as e:
                     logger.error(f"텔레그램 메시지 전송 실패: {e}")
