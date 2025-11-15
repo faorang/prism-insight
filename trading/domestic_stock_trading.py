@@ -60,7 +60,7 @@ class DomesticStockTrading:
 
         # 인증
         ka.auth(svr=self.env, product="01")
-        
+
         try:
             self.trenv = ka.getTREnv()
         except RuntimeError as e:
@@ -962,7 +962,7 @@ class DomesticStockTrading:
             self._stock_locks[stock_code] = asyncio.Lock()
         return self._stock_locks[stock_code]
 
-    async def async_buy_stock(self, stock_code: str, buy_amount: int = None, timeout: float = 30.0) -> Dict[str, Any]:
+    async def async_buy_stock(self, stock_code: str, buy_amount: int = None, timeout: float = 30.0, buy_price: int = 0) -> Dict[str, Any]:
         """
         비동기 매수 API (타임아웃 포함)
         현재가 조회 → 매수 가능 수량 계산 → 시장가 매수
@@ -986,7 +986,7 @@ class DomesticStockTrading:
         """
         try:
             return await asyncio.wait_for(
-                self._execute_buy_stock(stock_code, buy_amount),
+                self._execute_buy_stock(stock_code, buy_amount, buy_price),
                 timeout=timeout
             )
         except asyncio.TimeoutError:
@@ -1001,7 +1001,7 @@ class DomesticStockTrading:
                 'timestamp': datetime.datetime.now().isoformat()
             }
 
-    async def _execute_buy_stock(self, stock_code: str, buy_amount: int = None) -> Dict[str, Any]:
+    async def _execute_buy_stock(self, stock_code: str, buy_amount: int = None, buy_price: int = 0) -> Dict[str, Any]:
         # buy_amount가 None이면 클래스 기본값 사용
         amount = buy_amount if buy_amount else self.buy_amount
 
@@ -1039,8 +1039,12 @@ class DomesticStockTrading:
 
                         result['current_price'] = current_price_info['current_price']
 
-                        # 2단계: 매수 가능 수량 계산 (amount 사용)
-                        current_price = current_price_info['current_price']
+                        # 2단계: 매수 가능 수량 계산 (amount 사용), 요청 지정가 고려
+                        if buy_price > 0 and current_price_info['current_price'] > buy_price:
+                            current_price = buy_price
+                        else:
+                            current_price = current_price_info['current_price']
+
                         buy_quantity = math.floor(amount / current_price)
 
                         if buy_quantity == 0:
@@ -1049,21 +1053,21 @@ class DomesticStockTrading:
                             return result
 
                         result['quantity'] = buy_quantity
-                        result['total_amount'] = buy_quantity * current_price_info['current_price']
+                        result['total_amount'] = buy_quantity * current_price
 
-                        # 3단계: 시장가 매수 실행 (amount 사용)
+                        # 3단계: 지정가 매수 실행 (buy_price 사용)
                         # Rate Limit 방지
                         await asyncio.sleep(0.5)
-                        logger.info(f"[비동기 매수 API] {stock_code} 시장가 매수 실행: {buy_quantity}주 x {amount:,}원")
+                        logger.info(f"[비동기 매수 API] {stock_code} 지정가 매수 실행: {buy_quantity}주 x {amount:,}원")
                         buy_result = await asyncio.to_thread(
-                            self.smart_buy, stock_code, amount  # amount 사용
+                            self.buy_limit_price, stock_code, current_price, amount  # current_price 사용
                         )
 
                         if buy_result['success']:
                             result['success'] = True
                             result['order_no'] = buy_result['order_no']
-                            result['message'] = f"매수 완료: {buy_quantity}주 x {current_price_info['current_price']:,}원 = {result['total_amount']:,}원"
-                            logger.info(f"[비동기 매수 API] {stock_code} 매수 성공")
+                            result['message'] = f"매수 주문 완료: {buy_quantity}주 x {current_price_info['current_price']:,}원 = {result['total_amount']:,}원"
+                            logger.info(f"[비동기 매수 API] {stock_code} 매수 주문 성공")
                         else:
                             result['message'] = f"매수 실패: {buy_result['message']}"
                             logger.error(f"[비동기 매수 API] {stock_code} 매수 실패: {buy_result['message']}")

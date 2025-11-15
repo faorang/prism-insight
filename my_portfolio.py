@@ -152,9 +152,15 @@ async def check_stop_loss_triggered(db_path: str = "stock_tracking_db.sqlite"):
     query = "SELECT ticker, stop_loss FROM stock_holdings"
     cursor.execute(query)
 
+    real_portfolio = await get_trading_data()
+    stock_codes = [item['stock_code'] for item in real_portfolio]
+
     triggered_stocks = []
     for stock in cursor.fetchall():
         ticker = stock["ticker"]
+        if ticker not in stock_codes:
+            print(f"{ticker} 종목은 실제 계좌에 없습니다. 건너뜁니다.")
+            continue
         stop_loss = stock["stop_loss"]
 
         # 현재 가격을 가져오는 로직 (예: API 호출)
@@ -204,6 +210,59 @@ async def send_telegram_message(message: str):
         print("포트폴리오 리포트 전송 실패!")
         return False
 
+async def syncup_portfolio_data():
+    db_path = "stock_tracking_db.sqlite"
+    conn = None  # conn을 try 블록 외부에서 초기화
+    try:
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        # DB에서 종목 가져오기
+        cursor.execute("SELECT ticker FROM stock_holdings")
+        db_stocks = cursor.fetchall()
+        db_tickers = {stock['ticker'] for stock in db_stocks}
+
+        # 실제 계좌에서 종목 가져오기
+        real_portfolio = await get_trading_data()
+        real_tickers = {item['stock_code'] for item in real_portfolio}
+
+        # DB에만 있는 종목 찾기 (실제 계좌에는 없음)
+        not_in_real_account = db_tickers - real_tickers
+        if not_in_real_account:
+            print(f"다음 종목들은 실제 계좌에 없으므로 DB에서 삭제합니다: {', '.join(not_in_real_account)}")
+            placeholders = ','.join('?' for _ in not_in_real_account)
+            delete_query = f"DELETE FROM stock_holdings WHERE ticker IN ({placeholders})"
+            cursor.execute(delete_query, tuple(not_in_real_account))
+            conn.commit()
+            message = f"실제 계좌에 없어 DB에서 삭제된 종목: {', '.join(not_in_real_account)}"
+            await send_telegram_message(message)
+
+        # 실제 계좌에만 있는 종목 찾기 (DB에는 없음)
+        not_in_db = real_tickers - db_tickers
+        if not_in_db:
+            message = f"실제 계좌에 있으나 DB에 없는 종목: {', '.join(not_in_db)}. 수동 추가가 필요합니다."
+            await send_telegram_message(message)
+
+        if not not_in_real_account and not not_in_db:
+            print("DB와 실제 계좌의 포트폴리오가 일치합니다.")
+            await send_telegram_message("DB와 실제 계좌의 포트폴리오가 일치합니다.")
+
+    except sqlite3.Error as e:
+        error_message = f"DB 동기화 중 SQLite 오류 발생: {e}"
+        print(error_message)
+        await send_telegram_message(error_message)
+    except Exception as e:
+        error_message = f"DB 동기화 중 알 수 없는 오류 발생: {e}"
+        print(error_message)
+        await send_telegram_message(error_message)
+    finally:
+        if conn:
+            conn.close()
+            print("DB 연결이 종료되었습니다.")
+
+
+
 
 
 async def main():
@@ -213,8 +272,25 @@ async def main():
     # await send_telegram_message('포트폴리오 점검 완료!')
 
 if __name__ == "__main__":
+    import sys
+
+
+    async def run():
+        if len(sys.argv) > 1:
+            command = sys.argv[1]
+            if command == "stop_loss":
+                await check_stop_loss_triggered()
+            elif command == "syncup":
+                await syncup_portfolio_data()
+            else:
+                print(f"Unknown command: {command}")
+                print("Usage: python my_portfolio.py [stop_loss|syncup]")
+        else:
+            await main()
+
+
     try:
         # asyncio 실행
-        asyncio.run(main())
+        asyncio.run(run())
     except Exception as e:
         print(f"에러 발생: {e}")
