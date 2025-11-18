@@ -305,6 +305,8 @@ def get_chart_as_base64_html(ticker, company_name, chart_function, chart_name, w
 
         if fig is None:
             return None
+        else:
+            return fig
 
         # 이미지를 메모리에 저장 (압축 설정 적용)
         buffer = BytesIO()
@@ -494,9 +496,11 @@ def create_price_chart(ticker, company_name=None, days=730, save_path=None, adju
     df = df.sort_index()
 
     # 이동평균선 계산
-    df['MA20'] = df['종가'].rolling(window=20).mean()
-    df['MA60'] = df['종가'].rolling(window=60).mean()
-    df['MA120'] = df['종가'].rolling(window=120).mean()
+    df['MA20'] = df['종가'].rolling(window=20).mean().round(2)
+    df['MA60'] = df['종가'].rolling(window=60).mean().round(2)
+    df['MA120'] = df['종가'].rolling(window=120).mean().round(2)
+    df.drop(columns=['등락률'], inplace=True)
+    return df.to_csv(index=True)
 
     # mplfinance에 맞는 컬럼명으로 변경
     ohlc_df = df.rename(columns={
@@ -718,6 +722,9 @@ def create_market_cap_chart(ticker, company_name=None, days=730, save_path=None)
 
     # 날짜 오름차순 정렬
     df = df.sort_index()
+    new_df = df[['시가총액']].copy()
+    new_df.index = df.index  # 인덱스는 기본적으로 유지되지만 명시적으로도 지정 가능
+    return new_df.to_csv(index=True)
 
     # 차트 생성
     fig, ax = plt.subplots(figsize=(12, 6))
@@ -931,6 +938,9 @@ def create_fundamentals_chart(ticker, company_name=None, days=730, save_path=Non
 
     # 날짜 오름차순 정렬
     df = df.sort_index()
+    new_df = df[['PER', 'PBR', 'DIV']].copy()
+    new_df.index = df.index  # 인덱스는 기본 유지되므로 생략 가능
+    return new_df.to_csv(index=True)
 
     # 서브플롯 생성
     fig, axes = plt.subplots(3, 1, figsize=(12, 12), sharex=True)
@@ -1268,74 +1278,13 @@ def create_trading_volume_chart(ticker, company_name=None, days=730, save_path=N
     # 주요 투자자 선택
     investor_types = ['기관합계', '외국인합계', '개인', '기타법인']
 
+    ret = ''
     # 순매수량 컬럼 선택
     if '순매수' in df_volume.columns:
         investor_data = df_volume['순매수']
+        ret += '# 투자자별 순매수량 \n'
+        ret += investor_data.to_csv(index=True)
 
-        # 차트 그리기
-        bar_width = 0.6
-        pos = np.arange(len(investor_data))
-
-        bars = axes[0].bar(
-            pos,
-            investor_data,
-            bar_width,
-            color=[PRIMARY_COLORS[i % len(PRIMARY_COLORS)] for i in range(len(investor_data))],
-            alpha=0.7
-        )
-
-        # 라벨 및 제목 설정
-        if KOREAN_FONT_PROP:
-            axes[0].set_title("투자자별 순매수량", fontsize=12, loc='left', fontproperties=KOREAN_FONT_PROP)
-        else:
-            axes[0].set_title("Net Purchase by Investor Type", fontsize=12, loc='left')
-
-        axes[0].set_xticks(pos)
-
-        # X축 라벨에 한글 폰트 적용
-        if KOREAN_FONT_PROP:
-            axes[0].set_xticklabels(investor_data.index, rotation=45, fontproperties=KOREAN_FONT_PROP)
-        else:
-            axes[0].set_xticklabels(investor_data.index, rotation=45)
-
-        axes[0].axhline(y=0, color='black', linestyle='-', alpha=0.3)
-        axes[0].grid(axis='y', linestyle='--', alpha=0.7)
-
-        # 숫자 포맷팅
-        max_vol = investor_data.max()
-        min_vol = investor_data.min()
-        formatter = select_number_formatter(max(abs(max_vol), abs(min_vol)))
-        axes[0].yaxis.set_major_formatter(formatter)
-
-        # 데이터 레이블 추가
-        for bar in bars:
-            height = bar.get_height()
-            value = int(height)
-            va = 'bottom' if height >= 0 else 'top'
-            y_pos = 0.3 if height >= 0 else -0.3
-
-            # 한글 폰트 설정
-            if KOREAN_FONT_PROP:
-                axes[0].text(
-                    bar.get_x() + bar.get_width()/2.,
-                    height + (height * 0.02 if height >= 0 else height * 0.02),
-                    f'{value:,}',
-                    ha='center',
-                    va=va,
-                    fontsize=9,
-                    rotation=0,
-                    fontproperties=KOREAN_FONT_PROP
-                )
-            else:
-                axes[0].text(
-                    bar.get_x() + bar.get_width()/2.,
-                    height + (height * 0.02 if height >= 0 else height * 0.02),
-                    f'{value:,}',
-                    ha='center',
-                    va=va,
-                    fontsize=9,
-                    rotation=0
-                )
 
     # 2. 일별 순매수량 추이
     # 인덱스가 datetime인지 확인
@@ -1350,6 +1299,10 @@ def create_trading_volume_chart(ticker, company_name=None, days=730, save_path=N
 
     # 누적 순매수량 계산
     df_cumulative = df_daily[key_investors].cumsum()
+    ret += '\n\n# 일별 누적 순매수량\n'
+    ret += df_cumulative.to_csv(index=True)
+
+    return ret
 
     # 차트 그리기
     for i, investor in enumerate(key_investors):
@@ -1573,21 +1526,41 @@ def main():
     주식 차트 생성 함수 사용 예시
     """
     # 한글 폰트 확인
-    korean_fonts = check_font_available()
+    # korean_fonts = check_font_available()
 
     # 예시: 삼성전자 차트 생성
-    ticker = "005930"  # 삼성전자
+    company_code = ticker = "005930"  # 삼성전자
     company_name = "삼성전자"
-
-    # 종합 보고서 생성
-    report_paths = create_comprehensive_report(ticker, company_name)
-
-    logger.info(f"다음 차트가 포함된 보고서가 생성되었습니다:")
-    for chart_type, path in report_paths.items():
-        logger.info(f"- {chart_type}: {path}")
 
     # 개별 차트 예시
     # 주석 해제하여 개별 차트 생성 및 표시
+    '''
+    price_chart_csv = get_chart_as_base64_html(
+    company_code, company_name, create_price_chart, '가격 차트', width=900, dpi=80, image_format='jpg', compress=True,
+    days=730, adjusted=True
+    )
+
+    volume_chart_csv = get_chart_as_base64_html(
+        company_code, company_name, create_trading_volume_chart, '거래량 차트', width=900, dpi=80, image_format='jpg', compress=True,
+        days=730
+    )
+    with open('trading_volume_data.csv', 'w', encoding='utf-8') as f:
+        f.write(volume_chart_csv)
+
+    market_cap_chart_csv = get_chart_as_base64_html(
+        company_code, company_name, create_market_cap_chart, '시가총액 추이', width=900, dpi=80, image_format='jpg', compress=True,
+        days=730
+    )
+    with open('market_cap_data.csv', 'w', encoding='utf-8') as f:
+        f.write(market_cap_chart_csv)
+    '''
+
+    fundamentals_chart_csv = get_chart_as_base64_html(
+        company_code, company_name, create_fundamentals_chart, '기본 지표', width=900, dpi=80, image_format='jpg', compress=True,
+        days=730
+    )
+    with open('fundamentals_data.csv', 'w', encoding='utf-8') as f:
+        f.write(fundamentals_chart_csv)
 
     # 가격 차트
     #fig_price = create_price_chart(ticker, company_name)
