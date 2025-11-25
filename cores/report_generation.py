@@ -14,25 +14,25 @@ async def generate_report(agent, section, company_name, company_code, reference_
     llm = await agent.attach_llm(OpenAIAugmentedLLM)
     report = await llm.generate_str(
         message=f"""{company_name}({company_code})의 {section} 분석 보고서를 작성해주세요.
-                                
+
                                 ## 분석 및 보고서 작성 지침:
                                 1. 데이터 수집부터 분석까지 모든 과정을 수행하세요.
                                 2. 보고서는 충분히 상세하되 핵심 정보에 집중하세요.
                                 3. 일반 개인 투자자가 쉽게 이해할 수 있는 수준으로 작성하세요.
                                 4. 투자 결정에 직접적으로 도움이 되는 실용적인 내용에 집중하세요.
                                 5. 실제 수집된 데이터에만 기반하여 분석하고, 없는 데이터는 추측하지 마세요.
-                                
+
                                 ## 형식 요구사항:
                                 1. 보고서 시작 시 제목을 넣기 전에 반드시 개행문자를 2번 넣어 시작하세요 (\\n\\n).
                                 2. 섹션 제목과 구조는 에이전트 지침에 명시된 형식을 따르세요.
                                 3. 가독성을 위해 적절히 단락을 나누고, 중요한 내용은 강조하세요.
-                                
+
                                 ##분석일: {reference_date}(YYYYMMDD 형식)
                                 """,
         request_params=RequestParams(
             model="gpt-4.1",
             maxTokens=16000,
-            max_iterations=3,
+            max_iterations=6,
             parallel_tool_calls=True,
             use_history=True
         )
@@ -45,19 +45,19 @@ async def generate_market_report(agent, section, reference_date, logger):
     llm = await agent.attach_llm(OpenAIAugmentedLLM)
     report = await llm.generate_str(
         message=f"""시장과 거시환경 분석 보고서를 작성해주세요.
-                                
+
                                 ## 분석 및 보고서 작성 지침:
                                 1. 데이터 수집부터 분석까지 모든 과정을 수행하세요.
                                 2. 보고서는 충분히 상세하되 핵심 정보에 집중하세요.
                                 3. 일반 개인 투자자가 쉽게 이해할 수 있는 수준으로 작성하세요.
                                 4. 투자 결정에 직접적으로 도움이 되는 실용적인 내용에 집중하세요.
                                 5. 실제 수집된 데이터에만 기반하여 분석하고, 없는 데이터는 추측하지 마세요.
-                                
+
                                 ## 형식 요구사항:
                                 1. 보고서 시작 시 제목을 넣기 전에 반드시 개행문자를 2번 넣어 시작하세요 (\\n\\n).
                                 2. 섹션 제목과 구조는 에이전트 지침에 명시된 형식을 따르세요.
                                 3. 가독성을 위해 적절히 단락을 나누고, 중요한 내용은 강조하세요.
-                                
+
                                 ##분석일: {reference_date}(YYYYMMDD 형식)
                                 """,
         request_params=RequestParams(
@@ -78,13 +78,13 @@ async def generate_summary(section_reports, company_name, company_code, referenc
         from mcp_agent.agents.agent import Agent
         from mcp_agent.workflows.llm.augmented_llm import RequestParams
         from mcp_agent.workflows.llm.augmented_llm_openai import OpenAIAugmentedLLM
-        
+
         # 모든 섹션을 포함한 종합 보고서 생성
         all_reports = ""
         for section, report in section_reports.items():
             all_reports += f"\n\n--- {section.upper()} ---\n\n"
             all_reports += report
-        
+
         logger.info(f"Generating executive summary for {company_name}...")
         summary_agent = Agent(
             name="summary_agent",
@@ -92,7 +92,7 @@ async def generate_summary(section_reports, company_name, company_code, referenc
                         당신은 {company_name} ({company_code}) 기업분석 보고서의 핵심 요약을 작성하는 투자 전문가입니다.
                         전체 보고서의 각 섹션에서 가장 중요한 3-5개의 핵심 포인트를 추출하여 간결하게 요약해야 합니다.
                         투자자가 빠르게 읽고 핵심을 파악할 수 있는 요약을 제공하세요.
-                        
+
                         ##분석일 : {reference_date}(YYYYMMDD 형식)
                         """
         )
@@ -102,19 +102,19 @@ async def generate_summary(section_reports, company_name, company_code, referenc
             message=f"""아래 {company_name}({company_code})의 종합 분석 보고서를 바탕으로 핵심 투자 포인트 요약을 작성해주세요.
                     요약에는 기업의 현재 상황, 투자 매력 포인트, 주요 리스크 요소, 적합한 투자자 유형 등이 포함되어야 합니다.
                     500-800자 정도의 간결하면서도 통찰력 있는 요약을 작성해주세요.
-                    
+
                     ## 형식 가이드라인:
                     - 제목: "# 핵심 투자 포인트"
                     - 첫 문단: 기업 현재 상황 및 투자 관점 개요
                     - 불릿 포인트: 3-5개의 핵심 투자 포인트
                     - 마지막 문단: 적합한 투자자 유형 및 접근법 제안
-                    
+
                     ## 스타일 가이드라인:
                     - 간결하고 명확한 문장 사용
                     - 투자 결정에 직접적으로 도움되는 실질적 내용 중심
                     - 확정적 표현보다 조건부/확률적 표현 사용
                     - 모든 포인트는 기술적/기본적 분석 데이터에 기반
-                    
+
                     종합 분석 보고서:
                     {all_reports}
                     """,
@@ -137,7 +137,7 @@ async def generate_investment_strategy(section_reports, combined_reports, compan
     from mcp_agent.agents.agent import Agent
     from mcp_agent.workflows.llm.augmented_llm import RequestParams
     from mcp_agent.workflows.llm.augmented_llm_openai import OpenAIAugmentedLLM
-    
+
     try:
         logger.info(f"Processing investment_strategy for {company_name}...")
         investment_strategy_agent = Agent(
@@ -195,7 +195,7 @@ async def generate_investment_strategy(section_reports, combined_reports, compan
             - 모든 투자 전략은 기술적/기본적 분석의 실제 데이터에 근거
             - "반드시", "확실히" 등의 단정적 표현보다 "~할 가능성", "~로 예상" 등 사용
             - 모든 투자에는 리스크가 있음을 명시
-            
+
             ## 결론 부분
             - 마지막에 간략한 요약과 핵심 투자 포인트 3-5개 제시
             - "본 보고서는 투자 참고용이며, 투자 책임은 투자자 본인에게 있습니다." 문구 포함
@@ -208,21 +208,21 @@ async def generate_investment_strategy(section_reports, combined_reports, compan
         llm = await investment_strategy_agent.attach_llm(OpenAIAugmentedLLM)
         investment_strategy = await llm.generate_str(
             message=f"""{company_name}({company_code})의 투자 전략 분석 보고서를 작성해주세요.
-            
+
             ## 앞서 분석된 다른 섹션의 내용:
             {combined_reports}
-            
+
             ## 투자 전략 작성 지침:
-            앞서 분석된 모든 정보를 바탕으로 종합적인 투자 전략 보고서를 작성하세요. 
+            앞서 분석된 모든 정보를 바탕으로 종합적인 투자 전략 보고서를 작성하세요.
             기존에 설정된 투자 전략 에이전트의 지침에 따라 작성하되, 특히 다음 사항에 중점을 두세요:
-            
+
             1. 앞서 분석된 다양한 데이터(기술적/기본적/뉴스)를 단순 요약이 아닌 통합적 관점에서 재해석
             2. 현 시점({reference_date})의 주가 수준에서 투자 매력도 평가
             3. 밸류에이션과 실적 전망을 연계한 투자 시나리오 제시
             4. 업종 및 시장 전체 흐름 속에서의 상대적 투자 매력도 분석
-            
+
             일관성 있고 실행 가능한 투자 전략을 제시하여 투자자가 실제 의사결정에 활용할 수 있도록 해주세요.
-            
+
             ## 형식 및 스타일 요구사항:
             - 앞서 설정된 형식(제목, 구조, 스타일)을 그대로 따르세요
             - 투자자가 행동으로 옮길 수 있는 실질적인 전략 제시에 초점을 맞추세요
@@ -247,10 +247,10 @@ def get_disclaimer():
     return """
 # 투자 유의사항
 
-본 보고서는 정보 제공을 목적으로 작성되었으며, 투자 권유를 목적으로 하지 않습니다. 
-본 보고서에 기재된 내용은 작성 시점 기준으로 신뢰할 수 있는 자료에 근거하여 AI로 작성되었으나, 
+본 보고서는 정보 제공을 목적으로 작성되었으며, 투자 권유를 목적으로 하지 않습니다.
+본 보고서에 기재된 내용은 작성 시점 기준으로 신뢰할 수 있는 자료에 근거하여 AI로 작성되었으나,
 그 정확성과 완전성을 보장하지 않습니다.
 
-투자는 본인의 판단과 책임 하에 신중하게 이루어져야 하며, 
+투자는 본인의 판단과 책임 하에 신중하게 이루어져야 하며,
 본 보고서를 참고하여 발생하는 투자 결과에 대한 책임은 투자자 본인에게 있습니다.
 """
