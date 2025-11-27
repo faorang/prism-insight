@@ -22,6 +22,27 @@ async def get_portfolio_stock_count(db_path: str = "stock_tracking_db.sqlite") -
 
     return count
 
+async def get_portfolio_stock(db_path: str = "stock_tracking_db.sqlite") -> list:
+# return [{'ticker': '003720'}, {'ticker': '005930'}, {'ticker': '036570'}, {'ticker': '092200'}]
+    """현재 보유 중인 포트폴리오 종목 리스트를 반환합니다."""
+    try:
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row  # 결과를 딕셔너리 형태로 반환
+        cursor = conn.cursor()
+
+        query = "SELECT ticker FROM stock_holdings"
+        cursor.execute(query)
+
+        stocks = cursor.fetchall()
+
+        cursor.close()
+        conn.close()
+    except Exception as e:
+        print(e)
+        stocks = []
+
+    return [dict(stock) for stock in stocks]
+
 async def sell_real_stock(ticker: str):
     # 실제 계좌 매매 함수 호출(비동기)
     from trading.domestic_stock_trading import AsyncTradingContext
@@ -149,7 +170,7 @@ async def check_stop_loss_triggered(db_path: str = "stock_tracking_db.sqlite"):
     conn.row_factory = sqlite3.Row  # 결과를 딕셔너리 형태로 반환
     cursor = conn.cursor()
 
-    query = "SELECT ticker, stop_loss FROM stock_holdings"
+    query = "SELECT ticker, stop_loss, target_price FROM stock_holdings"
     cursor.execute(query)
 
     real_portfolio = await get_trading_data()
@@ -162,19 +183,30 @@ async def check_stop_loss_triggered(db_path: str = "stock_tracking_db.sqlite"):
             print(f"{ticker} 종목은 실제 계좌에 없습니다. 건너뜁니다.")
             continue
         stop_loss = stock["stop_loss"]
+        target_price = stock["target_price"]
 
         # 현재 가격을 가져오는 로직 (예: API 호출)
         current_price = await get_current_stock_price(ticker)
         if current_price is not None:
+            print(f"{ticker} 현재가: {current_price}, 손절가: {stop_loss}, 목표가: {target_price}")
             if current_price <= stop_loss:
                 # 주가 정보 업데이트
                 stock['current_price'] = current_price
                 triggered_stocks.append(ticker)
                 await sell_stock(stock, sell_reason="손절가 도달")
                 await sell_real_stock(ticker)
+            elif current_price >= target_price:
+                print(f"{ticker} 종목이 목표가에 도달했으니 매도합니다.")
+                # 주가 정보 업데이트
+                stock['current_price'] = current_price
+                triggered_stocks.append(ticker)
+                await sell_stock(stock, sell_reason="목표가 도달")
+                await sell_real_stock(ticker)
+
+
         time.sleep(5)  # API 호출 제한을 피하기 위해 약간의 지연 추가
     if triggered_stocks:
-        message = f"손절가가 발동된 종목: {', '.join(triggered_stocks)}"
+        message = f"손절가/목표가 발동된 종목: {', '.join(triggered_stocks)}"
         current_price = await get_trading_data()
         print(f"현재 포트폴리오: {current_price}")
         message += f"\n현재 포트폴리오: {current_price}"

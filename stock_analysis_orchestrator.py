@@ -60,7 +60,6 @@ class StockAnalysisOrchestrator:
         logger.info(f"트리거 배치 실행 시작: {mode}")
         try:
             # 배치 프로세스 실행
-            import subprocess
 
             # 임시 파일에 결과 저장
             results_file = f"trigger_results_{mode}_{datetime.now().strftime('%Y%m%d')}.json"
@@ -279,7 +278,7 @@ class StockAnalysisOrchestrator:
                     all_results[key] = value
 
             if not all_results:
-                logger.warning(f"트리거 결과가 없습니다.")
+                logger.warning("트리거 결과가 없습니다.")
                 return False
 
             # 텔레그램 메시지 생성
@@ -426,7 +425,19 @@ class StockAnalysisOrchestrator:
             else:
                 # 1. 트리거 배치 실행 - 비동기 방식으로 변경 (asyncio 리소스 관리 개선)
                 results_file = f"trigger_results_{mode}_{datetime.now().strftime('%Y%m%d')}.json"
+                # [{ 'code': '012345', 'name': '111' }, { 'code': '003720', 'name': '123' }]
                 tickers = await self.run_trigger_batch(mode)
+
+                try:
+                    tickers_backup = tickers.copy()
+                    # [{'ticker': '003720'}, {'ticker': '005930'}, {'ticker': '036570'}, {'ticker': '092200'}]
+                    portfolio_tickers = await my_portfolio.get_portfolio_stock()
+
+                    # 포트폴리오 종목은 제외
+                    tickers = [t for t in tickers if t['code'] not in {p['ticker'] for p in portfolio_tickers}]
+                except Exception as e:
+                    logger.error(f"포트폴리오 종목 필터 중 오류: {str(e)}")
+                    tickers = tickers_backup
 
                 if not tickers:
                     logger.warning("선정된 종목이 없습니다. 프로세스 종료.")

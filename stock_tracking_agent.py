@@ -1552,7 +1552,7 @@ class StockTrackingAgent:
                         from trading.domestic_stock_trading import AsyncTradingContext
                         async with AsyncTradingContext() as trading:
                             # 비동기 매수 실행
-                            trade_result = await trading.async_buy_stock(stock_code=ticker,buy_price=current_price)
+                            trade_result = await trading.async_buy_stock(stock_code=ticker, buy_price=current_price)
 
                         if trade_result['success']:
                             logger.info(f"실제 매수 성공: {trade_result['message']}")
