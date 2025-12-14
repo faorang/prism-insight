@@ -152,7 +152,7 @@ def create_watermark(html_content, logo_path, opacity=0.02):
         # Base64로 로고 인코딩
         with open(logo_path, "rb") as image_file:
             encoded_logo = base64.b64encode(image_file.read()).decode('utf-8')
-
+        
         # 워터마크 CSS 스타일 - 다양한 브라우저 호환성 및 !important 추가
         watermark_style = f"""
         <style>
@@ -176,7 +176,7 @@ def create_watermark(html_content, logo_path, opacity=0.02):
         }}
         </style>
         """
-
+        
         # 스타일을 </head> 태그 바로 앞에 삽입
         return html_content.replace('</head>', f'{watermark_style}</head>')
     except Exception as e:
@@ -256,7 +256,7 @@ def markdown_to_html(md_file_path, add_css=True, add_theme=False, logo_path=None
 
         # 날짜 형식화
         today = datetime.now().strftime("%Y년 %m월 %d일")
-
+        
         # 로고 경로 설정
         if logo_path is None and (add_theme or enable_watermark):
             # 기본 로고 경로 (프로젝트 내 assets 폴더에 있다고 가정)
@@ -275,7 +275,7 @@ def markdown_to_html(md_file_path, add_css=True, add_theme=False, logo_path=None
                     <img src="{logo_path}" alt="프리즘 인사이트 로고" class="logo">
                 </div>
             """
-
+            
             footer_template = """
                 <div class="report-footer">
                     <p>© 2025 Prism Insight. All rights reserved.</p>
@@ -291,7 +291,7 @@ def markdown_to_html(md_file_path, add_css=True, add_theme=False, logo_path=None
             css_content = DEFAULT_CSS
             if add_theme:
                 css_content += THEME_CSS
-
+                
             full_html = f"""
             <!DOCTYPE html>
             <html>
@@ -320,7 +320,7 @@ def markdown_to_html(md_file_path, add_css=True, add_theme=False, logo_path=None
             </body>
             </html>
             """
-
+        
         # 배경에 로고 워터마크 적용
         if enable_watermark and logo_path:
             full_html = create_watermark(full_html, logo_path, watermark_opacity)
@@ -351,9 +351,9 @@ def markdown_to_pdf_pdfkit(md_file_path, pdf_file_path, add_theme=False, logo_pa
 
         # 마크다운을 HTML로 변환
         html_content = markdown_to_html(
-            md_file_path,
-            add_theme=add_theme,
-            logo_path=logo_path,
+            md_file_path, 
+            add_theme=add_theme, 
+            logo_path=logo_path, 
             enable_watermark=enable_watermark,
             watermark_opacity=watermark_opacity
         )
@@ -603,17 +603,8 @@ def convert_to_markdown(text):
 
 # PDF to markdown_text
 def pdf_to_markdown_text(pdf_path):
-    # read markdown text from md
-    try:
-        with open(pdf_path, 'r', encoding="utf-8") as file:
-            text = file.read()
-            return text
-    except Exception as e:
-        logger.error(f"PDF에서 마크다운 텍스트 추출 중 오류: {str(e)}")
-        return ""
-
-    # text = extract_text_from_pdf(pdf_path)
-    # return convert_to_markdown(text)
+    text = extract_text_from_pdf(pdf_path)
+    return convert_to_markdown(text)
 
 
 if __name__ == "__main__":

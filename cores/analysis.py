@@ -21,12 +21,12 @@ _market_analysis_cache = {}
 async def analyze_stock(company_code: str = "000660", company_name: str = "SK하이닉스", reference_date: str = None):
     """
     주식 종합 분석 보고서 생성
-    
+
     Args:
         company_code: 종목 코드
         company_name: 회사명
         reference_date: 분석 기준일 (YYYYMMDD 형식)
-    
+
     Returns:
         str: 생성된 최종 보고서 마크다운 텍스트
     """
@@ -47,7 +47,7 @@ async def analyze_stock(company_code: str = "000660", company_name: str = "SK하
 
         # 3. 분석할 섹션 정의
         base_sections = ["price_volume_analysis", "investor_trading_analysis", "company_status", "company_overview", "news_analysis", "market_index_analysis"]
-        
+
         # 4. 에이전트 가져오기
         agents = get_agent_directory(company_name, company_code, reference_date, base_sections)
 
@@ -161,11 +161,11 @@ async def analyze_stock(company_code: str = "000660", company_name: str = "SK하
                     final_report += "\n## 가격 및 거래량 차트\n\n"
 
                     if price_chart_html:
-                        final_report += f"### 가격 차트\n\n"
+                        final_report += f"### 가격 변동(csv)\n\n"
                         final_report += price_chart_html + "\n\n"
 
                     if volume_chart_html:
-                        final_report += f"### 거래량 차트\n\n"
+                        final_report += f"### 거래량 변동(csv)\n\n"
                         final_report += volume_chart_html + "\n\n"
 
                 # company_status 섹션 다음에 시가총액 차트와 기본 지표 차트 추가
@@ -173,11 +173,11 @@ async def analyze_stock(company_code: str = "000660", company_name: str = "SK하
                     final_report += "\n## 시가총액 및 기본 지표 차트\n\n"
 
                     if market_cap_chart_html:
-                        final_report += f"### 시가총액 추이\n\n"
+                        final_report += f"### 시가총액 변동(csv)\n\n"
                         final_report += market_cap_chart_html + "\n\n"
 
                     if fundamentals_chart_html:
-                        final_report += f"### 기본 지표 분석\n\n"
+                        final_report += f"### 기본 지표 변동(csv)\n\n"
                         final_report += fundamentals_chart_html + "\n\n"
 
         # 12. 최종 마크다운 정리

@@ -25,6 +25,8 @@ def clean_markdown(text: str) -> str:
     # 2. 개행문자 리터럴을 실제 개행으로 변환
     text = re.sub(r'\\n\\n', '\n\n', text)
 
+    text = text.replace('`!`!`', '```')
+
     return text
 
 

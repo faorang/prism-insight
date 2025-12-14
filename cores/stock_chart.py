@@ -306,6 +306,21 @@ def get_chart_as_base64_html(ticker, company_name, chart_function, chart_name, w
         if fig is None:
             return None
         else:
+            if isinstance(fig, list):
+                ret = ''
+                for f in fig:
+                    if isinstance(f, tuple):
+                        ret += f'#### {f[0]}\n' + f'''
+`!`!`csv
+{f[1]}
+`!`!`
+\n'''
+                return ret
+            elif isinstance(fig, str):
+                return f'''`!`!`csv
+{fig}
+`!`!`
+'''
             return fig
 
         # 이미지를 메모리에 저장 (압축 설정 적용)
@@ -1278,12 +1293,11 @@ def create_trading_volume_chart(ticker, company_name=None, days=730, save_path=N
     # 주요 투자자 선택
     investor_types = ['기관합계', '외국인합계', '개인', '기타법인']
 
-    ret = ''
+    ret = []
     # 순매수량 컬럼 선택
     if '순매수' in df_volume.columns:
         investor_data = df_volume['순매수']
-        ret += '# 투자자별 순매수량 \n'
-        ret += investor_data.to_csv(index=True)
+        ret.append(('투자자별 순매수량',investor_data.to_csv(index=True)))
 
 
     # 2. 일별 순매수량 추이
@@ -1299,8 +1313,7 @@ def create_trading_volume_chart(ticker, company_name=None, days=730, save_path=N
 
     # 누적 순매수량 계산
     df_cumulative = df_daily[key_investors].cumsum()
-    ret += '\n\n# 일별 누적 순매수량\n'
-    ret += df_cumulative.to_csv(index=True)
+    ret.append(('일별 누적 순매수량', df_cumulative.to_csv(index=True)))
 
     return ret
 
@@ -1521,7 +1534,7 @@ def check_font_available():
 
     return all_korean_fonts
 
-def main():
+async def main():
     """
     주식 차트 생성 함수 사용 예시
     """
@@ -1534,33 +1547,96 @@ def main():
 
     # 개별 차트 예시
     # 주석 해제하여 개별 차트 생성 및 표시
-    '''
-    price_chart_csv = get_chart_as_base64_html(
+
+    price_chart_html = get_chart_as_base64_html(
     company_code, company_name, create_price_chart, '가격 차트', width=900, dpi=80, image_format='jpg', compress=True,
     days=730, adjusted=True
     )
 
-    volume_chart_csv = get_chart_as_base64_html(
+    volume_chart_html = get_chart_as_base64_html(
         company_code, company_name, create_trading_volume_chart, '거래량 차트', width=900, dpi=80, image_format='jpg', compress=True,
         days=730
     )
-    with open('trading_volume_data.csv', 'w', encoding='utf-8') as f:
-        f.write(volume_chart_csv)
 
-    market_cap_chart_csv = get_chart_as_base64_html(
+    market_cap_chart_html = get_chart_as_base64_html(
         company_code, company_name, create_market_cap_chart, '시가총액 추이', width=900, dpi=80, image_format='jpg', compress=True,
         days=730
     )
-    with open('market_cap_data.csv', 'w', encoding='utf-8') as f:
-        f.write(market_cap_chart_csv)
-    '''
 
-    fundamentals_chart_csv = get_chart_as_base64_html(
+    fundamentals_chart_html= get_chart_as_base64_html(
         company_code, company_name, create_fundamentals_chart, '기본 지표', width=900, dpi=80, image_format='jpg', compress=True,
         days=730
     )
-    with open('fundamentals_data.csv', 'w', encoding='utf-8') as f:
-        f.write(fundamentals_chart_csv)
+
+    final_report = ''
+    final_report += "\n## 가격 및 거래량 차트\n\n"
+
+    if price_chart_html:
+        final_report += f"### 가격 변동(csv)\n\n"
+        final_report += price_chart_html + "\n\n"
+
+    if volume_chart_html:
+        final_report += f"### 거래량 변동(csv)\n\n"
+        final_report += volume_chart_html + "\n\n"
+
+    final_report += "\n## 시가총액 및 기본 지표 차트\n\n"
+
+    if market_cap_chart_html:
+        final_report += f"### 시가총액 변동(csv)\n\n"
+        final_report += market_cap_chart_html + "\n\n"
+
+    if fundamentals_chart_html:
+        final_report += f"### 기본 지표 변동(csv)\n\n"
+        final_report += fundamentals_chart_html + "\n\n"
+
+
+    from utils import clean_markdown
+    final_report = clean_markdown(final_report)
+    with open("stock_analysis_report.md", "w", encoding="utf-8") as f:
+        f.write(final_report)
+
+    async def convert_to_pdf(report_paths):
+        """
+        마크다운 보고서를 PDF로 변환
+
+        Args:
+            report_paths (list): 마크다운 보고서 파일 경로 리스트
+
+        Returns:
+            list: 생성된 PDF 파일 경로 리스트
+        """
+        logger.info(f"{len(report_paths)}개 보고서 PDF 변환 시작")
+        pdf_paths = []
+
+        # PDF 변환 모듈 임포트
+        from pdf_converter import markdown_to_pdf
+        from pathlib import Path
+
+        for report_path in report_paths:
+            try:
+                report_file = Path(report_path)
+                pdf_file = f"{report_file.stem}.pdf"
+
+                # 마크다운을 PDF로 변환
+                markdown_to_pdf(report_path, pdf_file, 'pdfkit', add_theme=True, enable_watermark=False)
+
+                logger.info(f"PDF 변환 완료: {pdf_file}")
+                pdf_paths.append(pdf_file)
+
+            except Exception as e:
+                logger.error(f"{report_path} PDF 변환 중 오류: {str(e)}")
+
+        return pdf_paths
+    p = await convert_to_pdf( ["stock_analysis_report.md"])
+
+    from pdf_converter import pdf_to_markdown_text
+    for i in p:
+        report_content = pdf_to_markdown_text(i)
+        with open("stock_analysis_report_converted.md", "w", encoding="utf-8") as f:
+            f.write(report_content)
+
+
+
 
     # 가격 차트
     #fig_price = create_price_chart(ticker, company_name)
@@ -1583,4 +1659,6 @@ def main():
     #plt.show()
 
 if __name__ == "__main__":
-    main()
+    import asyncio
+    # asyncio 실행
+    asyncio.run(main())

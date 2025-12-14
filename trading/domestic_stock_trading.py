@@ -359,6 +359,7 @@ class DomesticStockTrading:
             else:
                 error_msg = f"{res.getErrorCode()} - {res.getErrorMessage()}"
                 logger.error(f"지정가 매수 주문 실패: {error_msg}")
+                logger.error(f"요청 파라미터: {params}")
 
                 return {
                     'success': False,
@@ -1238,6 +1239,7 @@ class DomesticStockTrading:
                 'profit_rate': 수익률(%)
             }, ...]
         """
+        import time
         api_url = "/uapi/domestic-stock/v1/trading/inquire-balance"
 
         # TR ID 설정 (실전/모의 구분)
@@ -1261,49 +1263,60 @@ class DomesticStockTrading:
         }
 
         try:
-            res = ka._url_fetch(api_url, tr_id, "", params)
+            tryCount = 3
+            while tryCount > 0:
+                tryCount -= 1
+                res = ka._url_fetch(api_url, tr_id, "", params)
 
-            if res.isOK():
-                current_portfolio = []
-                output1 = res.getBody().output1  # 보유종목 리스트
-                output2 = res.getBody().output2[0]  # 계좌 요약 정보
+                if res.isOK():
+                    current_portfolio = []
+                    output1 = res.getBody().output1  # 보유종목 리스트
+                    output2 = res.getBody().output2[0]  # 계좌 요약 정보
 
-                # output1이 리스트가 아닌 경우 처리
-                if not isinstance(output1, list):
-                    output1 = [output1] if output1 else []
+                    # output1이 리스트가 아닌 경우 처리
+                    if not isinstance(output1, list):
+                        output1 = [output1] if output1 else []
 
-                for item in output1:
-                    # 보유수량이 0보다 큰 종목만 추가
-                    quantity = int(item.get('hldg_qty', 0))
-                    if quantity > 0:
-                        stock_info = {
-                            'stock_code': item.get('pdno', ''),
-                            'stock_name': item.get('prdt_name', ''),
-                            'quantity': quantity,
-                            'avg_price': float(item.get('pchs_avg_pric', 0)),
-                            'current_price': float(item.get('prpr', 0)),
-                            'eval_amount': float(item.get('evlu_amt', 0)),
-                            'profit_amount': float(item.get('evlu_pfls_amt', 0)),
-                            'profit_rate': float(item.get('evlu_pfls_rt', 0))
-                        }
-                        current_portfolio.append(stock_info)
+                    for item in output1:
+                        # 보유수량이 0보다 큰 종목만 추가
+                        quantity = int(item.get('hldg_qty', 0))
+                        if quantity > 0:
+                            stock_info = {
+                                'stock_code': item.get('pdno', ''),
+                                'stock_name': item.get('prdt_name', ''),
+                                'quantity': quantity,
+                                'avg_price': float(item.get('pchs_avg_pric', 0)),
+                                'current_price': float(item.get('prpr', 0)),
+                                'eval_amount': float(item.get('evlu_amt', 0)),
+                                'profit_amount': float(item.get('evlu_pfls_amt', 0)),
+                                'profit_rate': float(item.get('evlu_pfls_rt', 0))
+                            }
+                            current_portfolio.append(stock_info)
 
-                # 계좌 요약 정보 로깅
-                if output2:
-                    total_eval = float(output2.get('tot_evlu_amt', 0))
-                    total_profit = float(output2.get('evlu_pfls_smtl_amt', 0))
-                    logger.info(f"계좌 총평가: {total_eval:,.0f}원, 총손익: {total_profit:+,.0f}원")
+                    # 계좌 요약 정보 로깅
+                    if output2:
+                        total_eval = float(output2.get('tot_evlu_amt', 0))
+                        total_profit = float(output2.get('evlu_pfls_smtl_amt', 0))
+                        logger.info(f"계좌 총평가: {total_eval:,.0f}원, 총손익: {total_profit:+,.0f}원")
 
-                logger.info(f"포트폴리오: {len(current_portfolio)}개 종목 보유")
-                return current_portfolio
+                    logger.info(f"포트폴리오: {len(current_portfolio)}개 종목 보유")
+                    return current_portfolio
 
-            else:
-                logger.error(f"잔고 조회 실패: {res.getErrorCode()} - {res.getErrorMessage()}")
-                return []
+                else:
+                    if tryCount > 0:
+                        # 60초 대기 후 재시도
+                        logger.warning(f"잔고 조회 초과로 재시도 중... 남은 시도 횟수: {tryCount}")
+                        time.sleep(60)
+                        continue
+
+                # Error Code : 500 | {"rt_cd":"1","msg_cd":"EGW00201","msg1":"원장에서 허용 가능한 초당 거래건수를 초과하였습니다."}
+                    logger.error(f"잔고 조회 실패: {res.getErrorCode()} - {res.getErrorMessage()}")
+                    return []
 
         except Exception as e:
             logger.error(f"잔고 조회 중 오류: {str(e)}")
             return []
+        return []
 
     def get_account_summary(self) -> None | dict[Any, Any] | dict[str, float]:
         """

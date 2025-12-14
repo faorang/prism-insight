@@ -44,17 +44,23 @@ async def get_portfolio_stock(db_path: str = "stock_tracking_db.sqlite") -> list
     return [dict(stock) for stock in stocks]
 
 async def sell_real_stock(ticker: str):
-    # 실제 계좌 매매 함수 호출(비동기)
-    from trading.domestic_stock_trading import AsyncTradingContext
-    async with AsyncTradingContext() as trading:
-        # 비동기 매도 실행
-        trade_result = await trading.async_sell_stock(stock_code=ticker)
+    try:
+        # 실제 계좌 매매 함수 호출(비동기)
+        from trading.domestic_stock_trading import AsyncTradingContext
+        async with AsyncTradingContext() as trading:
+            # 비동기 매도 실행
+            trade_result = await trading.async_sell_stock(stock_code=ticker)
 
-    if trade_result['success']:
-        print(f"{ticker} 매도 성공: {trade_result}")
-    else:
-        print(f"{ticker} 매도 실패: {trade_result}")
-    return trade_result['success']
+        if trade_result['success']:
+            print(f"{ticker} 매도 성공: {trade_result}")
+        else:
+            print(f"{ticker} 매도 실패: {trade_result}")
+        return trade_result['success']
+    except Exception as e:
+        print(e)
+        print(f"에러 {ticker} 매도 실패")
+        return False
+
 
 async def sell_stock(stock_data: Dict[str, Any], sell_reason: str) -> bool:
     """
@@ -68,6 +74,7 @@ async def sell_stock(stock_data: Dict[str, Any], sell_reason: str) -> bool:
         bool: 매도 성공 여부
     """
     from datetime import datetime
+    conn = None  # conn을 try 블록 외부에서 초기화
     try:
         ticker = stock_data.get('ticker', '')
         company_name = stock_data.get('company_name', '')
@@ -89,7 +96,6 @@ async def sell_stock(stock_data: Dict[str, Any], sell_reason: str) -> bool:
 
         db_path = "stock_tracking_db.sqlite"
         conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row  # 결과를 딕셔너리 형태로 반환
         cursor = conn.cursor()
 
         # 매매 내역 테이블에 추가
@@ -124,7 +130,12 @@ async def sell_stock(stock_data: Dict[str, Any], sell_reason: str) -> bool:
 
     except Exception as e:
         print(e)
+        if conn:
+            conn.rollback()
         return False
+    finally:
+        if conn:
+            conn.close()
 
 
 async def get_current_stock_price(ticker: str) -> float:
@@ -170,14 +181,17 @@ async def check_stop_loss_triggered(db_path: str = "stock_tracking_db.sqlite"):
     conn.row_factory = sqlite3.Row  # 결과를 딕셔너리 형태로 반환
     cursor = conn.cursor()
 
-    query = "SELECT ticker, stop_loss, target_price FROM stock_holdings"
+    query = "SELECT * FROM stock_holdings"
     cursor.execute(query)
 
     real_portfolio = await get_trading_data()
     stock_codes = [item['stock_code'] for item in real_portfolio]
 
     triggered_stocks = []
-    for stock in cursor.fetchall():
+    for s in cursor.fetchall():
+        # clone stock to dict
+        stock = dict(s)
+
         ticker = stock["ticker"]
         if ticker not in stock_codes:
             print(f"{ticker} 종목은 실제 계좌에 없습니다. 건너뜁니다.")
@@ -258,6 +272,9 @@ async def syncup_portfolio_data():
         # 실제 계좌에서 종목 가져오기
         real_portfolio = await get_trading_data()
         real_tickers = {item['stock_code'] for item in real_portfolio}
+
+        print(f"DB 종목: {db_tickers}")
+        print(f"실제 계좌 종목: {real_tickers}")
 
         # DB에만 있는 종목 찾기 (실제 계좌에는 없음)
         not_in_real_account = db_tickers - real_tickers

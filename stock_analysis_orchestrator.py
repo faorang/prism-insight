@@ -470,7 +470,7 @@ class StockAnalysisOrchestrator:
                 await self.send_telegram_messages(message_paths, pdf_paths)
 
             # 6. 트랙킹 시스템 배치
-            if pdf_paths or is_portfolio_full:
+            if report_paths or is_portfolio_full:
                 try:
                     logger.info("주식 트래킹 시스템 배치 실행 시작")
 
@@ -498,7 +498,7 @@ class StockAnalysisOrchestrator:
                         tracking_agent = StockTrackingAgent(telegram_token=telegram_token)
 
                         # 보고서 경로와 채널 ID 전달
-                        tracking_success = await tracking_agent.run(pdf_paths, chat_id)
+                        tracking_success = await tracking_agent.run(report_paths, chat_id)
 
                         if tracking_success:
                             logger.info("트래킹 시스템 배치 실행 완료")
