@@ -6,16 +6,11 @@ import asyncio
 
 async def main():
     sell_decision_agent = Agent(
-        name="sell_decision_agent",
+        name="agent",
         instruction="""
-        ### tool 사용 지침
-            **time-get_current_time으로 현재 시간 획득**
-            **sqlite tool로 확인할 데이터:**
-            현재 포트폴리오 종목 현황
-        ### 출력 내용
-        현재 시간, 포트 폴리오 종목 이름
+        친절한 AI
         """,
-        server_names=["sqlite", "time"]
+        server_names=[]
     )
     # LLM 호출하여 매도 의사결정 생성
     llm = await sell_decision_agent.attach_llm(OpenAIAugmentedLLM)
@@ -25,10 +20,11 @@ async def main():
         HI
         """,
         request_params=RequestParams(
-            model="gpt-5",
+            model="gpt-5.1",
             maxTokens=6000,
             metadata={
-                "service_tier":"flex"
+                "service_tier":"flex",
+                "reasoning_effort":"none"
             }
         )
     )
