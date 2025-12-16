@@ -209,6 +209,7 @@ async def check_stop_loss_triggered(db_path: str = "stock_tracking_db.sqlite"):
                 triggered_stocks.append(ticker)
                 await sell_stock(stock, sell_reason="손절가 도달")
                 await sell_real_stock(ticker)
+            ''' 잠시 비활성화, canslim 전략과 충돌
             elif current_price >= target_price:
                 print(f"{ticker} 종목이 목표가에 도달했으니 매도합니다.")
                 # 주가 정보 업데이트
@@ -216,6 +217,7 @@ async def check_stop_loss_triggered(db_path: str = "stock_tracking_db.sqlite"):
                 triggered_stocks.append(ticker)
                 await sell_stock(stock, sell_reason="목표가 도달")
                 await sell_real_stock(ticker)
+            '''
 
 
         time.sleep(5)  # API 호출 제한을 피하기 위해 약간의 지연 추가

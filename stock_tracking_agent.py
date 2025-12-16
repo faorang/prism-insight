@@ -705,10 +705,11 @@ class StockTrackingAgent:
                 {report_content}
                 """,
                 request_params=RequestParams(
-                    model="gpt-5",
+                    model="gpt-5.1",
                     maxTokens=10000,
                     metadata={
-                        "service_tier":"flex"
+                        "service_tier":"flex",
+                        "reasoning_effort":"high",
                     }
                 )
             )

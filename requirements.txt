@@ -12,6 +12,7 @@ markdown>=3.3.0
 python-telegram-bot>=20.0
 aiosqlite>=0.17.0
 mcp-server-sqlite
+mcp~=1.24.0
 
 # 파일 처리 및 로깅
 pathlib>=1.0.1

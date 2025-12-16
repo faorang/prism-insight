@@ -33,3 +33,4 @@ reports/
 sqlite/uv.lock
 telegram_messages/
 sqlite/sqlite_mcp_server.db
+logs/

@@ -824,10 +824,11 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
                 매도할지 계속 보유할지 결정해주세요.
                 """,
                 request_params=RequestParams(
-                    model="gpt-5",
-                    maxTokens=6000,
+                    model="gpt-5.1",
+                    maxTokens=2000, # 너무 오래걸려서 출력 토큰 제한
                     metadata={
-                        "service_tier":"flex"
+                        "service_tier":"flex",
+                        "reasoning_effort":"high",
                     }
                 )
             )

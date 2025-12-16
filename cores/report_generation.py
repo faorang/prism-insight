@@ -30,11 +30,14 @@ async def generate_report(agent, section, company_name, company_code, reference_
                                 ##분석일: {reference_date}(YYYYMMDD 형식)
                                 """,
         request_params=RequestParams(
-            model="gpt-4.1",
+            model="gpt-5.1",
             maxTokens=16000,
             max_iterations=6,
             parallel_tool_calls=True,
-            use_history=True
+            use_history=True,
+            metadata={
+                "service_tier":"flex",
+            }
         )
     )
     logger.info(f"Completed {section} - {len(report)} characters")
@@ -61,11 +64,15 @@ async def generate_market_report(agent, section, reference_date, logger):
                                 ##분석일: {reference_date}(YYYYMMDD 형식)
                                 """,
         request_params=RequestParams(
-            model="gpt-4.1",
+            model="gpt-5.1",
             maxTokens=16000,
             max_iterations=3,
             parallel_tool_calls=True,
-            use_history=True
+            use_history=True,
+            metadata={
+                "service_tier":"flex",
+                "reasoning_effort":"high"
+            }
         )
     )
     logger.info(f"Completed {section} - {len(report)} characters")
@@ -119,11 +126,15 @@ async def generate_summary(section_reports, company_name, company_code, referenc
                     {all_reports}
                     """,
             request_params=RequestParams(
-                model="gpt-4.1",
-                maxTokens=6000,
+                model="gpt-5.1",
+                maxTokens=1000,
                 max_iterations=2,
-                parallel_tool_calls=True,
-                use_history=True
+                parallel_tool_calls=False,
+                use_history=True,
+                metadata={
+                    "service_tier":"flex",
+                    "reasoning_effort": "high"   # 중요: 여러 보고서 통합하므로 깊게 생각
+                }
             )
         )
         return executive_summary
@@ -214,7 +225,7 @@ async def generate_investment_strategy(section_reports, combined_reports, compan
 
             ## 투자 전략 작성 지침:
             앞서 분석된 모든 정보를 바탕으로 종합적인 투자 전략 보고서를 작성하세요.
-            기존에 설정된 투자 전략 에이전트의 지침에 따라 작성하되, 특히 다음 사항에 중점을 두세요:
+            기존에 설정된 투자 전략 에이전트의 지침에 따라 작성하되, 특히 다음 사항에 중점을 두세요
 
             1. 앞서 분석된 다양한 데이터(기술적/기본적/뉴스)를 단순 요약이 아닌 통합적 관점에서 재해석
             2. 현 시점({reference_date})의 주가 수준에서 투자 매력도 평가
@@ -228,11 +239,15 @@ async def generate_investment_strategy(section_reports, combined_reports, compan
             - 투자자가 행동으로 옮길 수 있는 실질적인 전략 제시에 초점을 맞추세요
             """,
             request_params=RequestParams(
-                model="gpt-4.1",
-                maxTokens=16000,
+                model="gpt-5.1",
+                maxTokens=5000,
                 max_iterations=3,
-                parallel_tool_calls=True,
-                use_history=True
+                parallel_tool_calls=False,
+                use_history=True,
+                metadata={
+                    "service_tier":"flex",
+                    "reasoning_effort": "high"   # 통합·시나리오·리스크 분석용으로 필수
+                }
             )
         )
         logger.info(f"Completed investment_strategy - {len(investment_strategy)} characters")
