@@ -71,7 +71,7 @@ async def generate_market_report(agent, section, reference_date, logger):
             use_history=True,
             metadata={
                 "service_tier":"flex",
-                "reasoning_effort":"high"
+                # "reasoning_effort":"high"
             }
         )
     )
@@ -127,13 +127,13 @@ async def generate_summary(section_reports, company_name, company_code, referenc
                     """,
             request_params=RequestParams(
                 model="gpt-5.1",
-                maxTokens=1000,
+                maxTokens=6000,
                 max_iterations=2,
                 parallel_tool_calls=False,
                 use_history=True,
                 metadata={
                     "service_tier":"flex",
-                    "reasoning_effort": "high"   # 중요: 여러 보고서 통합하므로 깊게 생각
+                    # "reasoning_effort": "high"   # 중요: 여러 보고서 통합하므로 깊게 생각, gpt는 그게 또 아니라네?
                 }
             )
         )
@@ -240,7 +240,7 @@ async def generate_investment_strategy(section_reports, combined_reports, compan
             """,
             request_params=RequestParams(
                 model="gpt-5.1",
-                maxTokens=5000,
+                maxTokens=16000,
                 max_iterations=3,
                 parallel_tool_calls=False,
                 use_history=True,

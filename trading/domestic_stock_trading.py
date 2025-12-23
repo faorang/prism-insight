@@ -274,6 +274,30 @@ class DomesticStockTrading:
 
         return 0
 
+    def get_tick_size(self, price: float) -> int:
+        """가격에 따른 틱 사이즈 결정"""
+        if price < 2000:
+            return 1
+        elif price < 5000:
+            return 5
+        elif price < 20000:
+            return 10
+        elif price < 50000:
+            return 50
+        elif price < 200000:
+            return 100
+        elif price < 500000:
+            return 500
+        else:
+            return 1000
+
+    def to_bid_tick(self, price: float) -> int:
+        """
+        입력 가격을 틱 사이즈에 맞춰 '매수 호가(내림)'로 변환
+        """
+        tick = self.get_tick_size(price)
+        return int(math.floor(price / tick) * tick)
+
     def buy_limit_price(self, stock_code: str, limit_price: int, buy_amount: int = None) -> Dict[str, Any]:
         """
         지정가 매수
@@ -305,6 +329,9 @@ class DomesticStockTrading:
             }
 
         amount = buy_amount if buy_amount else self.buy_amount
+
+        limit_price = math.floor(limit_price)
+        limit_price = self.to_bid_tick(limit_price)
 
         # 매수 가능 수량 계산 (지정가 기준)
         buy_quantity = math.floor(amount / limit_price)
