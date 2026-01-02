@@ -5,6 +5,8 @@ import sys
 import logging
 from pathlib import Path
 
+from trading.chk_holiday import is_market_day as check_market_day
+
 # 프로젝트 루트 디렉토리 자동 감지
 PROJECT_ROOT = Path(__file__).resolve().parent
 
@@ -20,11 +22,14 @@ logger = logging.getLogger(__name__)
 def is_market_day():
     """한국 주식 시장 영업일인지 확인"""
     today = date.today()
+    print(f"오늘 날짜: {today.strftime("%Y%m%d")}")
 
     # 주말 체크 (5:토요일, 6:일요일)
     if today.weekday() >= 5:
         logger.debug(f"{today}은 주말입니다.")
         return False
+
+    return check_market_day(today.strftime("%Y%m%d"))
 
     # 한국 공휴일 체크
     kr_holidays = KR()
@@ -61,6 +66,9 @@ def is_market_day():
     # 2026년 이후 특별 휴일 체크 (매년 업데이트 필요)
     elif today.year == 2026:
         # 여기에 2026년 특별 휴일 추가
+        if today.day == 1 and today.month == 1:
+            logger.debug(f"{today}은 2026년 특별 휴일입니다.")
+            return False
         pass
 
     # 영업일
@@ -69,7 +77,9 @@ def is_market_day():
 if __name__ == "__main__":
     if is_market_day():
         # 영업일이면 종료 코드 0 (정상)
+        print("오늘은 한국 주식 시장 영업일입니다.")
         sys.exit(0)
     else:
         # 영업일이 아니면 종료 코드 1 (비정상)
+        print("오늘은 한국 주식 시장 영업일이 아닙니다.")
         sys.exit(1)
