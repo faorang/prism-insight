@@ -16,7 +16,7 @@ async def main():
     llm = await sell_decision_agent.attach_llm(OpenAIAugmentedLLM)
 
     response = await llm.generate_str(
-        message=f"""
+        message="""
         HI
         """,
         request_params=RequestParams(

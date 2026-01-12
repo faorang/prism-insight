@@ -5,6 +5,9 @@ elegant_stock_charts.py - 전문 주식 시각화 도구 for AI 주식 리포팅
 투자 전문가 수준의 시각화를 제공하고 데이터 인사이트를 강조합니다.
 """
 
+from dotenv import load_dotenv
+load_dotenv()  # .env 파일에서 환경변수 로드
+
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -412,7 +415,7 @@ def create_mpf_style(base_mpl_style='seaborn-v0_8-whitegrid'):
     return s
 
 # stock_api에서 함수들 임포트
-from pykrx.stock.stock_api import (
+from krx_data_client import (
     get_market_ohlcv_by_date,
     get_market_cap_by_date,
     get_market_fundamental_by_date,
@@ -511,10 +514,11 @@ def create_price_chart(ticker, company_name=None, days=730, save_path=None, adju
     df = df.sort_index()
 
     # 이동평균선 계산
-    df['MA20'] = df['종가'].rolling(window=20).mean().round(2)
-    df['MA60'] = df['종가'].rolling(window=60).mean().round(2)
-    df['MA120'] = df['종가'].rolling(window=120).mean().round(2)
-    df.drop(columns=['등락률'], inplace=True)
+    df['MA20'] = df['Close'].rolling(window=20).mean().round(2)
+    df['MA60'] = df['Close'].rolling(window=60).mean().round(2)
+    df['MA120'] = df['Close'].rolling(window=120).mean().round(2)
+    if '등락률' in df.columns:
+        df.drop(columns=['등락률'], inplace=True)
     return df.to_csv(index=True)
 
     # mplfinance에 맞는 컬럼명으로 변경
@@ -737,7 +741,7 @@ def create_market_cap_chart(ticker, company_name=None, days=730, save_path=None)
 
     # 날짜 오름차순 정렬
     df = df.sort_index()
-    new_df = df[['시가총액']].copy()
+    new_df = df[['MarketCap']].copy()
     new_df.index = df.index  # 인덱스는 기본적으로 유지되지만 명시적으로도 지정 가능
     return new_df.to_csv(index=True)
 
@@ -1294,11 +1298,12 @@ def create_trading_volume_chart(ticker, company_name=None, days=730, save_path=N
     investor_types = ['기관합계', '외국인합계', '개인', '기타법인']
 
     ret = []
-    # 순매수량 컬럼 선택
-    if '순매수' in df_volume.columns:
-        investor_data = df_volume['순매수']
+    # 투자자별 순매수량 합계 계산 (krx_data_client는 날짜별 데이터 반환)
+    # 각 투자자별 컬럼의 합계를 계산
+    investor_cols = [col for col in df_volume.columns if col in investor_types]
+    if investor_cols:
+        investor_data = df_volume[investor_cols].sum()
         ret.append(('투자자별 순매수량',investor_data.to_csv(index=True)))
-
 
     # 2. 일별 순매수량 추이
     # 인덱스가 datetime인지 확인

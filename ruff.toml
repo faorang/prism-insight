@@ -1,0 +1,2 @@
+[lint]
+ignore = ["E402", "E712","E722"] # Ignores line length and missing docstrings globally

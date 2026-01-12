@@ -1,3 +1,6 @@
+from dotenv import load_dotenv
+load_dotenv()  # .env 파일에서 환경변수 로드
+
 import numpy as np
 from scipy import stats
 from typing import List, Tuple, Dict, Any
@@ -231,7 +234,7 @@ Trailing Stop은 **이익 구간에서 수익을 보호하기 위한 장치**이
     async def _analyze_simple_market_condition(self):
         """시장 상태 분석 (강세장/약세장)"""
         try:
-            from pykrx.stock import stock_api
+            from krx_data_client import get_index_ohlcv_by_date
             import datetime as dt
 
             # 오늘 날짜
@@ -241,12 +244,12 @@ Trailing Stop은 **이익 구간에서 수익을 보호하기 위한 장치**이
             one_month_ago = (dt.datetime.now() - dt.timedelta(days=30)).strftime("%Y%m%d")
 
             # 코스피, 코스닥 지수 데이터 가져오기
-            kospi_df = stock_api.get_index_ohlcv_by_date(one_month_ago, today, "1001")
-            kosdaq_df = stock_api.get_index_ohlcv_by_date(one_month_ago, today, "2001")
+            kospi_df = get_index_ohlcv_by_date(one_month_ago, today, "1001")
+            kosdaq_df = get_index_ohlcv_by_date(one_month_ago, today, "2001")
 
             # 지수 추세 분석
-            kospi_trend = self._calculate_trend(kospi_df['종가'])
-            kosdaq_trend = self._calculate_trend(kosdaq_df['종가'])
+            kospi_trend = self._calculate_trend(kospi_df['Close'])
+            kosdaq_trend = self._calculate_trend(kosdaq_df['Close'])
 
             # 전체 시장 상태 결정
             # 두 지수 모두 상승 추세면 강세장(1), 두 지수 모두 하락 추세면 약세장(-1), 그 외는 중립(0)
@@ -258,8 +261,8 @@ Trailing Stop은 **이익 구간에서 수익을 보호하기 위한 장치**이
                 market_condition = 0  # 중립
 
             # 시장 변동성 계산 (코스피, 코스닥 변동성의 평균)
-            kospi_volatility = self._calculate_volatility(kospi_df['종가'])
-            kosdaq_volatility = self._calculate_volatility(kosdaq_df['종가'])
+            kospi_volatility = self._calculate_volatility(kospi_df['Close'])
+            kosdaq_volatility = self._calculate_volatility(kosdaq_df['Close'])
             avg_volatility = (kospi_volatility + kosdaq_volatility) / 2
 
             # 시장 상태 저장
@@ -275,8 +278,8 @@ Trailing Stop은 **이익 구간에서 수익을 보호하기 위한 장치**이
                 """,
                 (
                     current_date,
-                    kospi_df['종가'].iloc[-1],
-                    kosdaq_df['종가'].iloc[-1],
+                    kospi_df['Close'].iloc[-1],
+                    kosdaq_df['Close'].iloc[-1],
                     market_condition,
                     avg_volatility
                 )
@@ -316,16 +319,16 @@ Trailing Stop은 **이익 구간에서 수익을 보호하기 위한 장치**이
             start_date = (today - timedelta(days=60)).strftime("%Y%m%d")
             end_date = today.strftime("%Y%m%d")
 
-            # pykrx 사용하여 주가 데이터 가져오기
-            from pykrx.stock import stock_api
-            df = stock_api.get_market_ohlcv_by_date(start_date, end_date, ticker)
+            # Fetch stock price data using krx_data_client
+            from krx_data_client import get_market_ohlcv_by_date
+            df = get_market_ohlcv_by_date(start_date, end_date, ticker)
 
             if df.empty:
                 logger.warning(f"{ticker} 가격 데이터를 가져올 수 없습니다.")
                 return 15.0  # 기본 변동성 (15%)
 
             # 일간 수익률의 표준편차 계산
-            daily_returns = df['종가'].pct_change().dropna()
+            daily_returns = df['Close'].pct_change().dropna()
             volatility = daily_returns.std() * 100  # 퍼센트로 변환
 
             # 변동성 테이블에 저장
@@ -452,7 +455,7 @@ Trailing Stop은 **이익 구간에서 수익을 보호하기 위한 장치**이
                 scenario = analysis_result.get("scenario", {})
                 sector = analysis_result.get("sector", "알 수 없음")
                 sector_diverse = analysis_result.get("sector_diverse", True)
-                rank_change_percentage = analysis_result.get("rank_change_percentage", 0)
+                # rank_change_percentage = analysis_result.get("rank_change_percentage", 0)
                 rank_change_msg = analysis_result.get("rank_change_msg", "")
 
                 # 진입 결정 확인
@@ -473,7 +476,7 @@ Trailing Stop은 **이익 구간에서 수익을 보호하기 위한 장치**이
                             logger.info(f"매수 점수 부족으로 결정 변경: {company_name}({ticker}) - 진입 → 관망 (점수: {buy_score} < {min_score})")
                         reason = f"매수 점수 부족 ({buy_score} < {min_score})"
                     elif decision != "진입":
-                        reason = f"분석 결정이 '관망'"
+                        reason = "분석 결정이 '관망'"
 
                     # 시장 상태 정보
                     market_condition_text = scenario.get("market_condition")
@@ -653,14 +656,14 @@ Trailing Stop은 **이익 구간에서 수익을 보호하기 위한 장치**이
             start_date = (today - timedelta(days=days)).strftime("%Y%m%d")
             end_date = today.strftime("%Y%m%d")
 
-            from pykrx.stock import stock_api
-            df = stock_api.get_market_ohlcv_by_date(start_date, end_date, ticker)
+            from krx_data_client import get_market_ohlcv_by_date
+            df = get_market_ohlcv_by_date(start_date, end_date, ticker)
 
             if df.empty:
                 return 0  # 중립 (데이터 없음)
 
             # 추세 계산
-            prices = df['종가'].values
+            prices = df['Close'].values
             x = np.arange(len(prices))
 
             # 선형 회귀로 추세 계산

@@ -33,8 +33,8 @@ from report_generator import (
     generate_evaluation_response, get_cached_report, generate_follow_up_response,
     get_or_create_global_mcp_app, cleanup_global_mcp_app
 )
-from datetime import datetime, timedelta
-from typing import Dict, Optional
+from datetime import timedelta
+from typing import Dict
 
 # 환경 변수 로드
 load_dotenv()
@@ -760,8 +760,8 @@ class TelegramAIBot:
             context.user_data['avg_price'] = avg_price
 
             await update.message.reply_text(
-                f"보유 기간을 입력해주세요. (개월 수)\n"
-                f"예: 6 (6개월)"
+                "보유 기간을 입력해주세요. (개월 수)\n"
+                "예: 6 (6개월)"
             )
             return ENTERING_PERIOD
 
@@ -975,7 +975,7 @@ class TelegramAIBot:
                          f"유니코드: {[ord(c) for c in stock_input]}")
 
         # 종목명 부분 일치 검색
-        logger.info(f"부분 일치 검색 시작")
+        logger.info("부분 일치 검색 시작")
         possible_matches = []
 
         try:

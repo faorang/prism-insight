@@ -414,23 +414,23 @@ class StockTrackingAgent:
             float: 현재 주가
         """
         try:
-            from pykrx.stock import stock_api
+            from krx_data_client import get_nearest_business_day_in_a_week,get_market_ohlcv_by_ticker
             import datetime
 
             # 오늘 날짜
             today = datetime.datetime.now().strftime("%Y%m%d")
 
             # 가장 최근 영업일 구하기
-            trade_date = stock_api.get_nearest_business_day_in_a_week(today, prev=True)
+            trade_date = get_nearest_business_day_in_a_week(today, prev=True)
             logger.info(f"타겟 날짜: {trade_date}")
 
             # 해당 거래일의 OHLCV 데이터 가져오기
-            df = stock_api.get_market_ohlcv_by_ticker(trade_date)
+            df = get_market_ohlcv_by_ticker(trade_date)
 
             # 특정 종목 데이터 추출
             if ticker in df.index:
                 # 종가(Close) 추출
-                current_price = df.loc[ticker, "종가"]
+                current_price = df.loc[ticker, "Close"]
                 logger.info(f"{ticker} 종목 현재가: {current_price:,.0f}원")
                 return float(current_price)
             else:
@@ -479,17 +479,16 @@ class StockTrackingAgent:
             Tuple[float, str]: 랭킹 변화율, 분석 결과 메시지
         """
         try:
-            from pykrx.stock import stock_api
+            from krx_data_client import get_nearest_business_day_in_a_week,get_market_ohlcv_by_ticker
             import datetime
-            import pandas as pd
 
             # 오늘 날짜
             today = datetime.datetime.now().strftime("%Y%m%d")
 
             # 최근 2개 영업일 구하기
-            recent_date = stock_api.get_nearest_business_day_in_a_week(today, prev=True)
+            recent_date = get_nearest_business_day_in_a_week(today, prev=True)
             previous_date_obj = datetime.datetime.strptime(recent_date, "%Y%m%d") - timedelta(days=1)
-            previous_date = stock_api.get_nearest_business_day_in_a_week(
+            previous_date = get_nearest_business_day_in_a_week(
                 previous_date_obj.strftime("%Y%m%d"),
                 prev=True
             )
@@ -497,27 +496,27 @@ class StockTrackingAgent:
             logger.info(f"최근 영업일: {recent_date}, 이전 영업일: {previous_date}")
 
             # 해당 거래일의 OHLCV 데이터 가져오기 (거래대금 포함)
-            recent_df = stock_api.get_market_ohlcv_by_ticker(recent_date)
-            previous_df = stock_api.get_market_ohlcv_by_ticker(previous_date)
+            recent_df = get_market_ohlcv_by_ticker(recent_date)
+            previous_df = get_market_ohlcv_by_ticker(previous_date)
 
             # 거래대금으로 정렬하여 랭킹 생성
-            recent_rank = recent_df.sort_values(by="거래대금", ascending=False).reset_index()
-            previous_rank = previous_df.sort_values(by="거래대금", ascending=False).reset_index()
+            recent_rank = recent_df.sort_values(by="Amount", ascending=False).reset_index()
+            previous_rank = previous_df.sort_values(by="Amount", ascending=False).reset_index()
 
             # 티커에 대한 랭킹 찾기
-            if ticker in recent_rank['티커'].values:
-                recent_ticker_rank = recent_rank[recent_rank['티커'] == ticker].index[0] + 1
+            if ticker in recent_rank['Ticker'].values:
+                recent_ticker_rank = recent_rank[recent_rank['Ticker'] == ticker].index[0] + 1
             else:
                 recent_ticker_rank = 0
 
-            if ticker in previous_rank['티커'].values:
-                previous_ticker_rank = previous_rank[previous_rank['티커'] == ticker].index[0] + 1
+            if ticker in previous_rank['Ticker'].values:
+                previous_ticker_rank = previous_rank[previous_rank['Ticker'] == ticker].index[0] + 1
             else:
                 previous_ticker_rank = 0
 
             # 랭킹이 없을 경우 리턴
             if recent_ticker_rank == 0 or previous_ticker_rank == 0:
-                return 0, f"거래대금 랭킹 정보 없음"
+                return 0, "거래대금 랭킹 정보 없음"
 
             # 랭킹 변화 계산
             rank_change = previous_ticker_rank - recent_ticker_rank  # 양수면 순위 상승, 음수면 순위 하락
@@ -1059,7 +1058,7 @@ class StockTrackingAgent:
                     primary_resistance = self._parse_price_value(key_levels.get('primary_resistance', 0))
                     secondary_resistance = self._parse_price_value(key_levels.get('secondary_resistance', 0))
                     if primary_resistance or secondary_resistance:
-                        message += f"  📈 저항선:\n"
+                        message += "  📈 저항선:\n"
                         if secondary_resistance:
                             message += f"    • 2차: {secondary_resistance:,.0f}원\n"
                         if primary_resistance:
@@ -1072,7 +1071,7 @@ class StockTrackingAgent:
                     primary_support = self._parse_price_value(key_levels.get('primary_support', 0))
                     secondary_support = self._parse_price_value(key_levels.get('secondary_support', 0))
                     if primary_support or secondary_support:
-                        message += f"  📉 지지선:\n"
+                        message += "  📉 지지선:\n"
                         if primary_support:
                             message += f"    • 1차: {primary_support:,.0f}원\n"
                         if secondary_support:
@@ -1464,7 +1463,7 @@ class StockTrackingAgent:
             sector_counts = {}
 
             if holdings and len(holdings) > 0:
-                message += f"🔸 보유 종목 목록:\n"
+                message += "🔸 보유 종목 목록:\n"
                 for stock in holdings:
                     ticker = stock.get('ticker', '')
                     company_name = stock.get('company_name', '')
@@ -1499,7 +1498,7 @@ class StockTrackingAgent:
                     message += f"  수익률: {arrow} {profit_rate:.2f}% / 보유기간: {days_passed}일\n\n"
 
                 # 산업군 분포 추가
-                message += f"🔸 산업군 분포:\n"
+                message += "🔸 산업군 분포:\n"
                 for sector, count in sector_counts.items():
                     percentage = (count / len(holdings)) * 100
                     message += f"- {sector}: {count}개 ({percentage:.1f}%)\n"
@@ -1508,7 +1507,7 @@ class StockTrackingAgent:
                 message += "보유 중인 종목이 없습니다.\n\n"
 
             # 3. 매매 이력 통계
-            message += f"🔸 매매 이력 통계\n"
+            message += "🔸 매매 이력 통계\n"
             message += f"- 총 거래 건수: {total_trades}건\n"
             message += f"- 수익 거래: {successful_trades}건\n"
             message += f"- 손실 거래: {total_trades - successful_trades}건\n"
@@ -1516,7 +1515,7 @@ class StockTrackingAgent:
             if total_trades > 0:
                 message += f"- 승률: {(successful_trades / total_trades * 100):.2f}%\n"
             else:
-                message += f"- 승률: 0.00%\n"
+                message += "- 승률: 0.00%\n"
 
             message += f"- 누적 수익률: {total_profit:.2f}%\n"
 
@@ -1524,7 +1523,7 @@ class StockTrackingAgent:
             if first_kospi > 0 and last_kospi > 0:
                 kospi_change = ((last_kospi - first_kospi) / first_kospi) * 100
                 kosdaq_change = ((last_kosdaq - first_kosdaq) / first_kosdaq) * 100 if first_kosdaq > 0 else 0
-                message += f"📈 시장 지수 변화:\n"
+                message += "📈 시장 지수 변화:\n"
                 message += f"- KOSPI: {first_kospi:.2f} → {last_kospi:.2f} ({'+' if kospi_change >= 0 else ''}{kospi_change:.2f}%)\n"
                 if first_kosdaq > 0:
                     message += f"- KOSDAQ: {first_kosdaq:.2f} → {last_kosdaq:.2f} ({'+' if kosdaq_change >= 0 else ''}{kosdaq_change:.2f}%)\n"
@@ -1595,7 +1594,7 @@ class StockTrackingAgent:
                 sector = analysis_result.get("sector", "알 수 없음")
                 sector_diverse = analysis_result.get("sector_diverse", True)
                 rank_change_msg = analysis_result.get("rank_change_msg", "")
-                rank_change_percentage = analysis_result.get("rank_change_percentage", 0)
+                # rank_change_percentage = analysis_result.get("rank_change_percentage", 0)
 
                 # 산업군 다양성 체크 실패 시 스킵
                 if not sector_diverse:

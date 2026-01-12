@@ -408,8 +408,7 @@ def markdown_to_pdf_reportlab(md_file_path, pdf_file_path):
         from reportlab.lib.pagesizes import A4
         from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
         from reportlab.lib.units import inch
-        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
-        from reportlab.lib import colors
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 
         # 마크다운 파일 읽기
         with open(md_file_path, 'r', encoding='utf-8') as f:

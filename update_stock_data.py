@@ -4,16 +4,17 @@
 
 매일 주기적으로 실행하여 주식 종목 정보(코드, 이름)를 최신화
 """
-import os
+from dotenv import load_dotenv
+load_dotenv()  # .env 파일에서 환경변수 로드
 import json
 import logging
 import argparse
 from datetime import datetime
 
 try:
-    from pykrx import stock
+    from krx_data_client import _get_client
 except ImportError:
-    print("pykrx 패키지가 설치되어 있지 않습니다. 'pip install pykrx'로 설치하세요.")
+    print("krx_data_client 패키지가 설치되어 있지 않습니다. 'pip install kospi-kosdaq-stock-server'로 설치하세요.")
     exit(1)
 
 # 로깅 설정
@@ -42,18 +43,14 @@ def update_stock_data(output_file="stock_map.json"):
         today = datetime.now().strftime("%Y%m%d")
         logger.info(f"종목 데이터 업데이트 시작: {today}")
 
-        # KOSPI 종목 정보 가져오기
-        kospi_tickers = stock.get_market_ticker_list(market="KOSPI")
-        kospi_map = {ticker: stock.get_market_ticker_name(ticker) for ticker in kospi_tickers}
-        logger.info(f"KOSPI 종목 {len(kospi_map)}개 로드")
+        # 클라이언트 초기화
+        client = _get_client()
 
-        # KOSDAQ 종목 정보 가져오기
-        kosdaq_tickers = stock.get_market_ticker_list(market="KOSDAQ")
-        kosdaq_map = {ticker: stock.get_market_ticker_name(ticker) for ticker in kosdaq_tickers}
-        logger.info(f"KOSDAQ 종목 {len(kosdaq_map)}개 로드")
+        # 전체 종목 코드-이름 매핑을 한 번에 가져오기 (효율적!)
+        logger.info("전체 종목 정보 조회 중...")
+        code_to_name = client.get_market_ticker_name(market="ALL")
+        logger.info(f"전체 종목 {len(code_to_name)}개 로드 완료")
 
-        # 결합
-        code_to_name = {**kospi_map, **kosdaq_map}
         name_to_code = {name: code for code, name in code_to_name.items()}
 
         # 데이터 저장
@@ -70,6 +67,8 @@ def update_stock_data(output_file="stock_map.json"):
         return True
     except Exception as e:
         logger.error(f"종목 데이터 업데이트 실패: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return False
 
 def main():

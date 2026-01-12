@@ -23,9 +23,7 @@ python-dotenv>=1.0.0
 pdfkit>=1.0.0  # wkhtmltopdf 기반 PDF 변환 (기본 방식)
 reportlab>=4.0.0  # 직접 PDF 생성 (대체 방식)
 mdpdf>=0.0.9  # 간편한 마크다운 변환 (대체 방식)
-
-# 주식 데이터 관련
-pykrx==1.0.48
+playwright>=1.57.0  # Chromium 기반 PDF 변환 (권장)
 
 # 한국투자증권 API 관련
 PyYAML>=6.0.1  # 설정 파일 파싱
@@ -43,7 +41,7 @@ holidays~=0.68
 
 python-telegram-bot[job-queue]>=20.0
 
-kospi_kosdaq_stock_server>=0.2.1
+kospi_kosdaq_stock_server>=0.3.37
 DateTime~=5.5
 matplotlib~=3.10.1
 seaborn~=0.13.2
