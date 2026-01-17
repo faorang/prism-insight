@@ -162,11 +162,11 @@ class StockTrackingAgent:
             - 포트폴리오 평균 수익률
 
             ### 2. 종목 평가 (1~10점)
-            - **8~10점**: 매수 적극 고려 (동종업계 대비 저평가 + 강한 모멘텀)
-            - **7점**: 매수 고려 (밸류에이션 추가 확인 필요)
-            - **6점 이하**: 매수 부적합 (고평가 또는 부정적 전망 또는 1,000원 이하의 동전주)
+            - **8~10점**: 매수 적합성 높음 (동종업계 대비 저평가 + 강한 모멘텀)
+            - **7점**: 매수 적합성 검토 구간 (밸류에이션 추가 확인 필요)
+            - **6점 이하**: 매수 적합성 낮음 (고평가 또는 부정적 전망 또는 1,000원 이하의 동전주)
 
-            ### 3. 진입 결정 필수 확인사항
+            ### 3. 매수 시나리오 평가 필수 확인사항
 
             #### 3-1. 밸류에이션 분석 (최우선)
             perplexity-ask tool을 활용하여 확인:
@@ -176,7 +176,7 @@ class StockTrackingAgent:
             #### 3-2. 기본 체크리스트
 
             ##### ⭐ 3-2.1. 손익비 검증 (필수 계산)
-            **모든 진입 전에 반드시 계산:**
+            **시나리오 평가 시 참고 계산식:**
             ```
             목표 수익률(%) = (목표가 - 진입가) ÷ 진입가 × 100
             예상 손실률(%) = (진입가 - 손절가) ÷ 진입가 × 100
@@ -262,7 +262,7 @@ class StockTrackingAgent:
                 "sector_outlook": "업종 전망 및 동향",
                 "buy_score": 1~10 사이의 점수,
                 "min_score": 최소 진입 요구 점수,
-                "decision": "진입" 또는 "관망",
+                "decision": 적합" 또는 "부적합",
                 "target_price": 목표가 (원, 숫자만),
                 "stop_loss": 손절가 (원, 숫자만),
                 "risk_reward_ratio": 손익비 = expected_return_pct ÷ expected_loss_pct (소수점 1자리),
@@ -523,8 +523,8 @@ class StockTrackingAgent:
             rank_change_percentage = (rank_change / previous_ticker_rank) * 100
 
             # 랭킹 정보 및 거래대금 데이터
-            recent_value = int(recent_df.loc[ticker, "거래대금"]) if ticker in recent_df.index else 0
-            previous_value = int(previous_df.loc[ticker, "거래대금"]) if ticker in previous_df.index else 0
+            recent_value = int(recent_df.loc[ticker, "Amount"]) if ticker in recent_df.index else 0
+            previous_value = int(previous_df.loc[ticker, "Amount"]) if ticker in previous_df.index else 0
             value_change_percentage = ((recent_value - previous_value) / previous_value * 100) if previous_value > 0 else 0
 
             result_msg = (
@@ -711,17 +711,20 @@ class StockTrackingAgent:
 
             response = await llm.generate_str(
                 message=f"""
-                다음은 주식 종목에 대한 AI 분석 보고서입니다. 이 보고서를 기반으로 매매 시나리오를 생성해주세요.
+다음은 주식 종목에 대한 AI 분석 보고서입니다.
+이 보고서를 참고하여 투자 판단에 활용 가능한 시나리오를 생성해주세요.
 
-                ### 현재 포트폴리오 상황:
-                {portfolio_info}
+### 현재 포트폴리오 상황:
+{portfolio_info}
 
-                ### 거래대금 분석:
-                {rank_change_msg}
+### 거래대금 및 수급 변화 요약:
+(최근 거래대금 순위 변화, 유입·이탈 신호 참고)
+{rank_change_msg}
 
-                ### 보고서 내용:
-                {report_content}
-                """,
+### 분석 보고서 본문:
+{report_content}
+"""
+,
                 request_params=RequestParams(
                     model="gpt-5.1",
                     maxTokens=20000,
@@ -891,10 +894,16 @@ class StockTrackingAgent:
             # 매매 시나리오 추출 (거래대금 랭킹 정보 전달)
             scenario = await self._extract_trading_scenario(report_content, rank_change_msg)
 
+            if "decision" in scenario:
+                d = scenario.get("decision", "관망")
+                if d == "적합":
+                    scenario["decision"] = "진입"
+                else:
+                    scenario["decision"] = "관망"
+
             # 산업군 다양성 확인
             sector = scenario.get("sector", "알 수 없음")
             is_sector_diverse = await self._check_sector_diversity(sector)
-
             # 결과 반환
             return {
                 "success": True,
