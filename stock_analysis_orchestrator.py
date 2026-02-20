@@ -843,48 +843,102 @@ class StockAnalysisOrchestrator:
         logger.info(f"Starting full pipeline - mode: {mode}")
 
         try:
-            # 1. Execute trigger batch - changed to async method (improved asyncio resource management)
-            results_file = f"trigger_results_{mode}_{datetime.now().strftime('%Y%m%d')}.json"
-            tickers = await self.run_trigger_batch(mode)
+            # 0. 현재 보유 중인 포트폴리오 종목 갯수 확인
+            import my_portfolio
+            from stock_tracking_agent import StockTrackingAgent
+            from trading.domestic_stock_trading import DEFAULT_BUY_AMOUNT
+            portfolio_count = await my_portfolio.get_portfolio_stock_count()
+            total_cash = await my_portfolio.get_account()
+            logger.info(f"현재 보유 중인 포트폴리오 종목 갯수: {portfolio_count}/{StockTrackingAgent.MAX_SLOTS}")
 
-            if not tickers:
-                logger.warning("No stocks selected. Terminating process.")
-                return
+            is_portfolio_full = portfolio_count >= StockTrackingAgent.MAX_SLOTS
+            if total_cash is not None:
+                logger.info(f"현재 총 보유 현금: {total_cash:,.0f}원")
 
-            # 1-1. Send trigger results to telegram immediately
-            if os.path.exists(results_file):
-                logger.info(f"Trigger results file confirmed: {results_file}")
-                alert_sent = await self.send_trigger_alert(mode, results_file, language)
-                if alert_sent:
-                    logger.info("Prism Signal alert transmission complete")
+                if total_cash < DEFAULT_BUY_AMOUNT:
+                    logger.warning(f"총 보유 현금이 {DEFAULT_BUY_AMOUNT:,.0f}원 미만입니다. 신규 종목 추가가 제한될 수 있습니다.")
+                    is_portfolio_full = True
+
+            pdf_paths = []
+            report_paths = []
+            if is_portfolio_full:
+                logger.warning("포트폴리오 종목 갯수가 최대치에 도달했습니다. 신규 종목 추가가 제한될 수 있습니다.")
+            else:
+                # 1. Execute trigger batch - changed to async method (improved asyncio resource management)
+                results_file = f"trigger_results_{mode}_{datetime.now().strftime('%Y%m%d')}.json"
+                tickers = await self.run_trigger_batch(mode)
+
+                try:
+                    tickers_backup = tickers.copy()
+                    # [{'ticker': '003720'}, {'ticker': '005930'}, {'ticker': '036570'}, {'ticker': '092200'}]
+                    portfolio_tickers = await my_portfolio.get_portfolio_stock()
+
+                    # 포트폴리오 종목은 제외
+                    tickers = [t for t in tickers if t['code'] not in {p['ticker'] for p in portfolio_tickers}]
+                except Exception as e:
+                    logger.error(f"포트폴리오 종목 필터 중 오류: {str(e)}")
+                    tickers = tickers_backup
+
+                if not tickers:
+                    logger.warning("No stocks selected. Terminating process.")
+                    return
+
+                try:
+                    import screener
+                    my_screen_tickers = screener.get_candidates("KOSPI", 1)
+                    if my_screen_tickers is not None and not my_screen_tickers.empty:
+                        my_screen_tickers = my_screen_tickers.apply(lambda row: {'code': row['Code'], 'name': row['Name']}, axis=1).to_list()
+
+                        for item in my_screen_tickers:
+                            item['trigger_type'] = "My Custom Screen"
+                            item['trigger_mode'] = mode
+                            item['risk_reward_ratio'] = 0
+                        logger.info(f"My screen tickers: {my_screen_tickers}")
+                        logger.info(f"Existing tickers before merging: {tickers}")
+
+                        existing_codes = {item['code'] for item in tickers}
+                        # 중복되지 않은 것만 골라낸 새 리스트 생성
+                        filtered_data = [item for item in my_screen_tickers if item['code'] not in existing_codes]
+                        # 한 번에 확장
+                        tickers.extend(filtered_data)
+                except:
+                    pass
+                logger.info(f"Final tickers list: {tickers}")
+
+                # 1-1. Send trigger results to telegram immediately
+                if os.path.exists(results_file):
+                    logger.info(f"Trigger results file confirmed: {results_file}")
+                    alert_sent = await self.send_trigger_alert(mode, results_file, language)
+                    if alert_sent:
+                        logger.info("Prism Signal alert transmission complete")
+                    else:
+                        logger.warning("Prism Signal alert transmission failed")
                 else:
-                    logger.warning("Prism Signal alert transmission failed")
-            else:
-                logger.warning(f"Trigger results file not found: {results_file}")
+                    logger.warning(f"Trigger results file not found: {results_file}")
 
-            # 2. Generate reports - important: await added here!
-            report_paths = await self.generate_reports(tickers, mode, timeout=600, language=language)
-            if not report_paths:
-                logger.warning("No reports generated. Terminating process.")
-                return
+                # 2. Generate reports - important: await added here!
+                report_paths = await self.generate_reports(tickers, mode, timeout=600, language=language)
+                if not report_paths:
+                    logger.warning("No reports generated. Terminating process.")
+                    return
 
-            # 3. PDF conversion
-            pdf_paths = await self.convert_to_pdf(report_paths)
+                # 3. PDF conversion
+                pdf_paths = await self.convert_to_pdf(report_paths)
 
-            # 4-5. Generate and send telegram messages (only when telegram is enabled)
-            if self.telegram_config.use_telegram:
-                logger.info("Telegram enabled - proceeding with message generation and transmission steps")
+                # 4-5. Generate and send telegram messages (only when telegram is enabled)
+                if self.telegram_config.use_telegram:
+                    logger.info("Telegram enabled - proceeding with message generation and transmission steps")
 
-                # 4. Generate telegram messages
-                message_paths = await self.generate_telegram_messages(pdf_paths, language)
+                    # 4. Generate telegram messages
+                    message_paths = await self.generate_telegram_messages(pdf_paths, language)
 
-                # 5. Send telegram messages and PDFs
-                await self.send_telegram_messages(message_paths, pdf_paths, report_paths)
-            else:
-                logger.info("Telegram disabled - skipping message generation and transmission steps")
+                    # 5. Send telegram messages and PDFs
+                    await self.send_telegram_messages(message_paths, pdf_paths, report_paths)
+                else:
+                    logger.info("Telegram disabled - skipping message generation and transmission steps")
 
             # 6. Tracking system batch (runs concurrently with broadcast I/O tasks via async)
-            if pdf_paths:
+            if report_paths or is_portfolio_full:
                 try:
                     logger.info("Starting stock tracking system batch execution")
 
@@ -918,7 +972,7 @@ class StockAnalysisOrchestrator:
                         # Pass trigger results file for trigger_type tracking
                         trigger_results_file = f"trigger_results_{mode}_{datetime.now().strftime('%Y%m%d')}.json"
                         tracking_success = await tracking_agent.run(
-                            pdf_paths, chat_id, language, self.telegram_config,
+                            report_paths, chat_id, language, self.telegram_config,
                             trigger_results_file=trigger_results_file
                         )
 
@@ -1081,8 +1135,8 @@ if __name__ == "__main__":
         import time
         import os
         import signal
-        time.sleep(7200)  # Wait 120 minutes
-        logger.warning("120-minute timeout reached: forcefully terminating process")
+        time.sleep(10800)  # Wait 120 minutes
+        logger.warning("180-minute timeout reached: forcefully terminating process")
         os.kill(os.getpid(), signal.SIGTERM)
 
     # Start timer as background thread

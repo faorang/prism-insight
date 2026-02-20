@@ -5,10 +5,12 @@ import sys
 import logging
 from pathlib import Path
 
-# Auto-detect project root directory
+from trading.chk_holiday import is_market_day as check_market_day
+
+# 프로젝트 루트 디렉토리 자동 감지
 PROJECT_ROOT = Path(__file__).resolve().parent
 
-# Logging configuration
+# 로깅 설정
 logging.basicConfig(
     filename=PROJECT_ROOT / 'stock_scheduler.log',
     level=logging.INFO,
@@ -18,63 +20,66 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 def is_market_day():
-    """Check if it's a Korean stock market trading day"""
+    """한국 주식 시장 영업일인지 확인"""
     today = date.today()
+    print(f"오늘 날짜: {today.strftime("%Y%m%d")}")
 
-    # Weekend check (5: Saturday, 6: Sunday)
+    # 주말 체크 (5:토요일, 6:일요일)
     if today.weekday() >= 5:
-        logger.debug(f"{today} is a weekend.")
+        logger.debug(f"{today}은 주말입니다.")
         return False
 
-    # Korean holiday check
+    return check_market_day(today.strftime("%Y%m%d"))
+
+    # 한국 공휴일 체크
     kr_holidays = KR()
     if today in kr_holidays:
         holiday_name = kr_holidays.get(today)
-        logger.debug(f"{today} is a holiday ({holiday_name}).")
+        logger.debug(f"{today}은 공휴일({holiday_name})입니다.")
         return False
 
-    # Labor Day (May 1) check - Stock market closed
+    # 노동절(5월 1일) 체크 - 증권시장 휴장
     if today.month == 5 and today.day == 1:
-        logger.debug(f"{today} is Labor Day.")
+        logger.debug(f"{today}은 노동절(근로자의 날)입니다.")
         return False
 
-    # Year-end (December 31) check - Stock market closed
-    if today.month == 12 and today.day == 31:
-        logger.debug(f"{today} is year-end closing day.")
-        return False
-
-    # 2025 special holidays/substitute holidays check
+    # 2025년 특별 공휴일/대체휴일 체크
     if today.year == 2025:
-        # Temporary holidays
-        if ((today.month == 1 and today.day == 27) or  # Lunar New Year special holiday
-                (today.month == 3 and today.day == 3) or   # Independence Movement Day substitute
-                (today.month == 5 and today.day == 6) or   # Children's Day/Buddha's Birthday substitute
-                (today.month == 10 and today.day == 8)):   # Chuseok substitute
-            logger.debug(f"{today} is a 2025 temporary/substitute holiday.")
+        # 임시공휴일
+        if ((today.month == 1 and today.day == 27) or  # 설날 연휴 임시공휴일
+                (today.month == 3 and today.day == 3) or   # 삼일절 대체공휴일
+                (today.month == 5 and today.day == 6) or   # 어린이날/부처님오신날 대체공휴일
+                (today.month == 10 and today.day == 8)):   # 추석 대체공휴일
+            logger.debug(f"{today}은 2025년 임시공휴일/대체공휴일입니다.")
             return False
 
-        # Presidential election day - June 3, 2025
+        # 대통령선거일 - 2025년 6월 3일
         if today.month == 6 and today.day == 3:
-            logger.debug(f"{today} is Presidential Election Day.")
+            logger.debug(f"{today}은 대통령선거일입니다.")
             return False
 
-        # Possible temporary holiday (mentioned in news)
+        # 임시공휴일 가능성 있음 (뉴스에 언급됨)
         # if today.month == 10 and today.day == 10:
-        #     logger.debug(f"{today} is a possible temporary holiday.")
+        #     logger.debug(f"{today}은 가능성 있는 임시공휴일입니다.")
         #     return False
 
-    # 2026 and later special holidays check (needs annual update)
+    # 2026년 이후 특별 휴일 체크 (매년 업데이트 필요)
     elif today.year == 2026:
-        # Add 2026 special holidays here
+        # 여기에 2026년 특별 휴일 추가
+        if today.day == 1 and today.month == 1:
+            logger.debug(f"{today}은 2026년 특별 휴일입니다.")
+            return False
         pass
 
-    # Trading day
+    # 영업일
     return True
 
 if __name__ == "__main__":
     if is_market_day():
-        # Trading day, exit code 0 (normal)
+        # 영업일이면 종료 코드 0 (정상)
+        print("오늘은 한국 주식 시장 영업일입니다.")
         sys.exit(0)
     else:
-        # Not a trading day, exit code 1 (abnormal)
+        # 영업일이 아니면 종료 코드 1 (비정상)
+        print("오늘은 한국 주식 시장 영업일이 아닙니다.")
         sys.exit(1)

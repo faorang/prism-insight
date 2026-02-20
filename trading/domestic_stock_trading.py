@@ -35,9 +35,15 @@ logger = logging.getLogger(__name__)
 
 # Load configuration file
 CONFIG_FILE = TRADING_DIR / "config" / "kis_devlp.yaml"
+
+import os
+config_root = os.path.join(os.path.expanduser("~"), "src", "hantoo", ".HKIS", "config")
+CONFIG_FILE = os.path.join(config_root, "kis_devlp.yaml")
+
 with open(CONFIG_FILE, encoding="UTF-8") as f:
     _cfg = yaml.load(f, Loader=yaml.FullLoader)
 
+DEFAULT_BUY_AMOUNT = _cfg["default_unit_amount"]
 
 class DomesticStockTrading:
     """Domestic stock trading class"""
@@ -340,6 +346,30 @@ class DomesticStockTrading:
 
         return 0
 
+    def get_tick_size(self, price: float) -> int:
+        """가격에 따른 틱 사이즈 결정"""
+        if price < 2000:
+            return 1
+        elif price < 5000:
+            return 5
+        elif price < 20000:
+            return 10
+        elif price < 50000:
+            return 50
+        elif price < 200000:
+            return 100
+        elif price < 500000:
+            return 500
+        else:
+            return 100
+
+    def to_bid_tick(self, price: float) -> int:
+        """
+        입력 가격을 틱 사이즈에 맞춰 '매수 호가(내림)'로 변환
+        """
+        tick = self.get_tick_size(price)
+        return int(math.floor(price / tick) * tick)
+
     def buy_limit_price(self, stock_code: str, limit_price: int, buy_amount: int = None) -> Dict[str, Any]:
         """
         Buy at limit price
@@ -371,6 +401,9 @@ class DomesticStockTrading:
             }
 
         amount = buy_amount if buy_amount else self.buy_amount
+
+        limit_price = math.floor(limit_price)
+        limit_price = self.to_bid_tick(limit_price)
 
         # Calculate buyable quantity (based on limit price)
         buy_quantity = math.floor(amount / limit_price)
@@ -425,6 +458,7 @@ class DomesticStockTrading:
             else:
                 error_msg = f"{res.getErrorCode()} - {res.getErrorMessage()}"
                 logger.error(f"Limit buy order failed: {error_msg}")
+                logger.error(f"요청 파라미터: {params}")
 
                 return {
                     'success': False,
@@ -1140,7 +1174,7 @@ class DomesticStockTrading:
                             return result
 
                         result['quantity'] = buy_quantity
-                        result['total_amount'] = buy_quantity * current_price_info['current_price']
+                        result['total_amount'] = buy_quantity * current_price
 
                         # Step 3: Execute buy (use amount, limit price if provided)
                         # Use current_price as limit_price fallback for reserved orders (outside market hours)
@@ -1154,7 +1188,8 @@ class DomesticStockTrading:
                         else:
                             logger.info(f"[Async Buy API] {stock_code} executing with effective limit price: {buy_quantity} shares x {effective_limit_price:,} KRW")
                         buy_result = await asyncio.to_thread(
-                            self.smart_buy, stock_code, amount, effective_limit_price
+                            # self.smart_buy, stock_code, amount, effective_limit_price
+                            self.buy_limit_price, stock_code, effective_limit_price, amount
                         )
 
                         if buy_result['success']:
@@ -1324,7 +1359,7 @@ class DomesticStockTrading:
 
         return result
 
-    def get_portfolio(self) -> List[Dict[str, Any]]:
+    def get_portfolio(self, error: bool = True) -> List[Dict[str, Any]]:
         """
         Get current account portfolio
 
@@ -1363,49 +1398,62 @@ class DomesticStockTrading:
         }
 
         try:
-            res = ka._url_fetch(api_url, tr_id, "", params)
+            tryCount = 3
+            while tryCount > 0:
+                tryCount -= 1
+                res = ka._url_fetch(api_url, tr_id, "", params)
 
-            if res.isOK():
-                current_portfolio = []
-                output1 = res.getBody().output1  # Holdings list
-                output2 = res.getBody().output2[0]  # Account summary
+                if res.isOK():
+                    current_portfolio = []
+                    output1 = res.getBody().output1  # 보유종목 리스트
+                    output2 = res.getBody().output2[0]  # 계좌 요약 정보
 
-                # Handle case when output1 is not a list
-                if not isinstance(output1, list):
-                    output1 = [output1] if output1 else []
+                    # output1이 리스트가 아닌 경우 처리
+                    if not isinstance(output1, list):
+                        output1 = [output1] if output1 else []
 
-                for item in output1:
-                    # Only add stocks with quantity > 0
-                    quantity = int(item.get('hldg_qty', 0))
-                    if quantity > 0:
-                        stock_info = {
-                            'stock_code': item.get('pdno', ''),
-                            'stock_name': item.get('prdt_name', ''),
-                            'quantity': quantity,
-                            'avg_price': float(item.get('pchs_avg_pric', 0)),
-                            'current_price': float(item.get('prpr', 0)),
-                            'eval_amount': float(item.get('evlu_amt', 0)),
-                            'profit_amount': float(item.get('evlu_pfls_amt', 0)),
-                            'profit_rate': float(item.get('evlu_pfls_rt', 0))
-                        }
-                        current_portfolio.append(stock_info)
+                    for item in output1:
+                        # 보유수량이 0보다 큰 종목만 추가
+                        quantity = int(item.get('hldg_qty', 0))
+                        if quantity > 0:
+                            stock_info = {
+                                'stock_code': item.get('pdno', ''),
+                                'stock_name': item.get('prdt_name', ''),
+                                'quantity': quantity,
+                                'avg_price': float(item.get('pchs_avg_pric', 0)),
+                                'current_price': float(item.get('prpr', 0)),
+                                'eval_amount': float(item.get('evlu_amt', 0)),
+                                'profit_amount': float(item.get('evlu_pfls_amt', 0)),
+                                'profit_rate': float(item.get('evlu_pfls_rt', 0))
+                            }
+                            current_portfolio.append(stock_info)
 
-                # Log account summary
-                if output2:
-                    total_eval = float(output2.get('tot_evlu_amt', 0))
-                    total_profit = float(output2.get('evlu_pfls_smtl_amt', 0))
-                    logger.info(f"Account total evaluation: {total_eval:,.0f} KRW, total profit/loss: {total_profit:+,.0f} KRW")
+                    # 계좌 요약 정보 로깅
+                    if output2:
+                        total_eval = float(output2.get('tot_evlu_amt', 0))
+                        total_profit = float(output2.get('evlu_pfls_smtl_amt', 0))
+                        logger.info(f"계좌 총평가: {total_eval:,.0f}원, 총손익: {total_profit:+,.0f}원")
 
-                logger.info(f"Portfolio: {len(current_portfolio)} holdings")
-                return current_portfolio
+                    logger.info(f"포트폴리오: {len(current_portfolio)}개 종목 보유")
+                    return current_portfolio
 
-            else:
-                logger.error(f"Balance inquiry failed: {res.getErrorCode()} - {res.getErrorMessage()}")
-                return []
+                else:
+                    if tryCount > 0:
+                        # 60초 대기 후 재시도
+                        logger.warning(f"잔고 조회 초과로 재시도 중... 남은 시도 횟수: {tryCount}")
+                        time.sleep(60)
+                        continue
+
+                # Error Code : 500 | {"rt_cd":"1","msg_cd":"EGW00201","msg1":"원장에서 허용 가능한 초당 거래건수를 초과하였습니다."}
+                    logger.error(f"잔고 조회 실패: {res.getErrorCode()} - {res.getErrorMessage()}")
+                    return []
 
         except Exception as e:
-            logger.error(f"Error during balance inquiry: {str(e)}")
+            logger.error(f"잔고 조회 중 오류: {str(e)}")
+            if error:
+                raise
             return []
+        return []
 
     def get_account_summary(self) -> None | dict[Any, Any] | dict[str, float]:
         """

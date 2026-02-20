@@ -968,6 +968,10 @@ def run_batch(trigger_time: str, log_level: str = "INFO", output_file: str = Non
         logger.info(f"Retry batch reference trading date: {trade_date}")
         snapshot = get_snapshot(trade_date)
 
+    # 시작가가 내 slot보다 낮은 종목들만 대상으로 (v1.16.6: 슬로트 조건 추가)
+    from trading.domestic_stock_trading import DEFAULT_BUY_AMOUNT
+    snapshot = snapshot[snapshot["Open"] < DEFAULT_BUY_AMOUNT]
+
     prev_snapshot, prev_date = get_previous_snapshot(trade_date)
     logger.debug(f"Previous trading date: {prev_date}")
 

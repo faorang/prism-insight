@@ -401,6 +401,7 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
                 ticker = analysis_result.get("ticker")
                 company_name = analysis_result.get("company_name")
                 current_price = analysis_result.get("current_price", 0)
+                buy_limit_price = analysis_result.get("buy_limit_price", current_price)
                 scenario = analysis_result.get("scenario", {})
                 sector = analysis_result.get("sector", "Unknown")
                 sector_diverse = analysis_result.get("sector_diverse", True)
@@ -412,10 +413,11 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
                 min_score = scenario.get("min_score", 0)
                 decision = analysis_result.get("decision")
                 logger.info(f"Buy score check: {company_name}({ticker}) - Score: {buy_score}, Min required score: {min_score}")
+                logger.info(f'Buy limit price: {buy_limit_price}')
 
                 # Score-decision consistency enforcement:
                 # If score meets threshold and sector is diverse, override LLM decision to Enter
-                if buy_score >= min_score and sector_diverse and decision != "Enter":
+                if buy_score != 0 and min_score !=0 and buy_score >= min_score and sector_diverse and decision != "Enter":
                     logger.info(
                         f"Score-decision override: {company_name}({ticker}) - "
                         f"Score {buy_score} >= {min_score} but decision='{decision}', forcing Enter"
@@ -484,7 +486,7 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
                         from trading.domestic_stock_trading import AsyncTradingContext
                         async with AsyncTradingContext() as trading:
                             # Execute async buy with limit price for reserved orders
-                            trade_result = await trading.async_buy_stock(stock_code=ticker, limit_price=current_price)
+                            trade_result = await trading.async_buy_stock(stock_code=ticker, limit_price=buy_limit_price)
 
                         if trade_result['success']:
                             logger.info(f"Actual purchase successful: {trade_result['message']}")
@@ -493,6 +495,7 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
 
                         # [Optional] Publish buy signal via Redis Streams
                         # Auto-skipped if Redis not configured (requires UPSTASH_REDIS_REST_URL, UPSTASH_REDIS_REST_TOKEN)
+                        '''
                         try:
                             from messaging.redis_signal_publisher import publish_buy_signal
                             await publish_buy_signal(
@@ -520,6 +523,7 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
                             )
                         except Exception as signal_err:
                             logger.warning(f"GCP buy signal publish failed (non-critical): {signal_err}")
+                        '''
 
                     if buy_success:
                         buy_count += 1
@@ -864,7 +868,10 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
                 message=prompt_message,
                 request_params=RequestParams(
                     model="gpt-5.2",
-                    maxTokens=16000
+                    maxTokens=16000,
+                    metadata={
+                        "service_tier":"flex",
+                    }
                 )
             )
 
@@ -1090,7 +1097,7 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
             else:
                 # Case where adjustment was requested but no specific values provided
                 logger.warning(f"{ticker} Portfolio adjustment requested but no specific values: {portfolio_adjustment}")
-            
+
         except Exception as e:
             logger.error(f"{ticker} Error processing portfolio adjustment: {str(e)}")
             logger.error(traceback.format_exc())
@@ -1207,7 +1214,7 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
             self.conn.commit()
             logger.info(f"{ticker} Sell decision data deleted")
             return True
-            
+
         except Exception as e:
             logger.error(f"{ticker} Sell decision delete failed (main flow continues): {str(e)}")
             return False

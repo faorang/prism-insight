@@ -31,6 +31,8 @@ sys.path.insert(0, str(PARENT_DIR))               # project root - MUST be first
 
 # Load configuration file
 CONFIG_FILE = TRADING_DIR / "config" / "kis_devlp.yaml"
+config_root = os.path.join(os.path.expanduser("~"), "src", "hantoo", ".HKIS", "config")
+CONFIG_FILE = os.path.join(config_root, "kis_devlp.yaml")
 with open(CONFIG_FILE, encoding="UTF-8") as f:
     _cfg = yaml.load(f, Loader=yaml.FullLoader)
 
@@ -41,8 +43,10 @@ from telegram_bot_agent import TelegramBotAgent
 # Import US trading module (optional - may not be available)
 try:
     from us_stock_trading import USStockTrading
-    US_TRADING_AVAILABLE = True
+    US_TRADING_AVAILABLE = False
 except ImportError as e:
+    US_TRADING_AVAILABLE = False
+except Exception as e:
     US_TRADING_AVAILABLE = False
 
 # Logging configuration
@@ -66,8 +70,8 @@ class PortfolioTelegramReporter:
     """Class for reporting portfolio status to Telegram"""
 
     # Season 2 constants
-    SEASON2_START_DATE = "2025.09.29"
-    SEASON2_START_AMOUNT = 9_969_801  # Starting capital in KRW
+    SEASON2_START_DATE = "2025.11.03"
+    SEASON2_START_AMOUNT = 4_212_440 # Starting capital in KRW
 
     def __init__(self, telegram_token: str = None, chat_id: str = None, trading_mode: str = None, broadcast_languages: list = None):
         """

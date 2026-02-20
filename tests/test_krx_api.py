@@ -76,7 +76,7 @@ def main():
         df = get_market_ohlcv_by_ticker(trade_date)
         print(f'Rows: {len(df)}')
         if '005930' in df.index:
-            print(f'Samsung (005930) close: {df.loc["005930", "종가"]:,.0f}')
+            print(f'Samsung (005930) close: {df.loc["005930", "Close"]:,.0f}')
         print('Status: SUCCESS')
     except Exception as e:
         print(f'Error: {e}')

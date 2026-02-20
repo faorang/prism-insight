@@ -133,7 +133,10 @@ class USJournalManager:
 
                 response = await llm.generate_str(
                     message=prompt,
-                    request_params=RequestParams(model="gpt-5.2", maxTokens=16000)
+                    request_params=RequestParams(model="gpt-5.2", maxTokens=16000,
+                    metadata={
+                        "service_tier":"flex",
+                    })
                 )
                 logger.info(f"US Journal agent response received: {len(response)} chars")
 

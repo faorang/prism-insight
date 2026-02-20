@@ -660,16 +660,16 @@ def clean_model_response(response):
 async def generate_follow_up_response(ticker, ticker_name, conversation_context, user_question, tone):
     """
     추가 질문에 대한 AI 응답 생성 (Agent 방식 사용)
-    
+
     ⚠️ 전역 MCPApp 사용으로 프로세스 누적 방지
-    
+
     Args:
         ticker (str): 종목 코드
         ticker_name (str): 종목명
         conversation_context (str): 이전 대화 컨텍스트
         user_question (str): 사용자의 새 질문
         tone (str): 응답 톤
-    
+
     Returns:
         str: AI 응답
     """
@@ -685,19 +685,19 @@ async def generate_follow_up_response(ticker, ticker_name, conversation_context,
         agent = Agent(
             name="followup_agent",
             instruction=f"""당신은 텔레그램 채팅에서 주식 평가 후속 질문에 답변하는 전문가입니다.
-                        
+
                         ## 기본 정보
                         - 현재 날짜: {current_date}
                         - 종목 코드: {ticker}
                         - 종목 이름: {ticker_name}
                         - 대화 스타일: {tone}
-                        
+
                         ## 이전 대화 컨텍스트
                         {conversation_context}
-                        
+
                         ## 사용자의 새로운 질문
                         {user_question}
-                        
+
                         ## 응답 가이드라인
                         1. 이전 대화에서 제공한 정보와 일관성을 유지하세요
                         2. 필요한 경우 추가 데이터를 조회할 수 있습니다:
@@ -710,7 +710,7 @@ async def generate_follow_up_response(ticker, ticker_name, conversation_context,
                         6. 마크다운 형식은 사용하지 마세요
                         7. 2000자 이내로 작성하세요
                         8. 이전 대화의 맥락을 고려하여 답변하세요
-                        
+
                         ## 주의사항
                         - 사용자의 질문이 이전 대화와 관련이 있다면, 그 맥락을 참고하여 답변
                         - 새로운 정보가 필요한 경우에만 도구를 사용
@@ -725,7 +725,7 @@ async def generate_follow_up_response(ticker, ticker_name, conversation_context,
         # 응답 생성
         response = await llm.generate_str(
             message=f"""사용자의 추가 질문에 대해 답변해주세요.
-                    
+
                     이전 대화를 참고하되, 사용자의 새 질문에 집중하여 답변하세요.
                     필요한 경우 최신 데이터를 조회하여 정확한 정보를 제공하세요.
                     """,
@@ -742,14 +742,14 @@ async def generate_follow_up_response(ticker, ticker_name, conversation_context,
         logger.error(f"추가 응답 생성 중 오류: {str(e)}")
         import traceback
         logger.error(traceback.format_exc())
-        
+
         # 오류 발생 시 전역 app 재시작 시도
         try:
             logger.warning("오류 발생으로 인한 전역 MCPApp 재시작 시도")
             await reset_global_mcp_app()
         except Exception as reset_error:
             logger.error(f"MCPApp 재시작 실패: {reset_error}")
-        
+
         return "죄송합니다. 응답 생성 중 오류가 발생했습니다. 다시 시도해주세요."
 
 
@@ -807,7 +807,7 @@ async def generate_evaluation_response(ticker, ticker_name, avg_price, period, t
                         - 평균 매수가: {avg_price}원
                         - 보유 기간: {period}개월
                         - 원하는 피드백 스타일: {tone} {background_text}
-                        
+
                         ## 데이터 수집 및 분석 단계
                             1. get_current_time 툴을 사용하여 현재 날짜를 가져오세요.
                             2. get_stock_ohlcv 툴을 사용하여 종목({ticker})의 현재 날짜 기준 최신 3개월치 주가 데이터 및 거래량을 조회하세요. 특히 tool call(time-get_current_time)에서 가져온 년도를 꼭 참고하세요.
@@ -817,24 +817,24 @@ async def generate_evaluation_response(ticker, ticker_name, avg_price, period, t
                                  * 수익률(%) = ((현재가 - 평균매수가) / 평균매수가) * 100
                                  * 계산된 수익률이 극단적인 값(-100% 미만 또는 1000% 초과)인 경우 계산 오류가 없는지 재검증하세요.
                                  * 매수평단가가 0이거나 비정상적으로 낮은 값인 경우 사용자에게 확인 요청
-                               
-                               
+
+
                             3. get_stock_trading_volume 툴을 사용하여 현재 날짜 기준 최신 3개월치 투자자별 거래 데이터를 분석하세요. 특히 tool call(time-get_current_time)에서 가져온 년도를 꼭 참고하세요.
                                - fromdate, todate 포맷은 YYYYMMDD입니다. 그리고 todate가 현재날짜고, fromdate가 과거날짜입니다.
                                - 기관, 외국인, 개인 등 투자자별 매수/매도 패턴을 파악하고 해석하세요.
-                            
+
                             4. perplexity_ask 툴을 사용하여 다음 정보를 검색하세요. 최대한 1개의 쿼리로 통합해서 현재 날짜를 기준으로 검색해주세요. 특히 tool call(time-get_current_time)에서 가져온 년도를 꼭 참고하세요.
                                - "종목코드 {ticker}의 정확한 회사 {ticker_name}에 대한 최근 뉴스 및 실적 분석 (유사 이름의 다른 회사와 혼동하지 말 것. 정확히 이 종목코드 {ticker}에 해당하는 {ticker_name} 회사만 검색."
                                - "{ticker_name}(종목코드: {ticker}) 소속 업종 동향 및 전망"
                                - "글로벌과 국내 증시 현황 및 전망"
                                - "최근 급등 원인(테마 등)"
-                               
+
                             5. 필요에 따라 추가 데이터를 수집하세요.
                             6. 수집된 모든 정보를 종합적으로 분석하여 종목 평가에 활용하세요.
-                        
+
                         ## 스타일 적응형 가이드
                         사용자가 요청한 피드백 스타일("{tone}")을 최대한 정확하게 구현하세요. 다음 프레임워크를 사용하여 어떤 스타일도 적응적으로 구현할 수 있습니다:
-                        
+
                         1. **스타일 속성 분석**:
                            사용자의 "{tone}" 요청을 다음 속성 측면에서 분석하세요:
                            - 격식성 (격식 <--> 비격식)
@@ -842,7 +842,7 @@ async def generate_evaluation_response(ticker, ticker_name, avg_price, period, t
                            - 감정 표현 (절제 <--> 과장)
                            - 전문성 (일상어 <--> 전문용어)
                            - 태도 (중립 <--> 주관적)
-                        
+
                         2. **키워드 기반 스타일 적용**:
                            - "친구", "동료", "형", "동생" → 친근하고 격식 없는 말투
                            - "전문가", "분석가", "정확히" → 데이터 중심, 격식 있는 분석
@@ -851,41 +851,41 @@ async def generate_evaluation_response(ticker, ticker_name, avg_price, period, t
                            - "꼰대", "귀족노조", "연륜" → 교훈적이고 경험 강조
                            - "간결", "짧게" → 핵심만 압축적으로
                            - "자세히", "상세히" → 모든 근거와 분석 단계 설명
-                        
+
                         3. **스타일 조합 및 맞춤화**:
                            사용자의 요청에 여러 키워드가 포함된 경우 적절히 조합하세요.
                            예: "30년지기 친구 + 취한 상태" = 매우 친근하고 과장된 말투와 강한 주관적 조언
-                        
+
                         4. **알 수 없는 스타일 대응**:
                            생소한 스타일 요청이 들어오면:
                            - 요청된 스타일의 핵심 특성을 추론
                            - 언어적 특징, 문장 구조, 어휘 선택 등에서 스타일을 반영
                            - 해당 스타일에 맞는 고유한 표현과 문장 패턴 창조
-                        
+
                         ### 투자 상황별 조언 스타일
-                        
+
                         1. 수익 포지션 (현재가 > 평균매수가):
                            - 더 적극적이고 구체적인 매매 전략 제시
                            - 예: "이익 실현 구간을 명확히 잡아 절반은 익절하고, 절반은 더 끌고가는 전략도 괜찮을 것 같아"
                            - 다음 목표가와 손절선 구체적 제시
                            - 현 상승세의 지속 가능성 분석에 초점
-                        
+
                         2. 손실 포지션 (현재가 < 평균매수가):
                            - 감정적 공감과 함께 객관적 분석 제공
                            - 예: "지금 답답한 마음 이해해. 하지만 기업 펀더멘털을 보면..."
                            - 회복 가능성 또는 손절 필요성에 대한 명확한 의견 제시
                            - 평균단가 낮추기나 손절 등 구체적 대안 제시
-                        
+
                         3. 단기 투자 (보유기간 < 3개월):
                            - 기술적 분석과 단기 모멘텀에 집중
                            - 예: "단기적으로는 230일선 돌파가 중요한 변곡점이야. 이거 뚫으면 한번 달릴 수 있어"
                            - 단기 매매 타이밍과 기술적 패턴 강조
-                        
+
                         4. 장기 투자 (보유기간 > 12개월):
                            - 펀더멘털과 산업 전망에 중점
                            - 예: "이 기업은 장기적으로 신사업 성장성이 좋아 3-5년 관점에선 충분히 가치가 있다고 봐"
                            - 배당, 장기 성장성, 산업 트렌드 중심 분석
-                        
+
                         ## 메시지 포맷팅 팁
                         - 이모티콘을 적극 활용 (📈 📉 💰 🔥 💎 🚀 등)
                         - 줄바꿈으로 단락을 명확히 구분
@@ -893,7 +893,7 @@ async def generate_evaluation_response(ticker, ticker_name, avg_price, period, t
                         - 텍스트 블록은 짧게 유지하여 모바일에서 읽기 쉽게 작성
                         - 해시태그(#)를 활용하여 핵심 키워드 강조
                         - 절대 마크다운 형식으로 쓰지 말고, 텔레그램 메시지로 보낸다고 생각하고 사람처럼 자연스럽게 말할 것
-                        
+
                         ## 주의사항
                         - 사용자가 요청한 스타일({tone})을 최우선적으로 적용하세요
                         - 실제 최신 데이터를 사용하되, 사용자 입력 스타일에 따라 자유롭게 표현하세요
@@ -939,14 +939,14 @@ async def generate_evaluation_response(ticker, ticker_name, avg_price, period, t
         logger.error(f"응답 생성 중 오류: {str(e)}")
         import traceback
         logger.error(traceback.format_exc())
-        
+
         # 오류 발생 시 전역 app 재시작 시도
         try:
             logger.warning("오류 발생으로 인한 전역 MCPApp 재시작 시도")
             await reset_global_mcp_app()
         except Exception as reset_error:
             logger.error(f"MCPApp 재시작 실패: {reset_error}")
-        
+
         return "죄송합니다. 평가 중 오류가 발생했습니다. 다시 시도해주세요."
 
 

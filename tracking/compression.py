@@ -136,7 +136,10 @@ class CompressionManager:
 
                 response = await llm.generate_str(
                     message=prompt,
-                    request_params=RequestParams(model="gpt-5.2", maxTokens=8000)
+                    request_params=RequestParams(model="gpt-5.2", maxTokens=8000,
+                    metadata={
+                        "service_tier":"flex",
+                    })
                 )
 
             compression_data = self._parse_response(response)
@@ -194,7 +197,10 @@ class CompressionManager:
 
                 response = await llm.generate_str(
                     message=prompt,
-                    request_params=RequestParams(model="gpt-5.2", maxTokens=8000)
+                    request_params=RequestParams(model="gpt-5.2", maxTokens=8000,
+                metadata={
+                    "service_tier":"flex",
+                })
                 )
 
             compression_data = self._parse_response(response)

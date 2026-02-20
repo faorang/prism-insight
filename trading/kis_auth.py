@@ -72,6 +72,7 @@ key_bytes = 32
 # Find config folder based on kis_auth.py file directory
 current_dir = os.path.dirname(os.path.abspath(__file__))
 config_root = os.path.join(current_dir, "config")
+config_root = os.path.join(os.path.expanduser("~"), "src", "hantoo", ".HKIS", "config")
 # config_root = "$HOME/KIS/config/"  # Folder where token files are stored, set path to be difficult for third parties to find
 # token_tmp = config_root + 'KIS000000'  # Specify file name for local token storage, avoid file names that can infer token value
 # token_tmp = config_root + 'KIS' + datetime.today().strftime("%Y%m%d%H%M%S")  # Token local storage filename YYYYMMDDHHMMSS

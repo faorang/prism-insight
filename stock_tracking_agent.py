@@ -342,7 +342,10 @@ class StockTrackingAgent:
                 message=prompt_message,
                 request_params=RequestParams(
                     model="gpt-5.2",
-                    maxTokens=20000
+                    maxTokens=20000,
+                    metadata={
+                        "service_tier":"flex",
+                    }
                 )
             )
 
@@ -350,7 +353,7 @@ class StockTrackingAgent:
             # TODO: Create model and call generate_structured function to improve code maintainability
             scenario_json = parse_llm_json(response, context='trading scenario')
             if scenario_json is not None:
-                logger.info(f"Scenario parsed: {json.dumps(scenario_json, ensure_ascii=False)[:200]}")
+                logger.info(f"Scenario parsed: {json.dumps(scenario_json, ensure_ascii=False)}")
                 return scenario_json
 
             logger.error(f"Trading scenario parse failed. Full response: {response}")
@@ -462,12 +465,19 @@ class StockTrackingAgent:
         normalized = decision.strip()
         enter_variants = {"진입", "Entry", "enter", "entry", "Enter", "매수", "Buy", "buy"}
         watch_variants = {"관망", "Watch", "watch", "Hold", "hold", "보류"}
-        skip_variants = {"미진입", "Skip", "skip", "No entry", "no entry", "패스", "Pass", "pass"}
-        if normalized in enter_variants:
+        skip_variants = {"미진입", "Skip", "skip", "No entry", "no entry", "패스", "Pass", "pass", "No Entry"}
+
+        enter_set = {s.casefold() for s in enter_variants}
+        watch_set = {s.casefold() for s in watch_variants}
+        skip_set  = {s.casefold() for s in skip_variants}
+
+        key = normalized.casefold()
+
+        if key in enter_set:
             return "Enter"
-        if normalized in watch_variants:
+        if key in watch_set:
             return "Watch"
-        if normalized in skip_variants:
+        if key in skip_set:
             return "Skip"
         return normalized
 
@@ -564,8 +574,12 @@ class StockTrackingAgent:
             )
             self.conn.commit()
 
+            buy_score = scenario.get("buy_score", 0)
+            min_score = scenario.get("min_score", 0)
+
             # Add purchase message
             message = f"📈 신규 매수: {company_name}({ticker})\n" \
+                      f"점수: {buy_score} (최소 요구 점수: {min_score})\n" \
                       f"매수가: {current_price:,.0f}원\n" \
                       f"목표가: {scenario.get('target_price', 0):,.0f}원\n" \
                       f"손절가: {scenario.get('stop_loss', 0):,.0f}원\n" \
@@ -590,7 +604,7 @@ class StockTrackingAgent:
                 message += f"거래대금 분석: {rank_change_msg}\n"
 
             message += f"투자근거: {scenario.get('rationale', '정보 없음')}\n"
-            
+
             # Format trading scenario
             trading_scenarios = scenario.get('trading_scenarios', {})
             if trading_scenarios and isinstance(trading_scenarios, dict):
@@ -1117,6 +1131,26 @@ class StockTrackingAgent:
             self.cursor.execute("SELECT COUNT(*) FROM trading_history WHERE profit_rate > 0")
             successful_trades = self.cursor.fetchone()[0] or 0
 
+            # 시장 지수 정보 조회
+            first_kospi = last_kospi = first_kosdaq = last_kosdaq = 0
+            try:
+                # first market condition
+                self.cursor.execute("select kospi_index, kosdaq_index from  market_condition order by date asc limit 1")
+                row = self.cursor.fetchone()
+                if row:
+                    first_kospi = row[0]
+                    first_kosdaq = row[1]
+
+                # last market condition
+                self.cursor.execute("select kospi_index, kosdaq_index from  market_condition order by date desc limit 1")
+                row = self.cursor.fetchone()
+                if row:
+                    last_kospi = row[0]
+                    last_kosdaq = row[1]
+            except Exception as e:
+                logger.error(f"시장 지수 조회 중 오류: {str(e)}")
+                first_kospi = last_kospi = first_kosdaq = last_kosdaq = 0
+
             # Generate message
             message = f"📊 프리즘 시뮬레이터 | 실시간 포트폴리오 ({datetime.now().strftime('%Y-%m-%d %H:%M')})\n\n"
 
@@ -1201,6 +1235,18 @@ class StockTrackingAgent:
                 message += f"- 승률: 0.00%\n"
 
             message += f"- 누적 수익률: {total_profit:.2f}%\n\n"
+
+            # 시장 지수 변화
+            if first_kospi > 0 and last_kospi > 0:
+                kospi_change = ((last_kospi - first_kospi) / first_kospi) * 100
+                kosdaq_change = ((last_kosdaq - first_kosdaq) / first_kosdaq) * 100 if first_kosdaq > 0 else 0
+                message += "📈 시장 지수 변화:\n"
+                message += f"- KOSPI: {first_kospi:.2f} → {last_kospi:.2f} ({'+' if kospi_change >= 0 else ''}{kospi_change:.2f}%)\n"
+                if first_kosdaq > 0:
+                    message += f"- KOSDAQ: {first_kosdaq:.2f} → {last_kosdaq:.2f} ({'+' if kosdaq_change >= 0 else ''}{kosdaq_change:.2f}%)\n"
+                message += "\n\n"
+            else:
+                message += "\n"
 
             # 4. Enhanced disclaimer
             message += "📝 주의사항:\n"

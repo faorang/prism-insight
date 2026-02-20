@@ -89,7 +89,7 @@ class TelegramBotAgent:
             if retry_count < max_retries:
                 wait_time = 2 ** retry_count  # 1, 2, 4 seconds
                 logger.warning(f"Timeout occurred. Retrying in {wait_time} seconds... (attempt {retry_count + 1}/{max_retries})")
-                await asyncio.sleep(wait_time)
+                await asyncio.sleep(wait_time * 60)
                 return await self.send_message(chat_id, message, parse_mode, retry_count + 1, max_retries, msg_type=msg_type)
             else:
                 logger.error(f"Max retries reached after timeout")

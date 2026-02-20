@@ -174,6 +174,8 @@ def clean_markdown(text: str) -> str:
         # Pattern matches: "n) Korean_title (plan|status|analysis|trend|overview|background)" + sentence_starter
         text = re.sub(rf'(\d+\)\s*[가-힣]+\s*(?:계획|현황|분석|동향|개요|배경))({starter})', rf'\1\n\n\2', text)
 
+    text = text.replace('`!`!`', '```')
+
     return text
 
 

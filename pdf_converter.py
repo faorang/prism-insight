@@ -1304,8 +1304,18 @@ def convert_to_markdown(text):
 
 # PDF to markdown_text
 def pdf_to_markdown_text(pdf_path):
-    text = extract_text_from_pdf(pdf_path)
-    return convert_to_markdown(text)
+    # read markdown text from md
+    try:
+        with open(pdf_path, 'r', encoding="utf-8") as file:
+            text = file.read()
+            logger.info(f"마크다운 파일을 그대로 반환: {pdf_path}")
+            return text
+    except Exception as e:
+        logger.error(f"PDF에서 마크다운 텍스트 추출 중 오류: {str(e)}")
+        return ""
+
+    # text = extract_text_from_pdf(pdf_path)
+    # return convert_to_markdown(text)
 
 
 if __name__ == "__main__":

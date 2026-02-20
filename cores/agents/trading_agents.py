@@ -488,7 +488,7 @@ def create_trading_scenario_agent(language: str = "ko"):
         다음 신호 확인 시 매수 점수 가산:
         - 거래량 급증 (관심 상승. 이전의 돌파 시도 흐름을 면밀히 살펴보고, 이 종목이 돌파에 필요한 거래량의 흐름을 파악해야 함. 특히, 돌파 시도 후 실패했던 케이스의 거래량보다 현저히 힘이 강해야 함.)
         - 기관/외국인 순매수 (자금 유입)
-        - 기술적 추세 전환 (단, 세력의 단순 수급 테스트같은 속임수일 수 있으니, 최소조건으로 직전 고점은 거래량 동반과 함께 힘있게 뚫어야 함. 추세 전환 여부를 거래량 및 여러 보조지표를 활용해 정밀하게 따져봐야 함) 
+        - 기술적 추세 전환 (단, 세력의 단순 수급 테스트같은 속임수일 수 있으니, 최소조건으로 직전 고점은 거래량 동반과 함께 힘있게 뚫어야 함. 추세 전환 여부를 거래량 및 여러 보조지표를 활용해 정밀하게 따져봐야 함)
         - 기술적 박스권 상향 돌파 (단, 캔들이 기존 박스 고점까지 가는데 그치지 않고, 박스 업그레이드 되는 움직임이 보여야 함)
         - 동종업계 대비 저평가
         - 업종 전반 긍정적 전망
@@ -556,6 +556,7 @@ def create_trading_scenario_agent(language: str = "ko"):
             "entry_checklist_passed": 체크 충족 개수 (6개 중),
             "rejection_reason": "미진입 시: 구체적 부정 요소 기재 (진입 시 null 또는 빈 문자열)",
             "target_price": 목표가 (원, 숫자만),
+            "buy_limit_price": 매수 상한가 (원, 숫자만),
             "stop_loss": 손절가 (원, 숫자만),
             "risk_reward_ratio": 손익비 = expected_return_pct ÷ expected_loss_pct (소수점 1자리),
             "expected_return_pct": 목표 수익률(%) = (목표가 - 현재가) ÷ 현재가 × 100,
@@ -614,7 +615,7 @@ def create_sell_decision_agent(language: str = "ko"):
     if language == "en":
         instruction = """## 🎯 Your Identity
         You are William O'Neil. Your iron rule: "Cut losses at 7-8%, no exceptions."
-        
+
         You are a professional analyst specializing in sell timing decisions for holdings.
         You need to comprehensively analyze the data of currently held stocks to decide whether to sell or continue holding.
 
@@ -661,16 +662,16 @@ def create_sell_decision_agent(language: str = "ko"):
           * 3 consecutive days decline + volume decrease
           * Both foreigner/institution turn to net selling
           * Break major support (20-day line)
-          
+
         **⭐ Trailing Stop Management (Execute Every Run)**
         1. Check highest price since entry
         2. If current price makes new high → Update stop loss upward via portfolio_adjustment
-        
+
         Example: Entry 10,000, Initial stop 9,300
         → Rise to 12,000 → new_stop_loss: 11,040 (12,000 × 0.92)
         → Rise to 15,000 → new_stop_loss: 13,800 (15,000 × 0.92)
         → Fall to 13,500 (breaks trailing stop) → should_sell: true
-        
+
         Trailing Stop %: Bull market peak × 0.92 (-8%), Bear/Sideways peak × 0.95 (-5%)
 
         **B) Bear/Sideways Mode → Secure Profit (Defensive)**
@@ -782,7 +783,7 @@ def create_sell_decision_agent(language: str = "ko"):
     else:  # Korean (default)
         instruction = """## 🎯 당신의 정체성
         당신은 윌리엄 오닐(William O'Neil)입니다. "손실은 7-8%에서 자른다, 예외 없다"는 철칙을 따릅니다.
-        
+
         당신은 보유 종목의 매도 시점을 결정하는 전문 분석가입니다.
         현재 보유 중인 종목의 데이터를 종합적으로 분석하여 매도할지 계속 보유할지 결정해야 합니다.
 
@@ -833,12 +834,12 @@ def create_sell_decision_agent(language: str = "ko"):
         **⭐ Trailing Stop 관리 (매 실행 시)**
         1. 진입 후 최고가 확인
         2. 현재가가 최고가 경신 시 → portfolio_adjustment로 손절가 상향
-        
+
         예시: 진입 10,000원, 초기 손절 9,300원
         → 상승 12,000원 → new_stop_loss: 11,040원 (12,000 × 0.92)
         → 상승 15,000원 → new_stop_loss: 13,800원 (15,000 × 0.92)
         → 하락 13,500원 (이탈) → should_sell: true
-        
+
         Trailing Stop %: 강세장 고점 × 0.92 (-8%), 약세장 고점 × 0.95 (-5%)
 
         **B) 약세장/횡보장 모드 → 수익 확보 (방어적)**

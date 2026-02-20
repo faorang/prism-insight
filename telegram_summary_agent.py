@@ -198,6 +198,8 @@ class TelegramSummaryGenerator:
             from_lang: Report source language (default: "ko")
             to_lang: Summary target language (default: "ko")
         """
+        return "분석 생략"
+
         # Set current date (YYYY.MM.DD format)
         current_date = datetime.now().strftime("%Y.%m.%d")
 
@@ -235,7 +237,10 @@ class TelegramSummaryGenerator:
                 model="gpt-5.2",
                 reasoning_effort="none",
                 maxTokens=6000,
-                max_iterations=2
+                max_iterations=2,
+                metadata={
+                    "service_tier":"flex",
+                }
             )
         )
 

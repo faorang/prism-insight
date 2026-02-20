@@ -1431,6 +1431,288 @@ def check_font_available():
 
     return all_korean_fonts
 
+def get_chart_as_csv_md(ticker, company_name, chart_function, chart_name, width=900,
+                             dpi=80, image_format='jpg', compress=True, **kwargs):
+    """
+    차트를 생성하고 압축한 후 Base64 인코딩된 HTML 이미지 태그로 반환
+
+    Args:
+        ticker: 종목 코드
+        company_name: 회사명
+        chart_function: 차트 생성 함수
+        chart_name: 차트명
+        width: 이미지 너비 (픽셀)
+        dpi: 해상도 (dots per inch), 낮을수록 파일 크기 감소
+        image_format: 이미지 형식 ('png', 'jpg', 'jpeg')
+        compress: 압축 적용 여부
+        **kwargs: 차트 함수에 전달할 추가 매개변수
+
+    Returns:
+        HTML 이미지 태그가 포함된 문자열
+    """
+    try:
+        # 차트 생성 매개변수 설정
+        chart_kwargs = {
+            'ticker': ticker,
+            'company_name': company_name,
+            'save_path': None
+        }
+        chart_kwargs.update(kwargs)
+
+        # 차트 생성
+        fig = chart_function(**chart_kwargs)
+
+        if fig is None:
+            return None
+        else:
+            if isinstance(fig, list):
+                ret = ''
+                for f in fig:
+                    if isinstance(f, tuple):
+                        ret += f'#### {f[0]}\n' + f'''
+`!`!`csv
+{f[1]}
+`!`!`
+\n'''
+                return ret
+            elif isinstance(fig, str):
+                return f'''`!`!`csv
+{fig}
+`!`!`
+'''
+            return fig
+    except Exception as e:
+        logger.info(f"Error generating {chart_name} for {ticker}: {e}")
+        return None
+
+def create_fundamentals_csv(ticker, company_name=None, days=730, save_path=None):
+    """
+    기본 지표 차트 생성 (PER, PBR, 배당수익률)
+
+    Parameters:
+    -----------
+    ticker : str
+        주식 티커 심볼
+    company_name : str, optional
+        회사명 (제목용)
+    days : int, optional
+        조회 기간 (일)
+    save_path : str, optional
+        차트 저장 경로 (None이면 화면에 표시)
+
+    Returns:
+    --------
+    fig : matplotlib figure
+        차트가 포함된 figure 객체
+    """
+    # 날짜 범위 계산
+    end_date = datetime.now().strftime('%Y%m%d')
+    start_date = (datetime.now() - timedelta(days=days)).strftime('%Y%m%d')
+
+    # 회사명이 없으면 가져오기
+    if company_name is None:
+        try:
+            company_name = get_market_ticker_name(ticker)
+        except:
+            company_name = ticker
+
+    # 주식 데이터 가져오기
+    df = get_market_fundamental_by_date(start_date, end_date, ticker)
+
+    if df is None or len(df) == 0:
+        logger.info(f"{ticker}에 대한 기본 지표 데이터가 없습니다.")
+        return None
+
+    # 인덱스가 datetime인지 확인
+    if not isinstance(df.index, pd.DatetimeIndex):
+        df.index = pd.to_datetime(df.index)
+
+    # 날짜 오름차순 정렬
+    df = df.sort_index()
+    new_df = df[['PER', 'PBR', 'DIV']].copy()
+    new_df.index = df.index  # 인덱스는 기본 유지되므로 생략 가능
+    return new_df.to_csv(index=True, index_label="날짜")
+
+def create_market_cap_csv(ticker, company_name=None, days=730, save_path=None):
+    """
+    시가총액 차트 생성
+
+    Parameters:
+    -----------
+    ticker : str
+        주식 티커 심볼
+    company_name : str, optional
+        회사명 (제목용)
+    days : int, optional
+        조회 기간 (일)
+    save_path : str, optional
+        차트 저장 경로 (None이면 화면에 표시)
+
+    Returns:
+    --------
+    fig : matplotlib figure
+        차트가 포함된 figure 객체
+    """
+    # 날짜 범위 계산
+    end_date = datetime.now().strftime('%Y%m%d')
+    start_date = (datetime.now() - timedelta(days=days)).strftime('%Y%m%d')
+
+    # 회사명이 없으면 가져오기
+    if company_name is None:
+        try:
+            company_name = get_market_ticker_name(ticker)
+        except:
+            company_name = ticker
+
+    # 주식 데이터 가져오기
+    df = get_market_cap_by_date(start_date, end_date, ticker)
+
+    if df is None or len(df) == 0:
+        logger.info(f"{ticker}에 대한 시가총액 데이터가 없습니다.")
+        return None
+
+    # 인덱스가 datetime인지 확인
+    if not isinstance(df.index, pd.DatetimeIndex):
+        df.index = pd.to_datetime(df.index)
+
+    # 날짜 오름차순 정렬
+    df = df.sort_index()
+    new_df = df[['MarketCap']].copy()
+    new_df.index = df.index  # 인덱스는 기본적으로 유지되지만 명시적으로도 지정 가능
+    return new_df.to_csv(index=True,  index_label="날짜")
+
+def create_trading_volume_csv(ticker, company_name=None, days=730, save_path=None):
+    """
+    투자자별 거래량 차트 생성
+
+    Parameters:
+    -----------
+    ticker : str
+        주식 티커 심볼
+    company_name : str, optional
+        회사명 (제목용)
+    days : int, optional
+        조회 기간 (일)
+    save_path : str, optional
+        차트 저장 경로 (None이면 화면에 표시)
+
+    Returns:
+    --------
+    fig : matplotlib figure
+        차트가 포함된 figure 객체
+    """
+    # 날짜 범위 계산
+    end_date = datetime.now().strftime('%Y%m%d')
+    start_date = (datetime.now() - timedelta(days=days)).strftime('%Y%m%d')
+
+    # 회사명이 없으면 가져오기
+    if company_name is None:
+        try:
+            company_name = get_market_ticker_name(ticker)
+        except:
+            company_name = ticker
+
+    # 주식 데이터 가져오기 - 투자자별 거래량
+    df_volume = get_market_trading_volume_by_investor(start_date, end_date, ticker)
+
+    if df_volume is None or len(df_volume) == 0:
+        logger.info(f"{ticker}에 대한 거래량 데이터가 없습니다.")
+        return None
+
+    # 일별 순매수 데이터 가져오기
+    df_daily = get_market_trading_volume_by_date(start_date, end_date, ticker)
+
+    if df_daily is None or len(df_daily) == 0:
+        logger.info(f"{ticker}에 대한 일별 거래량 데이터가 없습니다.")
+        return None
+
+    # 차트 생성
+    fig, axes = plt.subplots(2, 1, figsize=(12, 10), gridspec_kw={'height_ratios': [2, 3]})
+
+    # 1. 주요 투자자 누적 순매수량
+    # 주요 투자자 선택
+    investor_types = ['기관합계', '외국인합계', '개인', '기타법인']
+
+    ret = []
+    # 투자자별 순매수량 합계 계산 (krx_data_client는 날짜별 데이터 반환)
+    # 각 투자자별 컬럼의 합계를 계산
+    investor_cols = [col for col in df_volume.columns if col in investor_types]
+    if investor_cols:
+        investor_data = df_volume[investor_cols].sum()
+        ret.append(('투자자별 순매수량',investor_data.to_csv(index=True, index_label="날짜")))
+
+    # 2. 일별 순매수량 추이
+    # 인덱스가 datetime인지 확인
+    if not isinstance(df_daily.index, pd.DatetimeIndex):
+        df_daily.index = pd.to_datetime(df_daily.index)
+
+    # 날짜 오름차순 정렬
+    df_daily = df_daily.sort_index()
+
+    # 주요 투자자만 선택
+    key_investors = [col for col in df_daily.columns if col in investor_types]
+
+    # 누적 순매수량 계산
+    df_cumulative = df_daily[key_investors].cumsum()
+    ret.append(('일별 누적 순매수량', df_cumulative.to_csv(index=True, index_label="날짜")))
+
+    return ret
+
+def create_price_csv(ticker, company_name=None, days=730, save_path=None, adjusted=True):
+    """
+    우아한 OHLCV 가격 차트 생성 (캔들스틱, 거래량, 이동평균선 포함)
+
+    Parameters:
+    -----------
+    ticker : str
+        주식 티커 심볼
+    company_name : str, optional
+        회사명 (제목용)
+    days : int, optional
+        조회 기간 (일)
+    save_path : str, optional
+        차트 저장 경로 (None이면 화면에 표시)
+    adjusted : bool, optional
+        수정주가 여부
+
+    Returns:
+    --------
+    fig : matplotlib figure
+        차트가 포함된 figure 객체
+    """
+    # 날짜 범위 계산
+    end_date = datetime.now().strftime('%Y%m%d')
+    start_date = (datetime.now() - timedelta(days=days)).strftime('%Y%m%d')
+
+    # 회사명이 없으면 가져오기
+    if company_name is None:
+        try:
+            company_name = get_market_ticker_name(ticker)
+        except:
+            company_name = ticker
+
+    # 주식 데이터 가져오기
+    df = get_market_ohlcv_by_date(start_date, end_date, ticker, adjusted=adjusted)
+
+    if df is None or len(df) == 0:
+        logger.info(f"{ticker}에 대한 데이터가 없습니다.")
+        return None
+
+    # 인덱스가 datetime인지 확인
+    if not isinstance(df.index, pd.DatetimeIndex):
+        df.index = pd.to_datetime(df.index)
+
+    # 날짜 오름차순 정렬
+    df = df.sort_index()
+
+    # 이동평균선 계산
+    df['MA20'] = df['Close'].rolling(window=20).mean().round(2)
+    df['MA60'] = df['Close'].rolling(window=60).mean().round(2)
+    df['MA120'] = df['Close'].rolling(window=120).mean().round(2)
+    if '등락률' in df.columns:
+        df.drop(columns=['등락률'], inplace=True)
+    return df.to_csv(index=True, index_label="날짜")
+
 def main():
     """
     Example usage of stock chart generation functions

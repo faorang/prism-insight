@@ -12,10 +12,16 @@ from cores.report_generation import generate_report, generate_summary, generate_
 load_dotenv()
 from cores.stock_chart import (
     create_price_chart,
+    create_price_csv,
     create_trading_volume_chart,
+    create_trading_volume_csv,
     create_market_cap_chart,
+    create_market_cap_csv,
     create_fundamentals_chart,
-    get_chart_as_base64_html
+    create_fundamentals_csv,
+    get_chart_as_base64_html,
+    get_chart_as_csv_md
+
 )
 from cores.utils import clean_markdown
 
@@ -202,23 +208,23 @@ async def analyze_stock(company_code: str = "000660", company_name: str = "SK하
 
         try:
             # Generate chart images
-            price_chart_html = get_chart_as_base64_html(
-                company_code, company_name, create_price_chart, 'Price Chart', width=900, dpi=80, image_format='jpg', compress=True,
+            price_chart_html = get_chart_as_csv_md(
+                company_code, company_name, create_price_csv, 'Price Chart', width=900, dpi=80, image_format='jpg', compress=True,
                 days=730, adjusted=True
             )
 
-            volume_chart_html = get_chart_as_base64_html(
-                company_code, company_name, create_trading_volume_chart, 'Trading Volume Chart', width=900, dpi=80, image_format='jpg', compress=True,
+            volume_chart_html = get_chart_as_csv_md(
+                company_code, company_name, create_trading_volume_csv, 'Trading Volume Chart', width=900, dpi=80, image_format='jpg', compress=True,
                 days=30  # Supply/demand analysis based on 1 month
             )
 
-            market_cap_chart_html = get_chart_as_base64_html(
-                company_code, company_name, create_market_cap_chart, 'Market Cap Trend', width=900, dpi=80, image_format='jpg', compress=True,
+            market_cap_chart_html = get_chart_as_csv_md(
+                company_code, company_name, create_market_cap_csv, 'Market Cap Trend', width=900, dpi=80, image_format='jpg', compress=True,
                 days=730
             )
 
-            fundamentals_chart_html = get_chart_as_base64_html(
-                company_code, company_name, create_fundamentals_chart, 'Fundamental Indicators', width=900, dpi=80, image_format='jpg', compress=True,
+            fundamentals_chart_html = get_chart_as_csv_md(
+                company_code, company_name, create_fundamentals_csv, 'Fundamental Indicators', width=900, dpi=80, image_format='jpg', compress=True,
                 days=730
             )
         except Exception as e:
@@ -278,10 +284,10 @@ async def analyze_stock(company_code: str = "000660", company_name: str = "SK하
                     chart_title = "### 가격 및 거래량 차트\n\n" if language == "ko" else "### Price and Volume Charts\n\n"
                     final_report += chart_title
                     if price_chart_html:
-                        chart_subtitle = "#### 가격 차트\n\n" if language == "ko" else "#### Price Chart\n\n"
+                        chart_subtitle = "#### 가격 변동(csv)\n\n" if language == "ko" else "#### Price Chart\n\n"
                         final_report += chart_subtitle + price_chart_html + "\n\n"
                     if volume_chart_html:
-                        chart_subtitle = "#### 거래량 차트\n\n" if language == "ko" else "#### Trading Volume Chart\n\n"
+                        chart_subtitle = "#### 거래량 변동(csv)\n\n" if language == "ko" else "#### Trading Volume Chart\n\n"
                         final_report += chart_subtitle + volume_chart_html + "\n\n"
             if "investor_trading_analysis" in section_reports:
                 final_report += section_reports["investor_trading_analysis"] + "\n\n"
@@ -296,10 +302,10 @@ async def analyze_stock(company_code: str = "000660", company_name: str = "SK하
                     chart_title = "### 시가총액 및 펀더멘털 차트\n\n" if language == "ko" else "### Market Cap and Fundamental Charts\n\n"
                     final_report += chart_title
                     if market_cap_chart_html:
-                        chart_subtitle = "#### 시가총액 추이\n\n" if language == "ko" else "#### Market Cap Trend\n\n"
+                        chart_subtitle = "#### 시가총액 변동(csv)\n\n" if language == "ko" else "#### Market Cap Trend\n\n"
                         final_report += chart_subtitle + market_cap_chart_html + "\n\n"
                     if fundamentals_chart_html:
-                        chart_subtitle = "#### 펀더멘털 지표 분석\n\n" if language == "ko" else "#### Fundamental Indicator Analysis\n\n"
+                        chart_subtitle = "#### 펀더멘털 지표 분석(csv)\n\n" if language == "ko" else "#### Fundamental Indicator Analysis\n\n"
                         final_report += chart_subtitle + fundamentals_chart_html + "\n\n"
             if "company_overview" in section_reports:
                 final_report += section_reports["company_overview"] + "\n\n"
