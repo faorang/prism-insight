@@ -837,6 +837,7 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
                 ### 분석 요청:
                 위 정보를 바탕으로 kospi_kosdaq과 sqlite 도구를 활용하여 최신 데이터를 확인하고,
                 매도할지 계속 보유할지 결정해주세요.
+                **주의**: 손절가/목표가 조정이 필요하면 반드시 portfolio_adjustment JSON으로 응답하세요. DB를 직접 UPDATE하지 마세요.
                 """
             else:  # English
                 prompt_message = f"""

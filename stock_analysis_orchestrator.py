@@ -843,21 +843,27 @@ class StockAnalysisOrchestrator:
         logger.info(f"Starting full pipeline - mode: {mode}")
 
         try:
-            # 0. 현재 보유 중인 포트폴리오 종목 갯수 확인
-            import my_portfolio
-            from stock_tracking_agent import StockTrackingAgent
-            from trading.domestic_stock_trading import DEFAULT_BUY_AMOUNT
-            portfolio_count = await my_portfolio.get_portfolio_stock_count()
-            total_cash = await my_portfolio.get_account()
-            logger.info(f"현재 보유 중인 포트폴리오 종목 갯수: {portfolio_count}/{StockTrackingAgent.MAX_SLOTS}")
+            is_portfolio_full = False
+            try:
+                # 0. 현재 보유 중인 포트폴리오 종목 갯수 확인
+                import my_portfolio
+                from stock_tracking_agent import StockTrackingAgent
+                from trading.domestic_stock_trading import DEFAULT_BUY_AMOUNT
+                portfolio_count = await my_portfolio.get_portfolio_stock_count()
+                total_cash = await my_portfolio.get_account()
+                total_cash = total_cash.get('total_cash')
+                logger.info(f"현재 보유 중인 포트폴리오 종목 갯수: {portfolio_count}/{StockTrackingAgent.MAX_SLOTS}")
 
-            is_portfolio_full = portfolio_count >= StockTrackingAgent.MAX_SLOTS
-            if total_cash is not None:
-                logger.info(f"현재 총 보유 현금: {total_cash:,.0f}원")
+                is_portfolio_full = portfolio_count >= StockTrackingAgent.MAX_SLOTS
+                if total_cash is not None:
+                    logger.info(f"현재 총 보유 현금: {total_cash:,.0f}원")
 
-                if total_cash < DEFAULT_BUY_AMOUNT:
-                    logger.warning(f"총 보유 현금이 {DEFAULT_BUY_AMOUNT:,.0f}원 미만입니다. 신규 종목 추가가 제한될 수 있습니다.")
-                    is_portfolio_full = True
+                    if total_cash < DEFAULT_BUY_AMOUNT:
+                        logger.warning(f"총 보유 현금이 {DEFAULT_BUY_AMOUNT:,.0f}원 미만입니다. 신규 종목 추가가 제한될 수 있습니다.")
+                        is_portfolio_full = True
+            except Exception as e:
+                logger.error(f"포트폴리오 사전 확인 중 오류: {str(e)}")
+
 
             pdf_paths = []
             report_paths = []
@@ -1118,7 +1124,16 @@ async def main():
     if args.mode == "afternoon" or args.mode == "both":
         await orchestrator.run_full_pipeline("afternoon", language=args.language)
 
+
+async def hi():
+    s = StockAnalysisOrchestrator()
+    r = await s.generate_reports([{"code": "005930", "name": "삼성전자"}], "test", language="ko")
+
 if __name__ == "__main__":
+    asyncio.run(hi())
+
+
+    sys.exit(0)
     # Check market holiday
     from check_market_day import is_market_day
 

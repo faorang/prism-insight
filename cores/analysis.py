@@ -2,6 +2,7 @@ import os
 import asyncio
 from datetime import datetime
 from dotenv import load_dotenv
+import time
 
 from mcp_agent.app import MCPApp
 
@@ -145,6 +146,8 @@ async def analyze_stock(company_code: str = "000660", company_name: str = "SK하
                     except Exception as e:
                         logger.error(f"Final failure processing {section}: {e}")
                         section_reports[section] = f"Analysis failed: {section}"
+
+                time.sleep(60)  # 429 방지 위해 섹션 간 대기
 
         # 6. Integrate content from other reports
         combined_reports = ""

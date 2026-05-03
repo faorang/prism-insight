@@ -550,9 +550,9 @@ def create_trading_scenario_agent(language: str = "ko"):
             "portfolio_analysis": "현재 포트폴리오 상황 요약",
             "valuation_analysis": "동종업계 밸류에이션 비교 결과",
             "sector_outlook": "업종 전망 및 동향",
-            "buy_score": 1~10 사이의 점수,
-            "min_score": 시장 환경에 따른 최소 진입 요구 점수 (강세장: 6, 약세장: 7),
-            "decision": "진입" 또는 "미진입",
+            "buy_score": 1.0~10.0 사이의 소수점 한 자리 점수 (기술적 분석, 재무, 시장 지배력을 종합하여 0.1점 단위로 정밀하게 산출),
+            "min_score": 시장 변동성을 고려한 최소 진입 요구 소수점 한 자리 점수 (강세장: 6.0, 약세장: 7.0을 기준으로 현재 시장 상황에 맞춰 가변적 설정)
+            "decision": "'buy_score'가 'min_score' 이상일 경우에만 '진입', 미만일 경우 '미진입'으로 작성하십시오.",
             "entry_checklist_passed": 체크 충족 개수 (6개 중),
             "rejection_reason": "미진입 시: 구체적 부정 요소 기재 (진입 시 null 또는 빈 문자열)",
             "target_price": 목표가 (원, 숫자만),

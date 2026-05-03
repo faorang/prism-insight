@@ -224,7 +224,7 @@ async def check_stop_loss_triggered(db_path: str = "stock_tracking_db.sqlite"):
             if current_price <= stop_loss:
                 # 주가 정보 업데이트
                 stock['current_price'] = current_price
-                triggered_stocks.append(ticker)
+                triggered_stocks.append(stock)
                 await sell_stock(stock, sell_reason="손절가 도달")
                 await sell_real_stock(ticker)
             ''' 잠시 비활성화, canslim 전략과 충돌
@@ -398,8 +398,9 @@ async def main():
     # await check_stop_loss_triggered()
     r = await get_account()
     total_cash = r.get('total_cash')
-    print(f"현재 총 보유 현금: {total_cash:,.0f}원")
-    print(type(total_cash))
+    msg = f"현재 총 보유 현금: {total_cash:,.0f}원"
+    print(msg)
+    await send_telegram_message(msg)
     # await send_telegram_message('포트폴리오 점검 완료!')
 
 if __name__ == "__main__":
