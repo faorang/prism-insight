@@ -147,11 +147,10 @@ def create_price_volume_analysis_agent(company_name, company_code, reference_dat
             )
         else:
             instruction = instruction.replace(
-                f"## 수집해야 할 데이터\n                        1. 주가/거래량 데이터: tool call(name : kospi_kosdaq-get_stock_ohlcv)을 사용하여 {max_years_ago}~{reference_date} 기간의 데이터 수집 (수집 기간(년) : {max_years})",
-                f"## 사전 수집된 데이터 (OHLCV)\n다음 데이터가 사전 수집되었습니다. 이 데이터를 분석에 직접 사용하세요 - OHLCV 데이터를 위한 도구 호출을 하지 마세요.\n\n{prefetched_data}"
+                f"1. 주가/거래량 데이터: kospi_kosdaq-get_stock_ohlcv ({max_years_ago}~{reference_date}, {max_years}년)",
+                f"## 사전 수집된 데이터 (OHLCV)\n다음 데이터가 사전 수집되었습니다. (도구 호출 생략)\n\n{prefetched_data}"
             )
-        # Also update precautions to not require tool calls
-        instruction = instruction.replace("- 반드시 tool call을 해야 합니다", "- 사전 수집된 데이터를 기반으로 분석합니다")
+        instruction = instruction.replace("- 할루시네이션 방지: 확인된 실제 데이터만 사용", "- 할루시네이션 방지: 사전 수집된 실제 데이터만 사용")
         instruction = instruction.replace("- You must make a tool call", "- Analyze based on the pre-collected data provided above")
 
     return Agent(
@@ -301,10 +300,10 @@ def create_investor_trading_analysis_agent(company_name, company_code, reference
             )
         else:
             instruction = instruction.replace(
-                f"## 수집해야 할 데이터\n                        1. 투자자별 거래 데이터: tool call(name : kospi_kosdaq-get_stock_trading_volume)을 사용하여 {max_years_ago}~{reference_date} 기간의 데이터 수집 (수집 기간(년) : {max_years})",
-                f"## 사전 수집된 데이터 (투자자별 거래량)\n다음 데이터가 사전 수집되었습니다. 이 데이터를 분석에 직접 사용하세요 - 거래량 데이터를 위한 도구 호출을 하지 마세요.\n\n{prefetched_data}"
+                f"1. 투자자별 거래 데이터: kospi_kosdaq-get_stock_trading_volume ({max_years_ago}~{reference_date}, {max_years}년)",
+                f"## 사전 수집된 데이터 (투자자별 거래량)\n다음 데이터가 사전 수집되었습니다. (도구 호출 생략)\n\n{prefetched_data}"
             )
-        instruction = instruction.replace("- 반드시 tool call을 해야 합니다", "- 사전 수집된 데이터를 기반으로 분석합니다")
+        instruction = instruction.replace("- 할루시네이션 방지: 확인된 실제 데이터만 사용", "- 할루시네이션 방지: 사전 수집된 실제 데이터만 사용")
         instruction = instruction.replace("- You must make a tool call", "- Analyze based on the pre-collected data provided above")
 
     return Agent(
