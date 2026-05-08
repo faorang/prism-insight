@@ -58,6 +58,7 @@ async def analyze_stock(company_code: str = "000660", company_name: str = "SK하
         # 4. Prefetch data to reduce MCP tool call overhead
         from cores.data_prefetch import prefetch_kr_analysis_data
         try:
+            logger.info(f"Starting prefetch process for {company_name}({company_code}) - reference date: {reference_date}")
             from datetime import timedelta
             ref_date_obj = datetime.strptime(reference_date, "%Y%m%d")
             max_years_calc = 1
@@ -66,6 +67,8 @@ async def analyze_stock(company_code: str = "000660", company_name: str = "SK하
         except Exception as e:
             logger.warning(f"Data prefetch failed, falling back to MCP: {e}")
             prefetched = {}
+
+        logger.info(f"Prefetch process completed for {company_name}({company_code}) - reference date: {reference_date}")
 
         # 5. Get agents (with prefetched data)
         agents = get_agent_directory(company_name, company_code, reference_date, base_sections, language, prefetched_data=prefetched)
@@ -141,7 +144,7 @@ async def analyze_stock(company_code: str = "000660", company_name: str = "SK하
                         logger.error(f"Final failure processing {section}: {e}")
                         section_reports[section] = f"Analysis failed: {section}"
 
-                time.sleep(60)  # 429 방지 위해 섹션 간 대기
+                await asyncio.sleep(5)  # 429 방지 위해 섹션 간 대기
 
         # 6. Integrate content from other reports
         combined_reports = ""
