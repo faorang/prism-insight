@@ -22,8 +22,15 @@ async def main():
     sell_decision_agent = Agent(
         name="agent",
         instruction="""
-        친절한 AI.
-        URL 접속 시 firecrawl_scrape tool을 사용하고 formats 파라미터는 ["markdown"]로, onlyMainContent 파라미터는 true로 설정하세요.
+        1. 주가/거래량 데이터: tool call(name : kospi_kosdaq-get_stock_ohlcv)을 사용하여 {max_years_ago}~{reference_date} 기간의 데이터 수집 (수집 기간(년) : {max_years})
+        2. **기술적 지표 - OHLCV 데이터에서 반드시 직접 계산:**
+                           - RSI (14일): 종가 기준 계산. RS = 평균상승폭 / 평균하락폭, RSI = 100 - (100 / (1 + RS)). 정확한 수치 제시 (예: RSI = 72.5)
+                           - MACD: 12일 EMA - 26일 EMA, 시그널선 = MACD의 9일 EMA. MACD 값과 시그널선 값 제시
+                           - 볼린저밴드 (20일): 중심선 = 20일 SMA, 상단/하단 = 중심선 ± 2×표준편차. 현재가의 밴드 내 위치 제시
+
+        ## 보고서 구성
+        1. 주요 기술적 지표 및 해석 - 이동평균선, 지지/저항선, 기타 지표
+
         """,
         server_names=["firecrawl"]
     )

@@ -1130,10 +1130,6 @@ async def hi():
     r = await s.generate_reports([{"code": "005930", "name": "삼성전자"}], "test", language="ko")
 
 if __name__ == "__main__":
-    asyncio.run(hi())
-
-
-    sys.exit(0)
     # Check market holiday
     from check_market_day import is_market_day
 

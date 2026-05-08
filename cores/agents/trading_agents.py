@@ -336,7 +336,7 @@ def create_trading_scenario_agent(language: str = "ko"):
             "valuation_analysis": "밸류에이션 결과",
             "sector_outlook": "업종 전망",
             "buy_score": 1.0~10.0 (소수점 1자리),
-            "min_score": 6.0(강세) or 7.0(약세),
+            "min_score": 6.1(강세) ~ 7.0(약세),
             "decision": "진입" | "미진입",
             "entry_checklist_passed": 충족 개수 (Max 6),
             "rejection_reason": "미진입 사유 (진입 시 빈 문자열)",
@@ -568,7 +568,8 @@ def create_sell_decision_agent(language: str = "ko"):
         - 유일한 예외: 손실 -5~-7% & 당일반등률 +3%이상 & 거래량 2배이상 & 수급 양호 시 하루 관망
 
         **3. 매도 2순위: 수익 실현 (Trailing Stop 매 실행 시 업데이트)**
-        - 강세장: 목표가 도달해도 추세 살아있으면 보유. 고점 대비 -8~10% 하락 또는 명확한 추세 약화 시 매도.
+        - 주도주 8주 보유 법칙: 매수 후 1~3주(15거래일) 내 20% 이상 급등 시 최소 8주간 전량 보유. (첫 조정/고점 대비 하락 무시)
+        - 강세장: 위 예외 제외, 목표가 도달해도 추세 살아있으면 보유. 고점 대비 -8~10% 하락 또는 명확한 추세 약화 시 매도.
         - 약/횡보장: 목표가 도달 시 매도 고려. 고점 대비 -3~5% 하락 시 매도.
 
         **4. 데이터 활용 주의 (time-get_current_time 확인 필수)**

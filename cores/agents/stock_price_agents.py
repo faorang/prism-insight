@@ -145,13 +145,14 @@ def create_price_volume_analysis_agent(company_name, company_code, reference_dat
                 f"## Data to Collect\n                        1. Stock Price/Volume Data: Use tool call(name: kospi_kosdaq-get_stock_ohlcv) to collect data from {max_years_ago} to {reference_date} (collection period (years): {max_years})",
                 f"## Pre-collected Data (OHLCV)\nThe following data has been pre-collected. Use this data directly for your analysis - DO NOT make any tool calls for OHLCV data.\n\n{prefetched_data}"
             )
+            instruction = instruction.replace("- You must make a tool call", "- Analyze based on the pre-collected data provided above")
         else:
             instruction = instruction.replace(
-                f"1. 주가/거래량 데이터: kospi_kosdaq-get_stock_ohlcv ({max_years_ago}~{reference_date}, {max_years}년)",
+                f"1. 주가/거래량 데이터: tool call(name : kospi_kosdaq-get_stock_ohlcv)을 사용하여 {max_years_ago}~{reference_date} 기간의 데이터 수집 (수집 기간(년) : {max_years})",
                 f"## 사전 수집된 데이터 (OHLCV)\n다음 데이터가 사전 수집되었습니다. (도구 호출 생략)\n\n{prefetched_data}"
             )
-        instruction = instruction.replace("- 할루시네이션 방지: 확인된 실제 데이터만 사용", "- 할루시네이션 방지: 사전 수집된 실제 데이터만 사용")
-        instruction = instruction.replace("- You must make a tool call", "- Analyze based on the pre-collected data provided above")
+            instruction = instruction.replace("- 할루시네이션 방지: 확인된 실제 데이터만 사용", "- 할루시네이션 방지: 사전 수집된 실제 데이터만 사용")
+            instruction = instruction.replace("- 반드시 tool call을 해야 합니다", "")
 
     return Agent(
         name="price_volume_analysis_agent",
@@ -298,13 +299,14 @@ def create_investor_trading_analysis_agent(company_name, company_code, reference
                 f"## Data to Collect\n                        1. Trading Data by Investor Type: Use tool call(name: kospi_kosdaq-get_stock_trading_volume) to collect data from {max_years_ago} to {reference_date} (collection period (years): {max_years})",
                 f"## Pre-collected Data (Investor Trading Volume)\nThe following data has been pre-collected. Use this data directly for your analysis - DO NOT make any tool calls for trading volume data.\n\n{prefetched_data}"
             )
+            instruction = instruction.replace("- You must make a tool call", "- Analyze based on the pre-collected data provided above")
         else:
             instruction = instruction.replace(
-                f"1. 투자자별 거래 데이터: kospi_kosdaq-get_stock_trading_volume ({max_years_ago}~{reference_date}, {max_years}년)",
+                f"1. 투자자별 거래 데이터: tool call(name : kospi_kosdaq-get_stock_trading_volume)을 사용하여 {max_years_ago}~{reference_date} 기간의 데이터 수집 (수집 기간(년) : {max_years})",
                 f"## 사전 수집된 데이터 (투자자별 거래량)\n다음 데이터가 사전 수집되었습니다. (도구 호출 생략)\n\n{prefetched_data}"
             )
-        instruction = instruction.replace("- 할루시네이션 방지: 확인된 실제 데이터만 사용", "- 할루시네이션 방지: 사전 수집된 실제 데이터만 사용")
-        instruction = instruction.replace("- You must make a tool call", "- Analyze based on the pre-collected data provided above")
+            instruction = instruction.replace("- 할루시네이션 방지를 위해 실제 데이터에서 확인된 내용만 포함", "- 할루시네이션 방지: 사전 수집된 실제 데이터만 사용")
+            instruction = instruction.replace("- 반드시 tool call을 해야 합니다", "")
 
     return Agent(
         name="investor_trading_analysis_agent",
