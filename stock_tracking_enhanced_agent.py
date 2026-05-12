@@ -415,15 +415,6 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
                 logger.info(f"Buy score check: {company_name}({ticker}) - Score: {buy_score}, Min required score: {min_score}")
                 logger.info(f'Buy limit price: {buy_limit_price}')
 
-                # Score-decision consistency enforcement:
-                # If score meets threshold and sector is diverse, override LLM decision to Enter
-                if buy_score != 0 and min_score !=0 and buy_score >= min_score and sector_diverse and decision != "Enter":
-                    logger.info(
-                        f"Score-decision override: {company_name}({ticker}) - "
-                        f"Score {buy_score} >= {min_score} but decision='{decision}', forcing Enter"
-                    )
-                    decision = "Enter"
-
                 # Generate message if not buying (watch/insufficient score/sector constraints)
                 if decision != "Enter" or buy_score < min_score or not sector_diverse:
                     # Determine reason for not buying
@@ -868,10 +859,11 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
             response = await llm.generate_str(
                 message=prompt_message,
                 request_params=RequestParams(
-                    model="gpt-5.2",
-                    maxTokens=16000,
+                    model="gpt-5.5",
+                    reasoning_effort="medium",
+                    maxTokens=30_000,
                     metadata={
-                        "service_tier":"flex",
+                        # "service_tier":"flex",
                     }
                 )
             )

@@ -2,6 +2,8 @@ import asyncio
 import sqlite3
 from typing import Dict, Any
 
+from streamlit import cursor
+
 async def get_portfolio_stock_count(db_path: str = "stock_tracking_db.sqlite") -> int:
     """현재 보유 중인 포트폴리오 종목 갯수를 반환합니다."""
     try:
@@ -218,12 +220,12 @@ async def check_stop_loss_triggered(db_path: str = "stock_tracking_db.sqlite"):
         target_price = stock["target_price"]
 
         # 현재 가격을 가져오는 로직 (예: API 호출)
-        current_price = await get_current_stock_price(ticker)
-        if current_price is not None:
-            print(f"{ticker} 현재가: {current_price}, 손절가: {stop_loss}, 목표가: {target_price}")
-            if current_price <= stop_loss:
+        current_portpolio = await get_current_stock_price(ticker)
+        if current_portpolio is not None:
+            print(f"{ticker} 현재가: {current_portpolio}, 손절가: {stop_loss}, 목표가: {target_price}")
+            if current_portpolio <= stop_loss:
                 # 주가 정보 업데이트
-                stock['current_price'] = current_price
+                stock['current_price'] = current_portpolio
                 triggered_stocks.append(stock)
                 await sell_stock(stock, sell_reason="손절가 도달")
                 await sell_real_stock(ticker)
@@ -241,9 +243,9 @@ async def check_stop_loss_triggered(db_path: str = "stock_tracking_db.sqlite"):
         time.sleep(5)  # API 호출 제한을 피하기 위해 약간의 지연 추가
     if triggered_stocks:
         message = f"손절가/목표가 발동된 종목: {format_telegram_trigger_message(triggered_stocks)}"
-        current_price = await get_trading_data()
-        print(f"현재 포트폴리오: {current_price}")
-        message += f"\n현재 포트폴리오: {current_price}"
+        current_portpolio = await get_trading_data()
+        print(f"현재 포트폴리오: {current_portpolio}")
+        message += f"\n\n현재 포트폴리오: {format_for_current_telegram(current_portpolio)}"
         await send_telegram_message(message)
 
 def escape_md(text):
@@ -251,6 +253,14 @@ def escape_md(text):
     for ch in special:
         text = text.replace(ch, f'\\{ch}')
     return text
+
+def format_for_current_telegram(data):
+    lines = ["📊 **현재 포트폴리오 상태**\n"]
+    for item in data:
+        emoji = "🔴" if item['profit_rate'] > 0 else "🔵"
+        line = f"{emoji} **{item['stock_name']}**: `{item['profit_rate']:+.2f}%` ({item['profit_amount']:+,.0f}원)"
+        lines.append(line)
+    return "\n".join(lines)
 
 def format_telegram_trigger_message(triggered_stocks):
     lines = ["📢 *손절가 / 목표가 발동*"]
@@ -265,7 +275,6 @@ def format_telegram_trigger_message(triggered_stocks):
             f"{emoji} *{company}* \\({ticker}\\)\n"
             f"• 매수가: {s['buy_price']:,}\n"
             f"• 현재가: {s['current_price']:,}\n"
-            f"• {scenario}\n"
             f"• 목표가: {s['target_price']:,} / 손절가: {s['stop_loss']:,}"
         )
 
@@ -396,11 +405,16 @@ async def main():
     # count = await get_portfolio_stock_count()
     # print(f"현재 보유 중인 포트폴리오 종목 갯수: {count}")
     # await check_stop_loss_triggered()
-    r = await get_account()
-    total_cash = r.get('total_cash')
-    msg = f"현재 총 보유 현금: {total_cash:,.0f}원"
-    print(msg)
-    await send_telegram_message(msg)
+    # r = await get_account()
+    # total_cash = r.get('total_cash')
+    # msg = f"현재 총 보유 현금: {total_cash:,.0f}원"
+    # await send_telegram_message(msg)
+
+    message = "포트폴리오 점검 시작!"
+    current_portpolio = await get_trading_data()
+    message += f"\n\n현재 포트폴리오: {format_for_current_telegram(current_portpolio)}"
+    await send_telegram_message(message)
+
     # await send_telegram_message('포트폴리오 점검 완료!')
 
 if __name__ == "__main__":
