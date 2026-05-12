@@ -112,6 +112,82 @@ def get_multi_day_ohlcv(ticker: str, end_date: str, days: int = 10) -> pd.DataFr
         return pd.DataFrame()
 
 
+def calculate_rsi(ohlcv_df: pd.DataFrame, period: int = 14) -> float:
+    """
+    Calculate RSI for a given OHLCV DataFrame.
+    """
+    if len(ohlcv_df) < period + 1:
+        return 50.0
+
+    delta = ohlcv_df['Close'].diff()
+    up = delta.clip(lower=0)
+    down = -1 * delta.clip(upper=0)
+
+    # Use exponential moving average (Wilder's style)
+    ema_up = up.ewm(com=period - 1, adjust=False).mean()
+    ema_down = down.ewm(com=period - 1, adjust=False).mean()
+
+    rs = ema_up / ema_down.replace(0, np.nan)
+    rsi = 100 - (100 / (1 + rs))
+    return rsi.iloc[-1]
+
+
+def apply_overheating_filter(candidates: pd.DataFrame, trade_date: str, snapshot: pd.DataFrame, threshold: float = 75.0, limit: int = 10) -> pd.DataFrame:
+    """
+    Filter out overheated stocks using RSI and return the best 'limit' candidates.
+    Searches through candidates until 'limit' non-overheated stocks are found.
+    """
+    if candidates.empty:
+        return candidates
+
+    logger.info(f"Applying overheating filter (RSI threshold: {threshold}) - Searching for top {limit} from {len(candidates)} candidates")
+    final_indices = []
+
+    for ticker in candidates.index:
+        try:
+            # Fetch 20 days of data for RSI(14)
+            hist = get_multi_day_ohlcv(ticker, trade_date, days=20)
+            if hist.empty:
+                # If data missing, we cautiously include it but move on
+                final_indices.append(ticker)
+                if len(final_indices) >= limit:
+                    break
+                continue
+
+            # Ensure current snapshot data is included
+            last_hist_date = hist.index[-1]
+            if hasattr(last_hist_date, 'strftime'):
+                last_hist_date_str = last_hist_date.strftime('%Y%m%d')
+            else:
+                last_hist_date_str = str(last_hist_date).replace("-", "")[:8]
+
+            if last_hist_date_str != trade_date:
+                if ticker in snapshot.index:
+                    today_data = snapshot.loc[[ticker]].copy()
+                    if isinstance(hist.index, pd.DatetimeIndex):
+                        today_data.index = [pd.to_datetime(trade_date)]
+                    hist = pd.concat([hist, today_data])
+
+            rsi_val = calculate_rsi(hist)
+            
+            if rsi_val >= threshold:
+                logger.info(f"Stock {ticker} skipped: Overheated (RSI: {rsi_val:.2f})")
+                continue
+
+            logger.debug(f"Stock {ticker} accepted (RSI: {rsi_val:.2f})")
+            final_indices.append(ticker)
+            
+            if len(final_indices) >= limit:
+                break
+        except Exception as e:
+            logger.warning(f"Failed to check RSI for {ticker}: {e}")
+            final_indices.append(ticker)
+            if len(final_indices) >= limit:
+                break
+
+    return candidates.loc[final_indices]
+
+
 def get_market_cap_df(trade_date: str, market: str = "ALL") -> pd.DataFrame:
     """
     Return market cap data for all stocks on specified trading date as DataFrame.
@@ -421,17 +497,22 @@ def trigger_morning_volume_surge(trade_date: str, snapshot: pd.DataFrame, prev_s
 
     # Primary filtering: Select top stocks by composite score
     scored = normalize_and_score(snap, "volume_increase_rate", "Volume", 0.6, 0.4)
-    candidates = scored.head(top_n)
-
-    # Secondary filtering: Select only rising stocks
-    result = candidates[candidates["is_rising"] == True].copy()
-
-    if result.empty:
-        logger.debug("trigger_morning_volume_surge: No stocks meeting criteria")
+    # Secondary filtering: Select only rising stocks (Full pool for RSI search)
+    rising_candidates = snap[snap["is_rising"] == True].copy()
+    if rising_candidates.empty:
         return pd.DataFrame()
 
-    logger.debug(f"Volume surge stocks detected: {len(result)}")
-    return enhance_dataframe(result.sort_values("composite_score", ascending=False).head(10))
+    # Apply overheating filter (Search for top 10 non-overheated stocks from the ranked pool)
+    filtered_result = apply_overheating_filter(
+        scored.loc[scored.index.intersection(rising_candidates.index)], 
+        trade_date, snap, limit=10
+    )
+    
+    if filtered_result.empty:
+        logger.debug("trigger_morning_volume_surge: No stocks meeting criteria after RSI filter")
+        return pd.DataFrame()
+
+    return enhance_dataframe(filtered_result)
 
 def trigger_morning_gap_up_momentum(trade_date: str, snapshot: pd.DataFrame, prev_snapshot: pd.DataFrame, cap_df: pd.DataFrame = None, top_n: int = 15) -> pd.DataFrame:
     """
@@ -484,23 +565,29 @@ def trigger_morning_gap_up_momentum(trade_date: str, snapshot: pd.DataFrame, pre
                 snap["Amount_norm"] * 0.2
         )
 
-        # Select top stocks by score
-        candidates = snap.sort_values("composite_score", ascending=False).head(top_n)
+        # Select candidates by score (Full pool for RSI search)
+        scored_candidates = snap.sort_values("composite_score", ascending=False)
     else:
-        candidates = snap
+        scored_candidates = snap
 
     # Secondary filtering: Select only stocks with sustained rise
-    result = candidates[candidates["sustained_rise"] == True].copy()
+    rising_candidates = scored_candidates[scored_candidates["sustained_rise"] == True].copy()
 
-    if result.empty:
+    if rising_candidates.empty:
         logger.debug("trigger_morning_gap_up_momentum: No stocks meeting criteria")
         return pd.DataFrame()
 
-    # Calculate additional information
-    result["total_momentum"] = result["gap_up_rate"] + result["intraday_change_rate"]
+    # Apply overheating filter (Search for top 10 non-overheated stocks)
+    filtered_result = apply_overheating_filter(rising_candidates, trade_date, snap, limit=10)
+    
+    if filtered_result.empty:
+        return pd.DataFrame()
 
-    logger.debug(f"Gap-up momentum stocks detected: {len(result)}")
-    return enhance_dataframe(result.sort_values("composite_score", ascending=False).head(10))
+    # Calculate additional information
+    filtered_result["total_momentum"] = filtered_result["gap_up_rate"] + filtered_result["intraday_change_rate"]
+
+    logger.debug(f"Gap-up momentum stocks detected: {len(filtered_result)}")
+    return enhance_dataframe(filtered_result)
 
 
 def trigger_morning_value_to_cap_ratio(trade_date: str, snapshot: pd.DataFrame, prev_snapshot: pd.DataFrame, cap_df: pd.DataFrame, top_n: int = 10) -> pd.DataFrame:
@@ -611,20 +698,27 @@ def trigger_morning_value_to_cap_ratio(trade_date: str, snapshot: pd.DataFrame, 
                     merged["intraday_change_rate_norm"] * 0.2
             )
 
-            # Select top stocks
-            candidates = merged.sort_values("composite_score", ascending=False).head(top_n)
+        # Select candidates (Full pool for RSI search)
+        if not merged.empty:
+            scored_candidates = merged.sort_values("composite_score", ascending=False)
         else:
-            candidates = merged
+            scored_candidates = merged
 
         # Secondary filtering: Select only rising stocks
-        result = candidates[candidates["is_rising"] == True].copy()
+        rising_candidates = scored_candidates[scored_candidates["is_rising"] == True].copy()
 
-        if result.empty:
+        if rising_candidates.empty:
             logger.info("No stocks meeting criteria")
             return pd.DataFrame()
 
-        logger.info(f"Analysis complete: {len(result)} stocks selected")
-        return enhance_dataframe(result.sort_values("composite_score", ascending=False).head(10))
+        # Apply overheating filter (Search for top 10 non-overheated stocks)
+        filtered_result = apply_overheating_filter(rising_candidates, trade_date, merged, limit=10)
+
+        if filtered_result.empty:
+            return pd.DataFrame()
+
+        logger.info(f"Analysis complete: {len(filtered_result)} stocks selected")
+        return enhance_dataframe(filtered_result)
 
     except Exception as e:
         logger.error(f"Exception occurred during function execution: {e}")
