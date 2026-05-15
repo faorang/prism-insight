@@ -1031,52 +1031,20 @@ class StockTrackingAgent:
                 should_sell, sell_reason = await self._analyze_sell_decision(stock)
 
                 if should_sell:
-                    # Process sell
-                    sell_success = await self.sell_stock(stock, sell_reason)
+                    # 1. 실제 계좌 매도 먼저 수행 (실패 가능성 대비)
+                    from trading.domestic_stock_trading import AsyncTradingContext
+                    async with AsyncTradingContext() as trading:
+                        # Execute async sell with limit price for reserved orders
+                        trade_result = await trading.async_sell_stock(stock_code=ticker, limit_price=current_price)
 
-                    if sell_success:
-                        # Call actual account trading function (async)
-                        from trading.domestic_stock_trading import AsyncTradingContext
-                        async with AsyncTradingContext() as trading:
-                            # Execute async sell with limit price for reserved orders
-                            trade_result = await trading.async_sell_stock(stock_code=ticker, limit_price=current_price)
+                    if trade_result['success']:
+                        logger.info(f"Actual sell successful: {trade_result['message']}")
 
-                        if trade_result['success']:
-                            logger.info(f"Actual sell successful: {trade_result['message']}")
-                        else:
-                            logger.error(f"Actual sell failed: {trade_result['message']}")
-
-                        # [Optional] Publish sell signal via Redis Streams
-                        # Auto-skipped if Redis not configured (requires UPSTASH_REDIS_REST_URL, UPSTASH_REDIS_REST_TOKEN)
-                        try:
-                            from messaging.redis_signal_publisher import publish_sell_signal
-                            await publish_sell_signal(
-                                ticker=ticker,
-                                company_name=company_name,
-                                price=current_price,
-                                buy_price=stock.get('buy_price', 0),
-                                profit_rate=((current_price - stock.get('buy_price', 0)) / stock.get('buy_price', 0) * 100),
-                                sell_reason=sell_reason,
-                                trade_result=trade_result
-                            )
-                        except Exception as signal_err:
-                            logger.warning(f"Sell signal publish failed (non-critical): {signal_err}")
-
-                        # [Optional] Publish sell signal via GCP Pub/Sub
-                        # Auto-skipped if GCP not configured (requires GCP_PROJECT_ID, GCP_PUBSUB_TOPIC_ID)
-                        try:
-                            from messaging.gcp_pubsub_signal_publisher import publish_sell_signal as gcp_publish_sell_signal
-                            await gcp_publish_sell_signal(
-                                ticker=ticker,
-                                company_name=company_name,
-                                price=current_price,
-                                buy_price=stock.get('buy_price', 0),
-                                profit_rate=((current_price - stock.get('buy_price', 0)) / stock.get('buy_price', 0) * 100),
-                                sell_reason=sell_reason,
-                                trade_result=trade_result
-                            )
-                        except Exception as signal_err:
-                            logger.warning(f"GCP sell signal publish failed (non-critical): {signal_err}")
+                        # 2. 실제 매도가 성공한 경우에만 DB 정보 업데이트 (판매 처리)
+                        sell_success = await self.sell_stock(stock, sell_reason)
+                    else:
+                        logger.error(f"Actual sell failed: {trade_result['message']}")
+                        sell_success = False
 
                     if sell_success:
                         sold_stocks.append({
