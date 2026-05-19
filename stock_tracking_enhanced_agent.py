@@ -50,7 +50,7 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
         await super().initialize(language)
 
         # Initialize sell decision agent with language
-        self.sell_decision_agent = create_sell_decision_agent(language=language)
+        self.sell_decision_agent = create_sell_decision_agent()
 
         # Create market condition analysis table
         self.cursor.execute("""

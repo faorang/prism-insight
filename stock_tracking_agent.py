@@ -146,7 +146,7 @@ class StockTrackingAgent:
         self.cursor = self.conn.cursor()
 
         # Initialize trading scenario generation agent with language
-        self.trading_agent = create_trading_scenario_agent(language=language)
+        self.trading_agent = create_trading_scenario_agent()
 
         # Create database tables
         await self._create_tables()
