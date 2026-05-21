@@ -434,6 +434,41 @@ class StockTrackingAgent:
             sector = scenario.get("sector", "Unknown")
             is_sector_diverse = await self._check_sector_diversity(sector)
 
+            # Determine initial decision
+            decision = self._normalize_decision(scenario.get("decision", "No entry"))
+
+            # 5% Pivot Rule validation for buy (Enter) decisions
+            if decision == "Enter":
+                # Get pivot_point from scenario (AI suggested)
+                pivot_val = scenario.get("pivot_point", 0)
+                pivot_point = self._parse_price_value(pivot_val)
+                
+                # Fallback to technical pivot_point from trigger_info_map if scenario doesn't have a valid one
+                if pivot_point <= 0:
+                    trigger_info = getattr(self, 'trigger_info_map', {}).get(ticker, {})
+                    pivot_point = float(trigger_info.get('pivot_point', 0))
+                    
+                # If still invalid, fallback to current price
+                if pivot_point <= 0:
+                    pivot_point = float(current_price)
+                    
+                logger.info(f"{ticker}({company_name}): Verifying 5% pivot rule. Pivot: {pivot_point:,.0f}, Current: {current_price:,.0f}")
+                
+                if current_price < pivot_point:
+                    decision = "Watch"
+                    scenario["decision"] = "Watch"
+                    scenario["rejection_reason"] = f"Pivot point not breakout yet (Current: {current_price:,.0f} < Pivot: {pivot_point:,.0f})"
+                    logger.info(f"{ticker}({company_name}): Decision changed to Watch. Reason: {scenario['rejection_reason']}")
+                elif current_price > pivot_point * 1.05:
+                    decision = "Skip"
+                    scenario["decision"] = "Skip"
+                    scenario["rejection_reason"] = f"Chase buying prohibited (Current: {current_price:,.0f} > 1.05 * Pivot: {pivot_point*1.05:,.0f})"
+                    logger.info(f"{ticker}({company_name}): Decision changed to Skip. Reason: {scenario['rejection_reason']}")
+                else:
+                    logger.info(f"{ticker}({company_name}): 5% pivot rule satisfied. Decision remains Enter.")
+                    # Ensure pivot_point is set in scenario for buy_stock
+                    scenario["pivot_point"] = pivot_point
+
             # Return result
             return {
                 "success": True,
@@ -441,7 +476,7 @@ class StockTrackingAgent:
                 "company_name": company_name,
                 "current_price": current_price,
                 "scenario": scenario,
-                "decision": self._normalize_decision(scenario.get("decision", "No entry")),
+                "decision": decision,
                 "sector": sector,
                 "sector_diverse": is_sector_diverse,
                 "rank_change_percentage": rank_change_percentage,
@@ -576,15 +611,18 @@ class StockTrackingAgent:
 
             buy_score = scenario.get("buy_score", 0)
             min_score = scenario.get("min_score", 0)
+            pivot_point = scenario.get("pivot_point", 0)
 
             # Add purchase message
             message = f"📈 신규 매수: {company_name}({ticker})\n" \
                       f"점수: {buy_score} (최소 요구 점수: {min_score})\n" \
-                      f"매수가: {current_price:,.0f}원\n" \
-                      f"목표가: {scenario.get('target_price', 0):,.0f}원\n" \
-                      f"손절가: {scenario.get('stop_loss', 0):,.0f}원\n" \
-                      f"투자기간: {scenario.get('investment_period', '단기')}\n" \
-                      f"산업군: {scenario.get('sector', '알 수 없음')}\n"
+                      f"매수가: {current_price:,.0f}원\n"
+            if pivot_point and pivot_point > 0:
+                message += f"피벗 기준가: {pivot_point:,.0f}원\n"
+            message += f"목표가: {scenario.get('target_price', 0):,.0f}원\n" \
+                       f"손절가: {scenario.get('stop_loss', 0):,.0f}원\n" \
+                       f"투자기간: {scenario.get('investment_period', '단기')}\n" \
+                       f"산업군: {scenario.get('sector', '알 수 없음')}\n"
 
             # Add trigger win rate
             trigger_win_rate = self._get_trigger_win_rate(trigger_type)
@@ -1638,7 +1676,8 @@ class StockTrackingAgent:
                                         self.trigger_info_map[ticker] = {
                                             'trigger_type': trigger_type,
                                             'trigger_mode': trigger_data.get('metadata', {}).get('trigger_mode', ''),
-                                            'risk_reward_ratio': stock.get('risk_reward_ratio', 0)
+                                            'risk_reward_ratio': stock.get('risk_reward_ratio', 0),
+                                            'pivot_point': stock.get('pivot_point', 0)
                                         }
                         logger.info(f"Loaded trigger info for {len(self.trigger_info_map)} stocks")
                 except Exception as e:

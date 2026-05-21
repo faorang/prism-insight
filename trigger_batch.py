@@ -82,6 +82,7 @@ def get_previous_snapshot(trade_date: str) -> (pd.DataFrame, str):
 def get_multi_day_ohlcv(ticker: str, end_date: str, days: int = 10) -> pd.DataFrame:
     """
     Query N-day OHLCV data for specific stock.
+    Uses FinanceDataReader and yfinance for optimization, falls back to krx_data_client.
 
     Args:
         ticker: Stock code
@@ -92,23 +93,59 @@ def get_multi_day_ohlcv(ticker: str, end_date: str, days: int = 10) -> pd.DataFr
         DataFrame with columns: Open, High, Low, Close, Volume, Amount
         Index: Date
     """
-    from krx_data_client import get_market_ohlcv_by_date
-
     # Calculate sufficient past date from end date (with margin for business days)
     end_dt = datetime.datetime.strptime(end_date, '%Y%m%d')
     start_dt = end_dt - datetime.timedelta(days=days * 2)  # 2x margin for business days
-    start_date = start_dt.strftime('%Y%m%d')
+    
+    # Date formats for FDR / yfinance
+    start_date_str = start_dt.strftime('%Y-%m-%d')
+    end_date_str = end_dt.strftime('%Y-%m-%d')
 
+    # 1. Try FinanceDataReader (fastest and most reliable for Korean stocks)
+    try:
+        import FinanceDataReader as fdr
+        df = fdr.DataReader(ticker, start_date_str, end_date_str)
+        if not df.empty:
+            # Clean index name and map columns to standard names
+            df.index.name = 'Date'
+            if 'Amount' not in df.columns and 'Close' in df.columns and 'Volume' in df.columns:
+                df['Amount'] = df['Close'] * df['Volume']
+            logger.debug(f"Successfully fetched {ticker} N-day data using FinanceDataReader")
+            return df.tail(days)
+    except Exception as e:
+        logger.debug(f"FinanceDataReader lookup failed for {ticker}: {e}")
+
+    # 2. Try yfinance as a fallback
+    try:
+        import yfinance as yf
+        # Try KOSPI (.KS) and KOSDAQ (.KQ)
+        for suffix in [".KS", ".KQ"]:
+            yf_ticker = f"{ticker}{suffix}"
+            df = yf.download(yf_ticker, start=start_date_str, end=end_date_str, progress=False)
+            if not df.empty:
+                # Resolve multi-index columns if present
+                if isinstance(df.columns, pd.MultiIndex):
+                    df.columns = df.columns.droplevel(1)
+                df.index.name = 'Date'
+                if 'Amount' not in df.columns and 'Close' in df.columns and 'Volume' in df.columns:
+                    df['Amount'] = df['Close'] * df['Volume']
+                logger.debug(f"Successfully fetched {ticker} N-day data using yfinance ({yf_ticker})")
+                return df.tail(days)
+    except Exception as e:
+        logger.debug(f"yfinance lookup failed for {ticker}: {e}")
+
+    # 3. Fallback to legacy krx_data_client
+    from krx_data_client import get_market_ohlcv_by_date
+    start_date = start_dt.strftime('%Y%m%d')
     try:
         df = get_market_ohlcv_by_date(start_date, end_date, ticker)
         if df.empty:
-            logger.warning(f"No {days}-day data for {ticker}.")
+            logger.warning(f"No {days}-day data for {ticker} using legacy client.")
             return pd.DataFrame()
-
-        # Select only recent N days
+        logger.debug(f"Successfully fetched {ticker} N-day data using legacy krx_data_client")
         return df.tail(days)
     except Exception as e:
-        logger.error(f"Multi-day query failed for {ticker}: {e}")
+        logger.error(f"Legacy krx_data_client failed for {ticker}: {e}")
         return pd.DataFrame()
 
 
@@ -295,11 +332,11 @@ def calculate_agent_fit_metrics(ticker: str, current_price: float, trade_date: s
         ticker: Stock code
         current_price: Current price
         trade_date: Reference trading date
-        lookback_days: Number of past business days to query
+        lookback_days: Number of past business days to query (forced to 20 for pivot calculations)
         trigger_type: Trigger type (used for differentiated criteria)
 
     Returns:
-        dict with keys: stop_loss_price, target_price, stop_loss_pct, risk_reward_ratio, agent_fit_score
+        dict with keys: stop_loss_price, target_price, stop_loss_pct, risk_reward_ratio, agent_fit_score, pivot_point
     """
     result = {
         "stop_loss_price": 0,
@@ -307,6 +344,7 @@ def calculate_agent_fit_metrics(ticker: str, current_price: float, trade_date: s
         "stop_loss_pct": 1.0,  # Default: unfavorable value
         "risk_reward_ratio": 0,
         "agent_fit_score": 0,
+        "pivot_point": 0.0,
     }
 
     if current_price <= 0:
@@ -323,8 +361,31 @@ def calculate_agent_fit_metrics(ticker: str, current_price: float, trade_date: s
     stop_loss_price = current_price * (1 - sl_max)
     stop_loss_pct = sl_max  # Fixed value (5% or 7%)
 
-    # Target price calculation: Maintain existing resistance level method
-    multi_day_df = get_multi_day_ohlcv(ticker, trade_date, lookback_days)
+    # Target price & Pivot point calculation: Query 20 days of data for pivot calculation
+    multi_day_df = get_multi_day_ohlcv(ticker, trade_date, 20)
+    
+    pivot_point = 0.0
+    is_pivot_valid = False
+    
+    if not multi_day_df.empty and len(multi_day_df) >= 2:
+        high_col = "High" if "High" in multi_day_df.columns else "고가"
+        if high_col in multi_day_df.columns:
+            # 당일(마지막 행)을 제외한 과거 데이터에서의 최고가
+            past_df = multi_day_df.iloc[:-1]
+            if not past_df.empty:
+                pivot_point = float(past_df[high_col].max())
+            else:
+                pivot_point = float(current_price)
+        else:
+            pivot_point = float(current_price)
+    else:
+        pivot_point = float(current_price)
+
+    # 피벗 포인트 조건 사전 필터링 (pivot_point <= current_price <= pivot_point * 1.07)
+    if pivot_point and pivot_point > 0:
+        if pivot_point <= current_price <= pivot_point * 1.07:
+            is_pivot_valid = True
+
     if multi_day_df.empty or len(multi_day_df) < 3:
         # Default to current price + 15% when data is insufficient
         target_price = current_price * 1.15
@@ -372,17 +433,23 @@ def calculate_agent_fit_metrics(ticker: str, current_price: float, trade_date: s
     # Final score (risk-reward 60%, stop-loss 40%)
     agent_fit_score = rr_score * 0.6 + sl_score * 0.4
 
+    # 피벗 돌파 조건 미충족 시 agent_fit_score를 0으로 강제 하향하여 1차 종목 선정에서 제외
+    if not is_pivot_valid:
+        logger.info(f"{ticker}: Pivot condition not met (Pivot: {pivot_point:.0f}, Current: {current_price:.0f}). Filtering out.")
+        agent_fit_score = 0.0
+
     result = {
         "stop_loss_price": stop_loss_price,
         "target_price": target_price,
         "stop_loss_pct": stop_loss_pct,
         "risk_reward_ratio": risk_reward_ratio,
         "agent_fit_score": agent_fit_score,
+        "pivot_point": pivot_point,
     }
 
     logger.debug(f"{ticker}: Stop-loss={stop_loss_price:.0f}, Target={target_price:.0f}, "
                  f"Stop-loss%={stop_loss_pct*100:.1f}% (fixed), Risk-reward={risk_reward_ratio:.2f}, "
-                 f"Agent score={agent_fit_score:.3f}")
+                 f"Agent score={agent_fit_score:.3f}, Pivot={pivot_point:.0f}")
 
     return result
 
@@ -413,6 +480,7 @@ def score_candidates_by_agent_criteria(candidates_df: pd.DataFrame, trade_date: 
     result_df["stop_loss_pct"] = 0.0
     result_df["risk_reward_ratio"] = 0.0
     result_df["agent_fit_score"] = 0.0
+    result_df["pivot_point"] = 0.0
 
     for ticker in result_df.index:
         current_price = result_df.loc[ticker, "Close"]
@@ -423,6 +491,7 @@ def score_candidates_by_agent_criteria(candidates_df: pd.DataFrame, trade_date: 
         result_df.loc[ticker, "stop_loss_pct"] = metrics["stop_loss_pct"]
         result_df.loc[ticker, "risk_reward_ratio"] = metrics["risk_reward_ratio"]
         result_df.loc[ticker, "agent_fit_score"] = metrics["agent_fit_score"]
+        result_df.loc[ticker, "pivot_point"] = metrics["pivot_point"]
 
     return result_df
 
@@ -940,6 +1009,7 @@ def run_batch(trigger_time: str = "morning", log_level: str = "INFO", output_fil
                         stock_info["stop_loss_pct"] = float(stocks_df.loc[ticker, "stop_loss_pct"]) * 100 if "stop_loss_pct" in stocks_df.columns else 0
                         stock_info["stop_loss_price"] = float(stocks_df.loc[ticker, "stop_loss_price"]) if "stop_loss_price" in stocks_df.columns else 0
                         stock_info["target_price"] = float(stocks_df.loc[ticker, "target_price"]) if "target_price" in stocks_df.columns else 0
+                        stock_info["pivot_point"] = float(stocks_df.loc[ticker, "pivot_point"]) if "pivot_point" in stocks_df.columns else 0
                     if "final_score" in stocks_df.columns:
                         stock_info["final_score"] = float(stocks_df.loc[ticker, "final_score"])
 

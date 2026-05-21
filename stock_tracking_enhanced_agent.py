@@ -426,21 +426,26 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
                             decision = "Skip"  # Change from "Enter" to "Skip"
                             logger.info(f"Decision changed due to insufficient buy score: {company_name}({ticker}) - Enter → Skip (Score: {buy_score} < {min_score})")
                         reason = f"Insufficient buy score ({buy_score} < {min_score})"
+                    elif scenario.get("rejection_reason"):
+                        reason = scenario.get("rejection_reason")
                     elif decision != "Enter":
-                        reason = f"Analysis decision is 'Skip'"
+                        reason = f"Analysis decision is '{decision}'"
 
                     # Market condition info
                     market_condition_text = scenario.get("market_condition")
+                    pivot_point = scenario.get("pivot_point", 0)
 
                     # Generate skip message
                     skip_message = f"⚠️ 매수 보류: {company_name}({ticker})\n" \
-                                   f"현재가: {current_price:,.0f}원\n" \
-                                   f"매수 Score: {buy_score}/10\n" \
-                                   f"결정: {decision}\n" \
-                                   f"시장 상황: {market_condition_text}\n" \
-                                   f"산업군: {scenario.get('sector', '알 수 없음')}\n" \
-                                   f"보류 사유: {reason}\n" \
-                                   f"분석 의견: {scenario.get('rationale', '정보 없음')}"
+                                   f"현재가: {current_price:,.0f}원\n"
+                    if pivot_point and pivot_point > 0:
+                        skip_message += f"피벗 기준가: {pivot_point:,.0f}원\n"
+                    skip_message += f"매수 Score: {buy_score}/10\n" \
+                                    f"결정: {decision}\n" \
+                                    f"시장 상황: {market_condition_text}\n" \
+                                    f"산업군: {scenario.get('sector', '알 수 없음')}\n" \
+                                    f"보류 사유: {reason}\n" \
+                                    f"분석 의견: {scenario.get('rationale', '정보 없음')}"
 
                     # Add trigger win rate
                     trigger_info = getattr(self, 'trigger_info_map', {}).get(ticker, {})

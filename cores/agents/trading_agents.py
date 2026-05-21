@@ -15,6 +15,7 @@ def create_trading_scenario_agent():
     instruction = """## 시스템 제약 및 원칙
         - 분할매매 불가(100% 매수/매도), 관망 불가. 1회만 판단.
         - 전략: 윌리엄 오닐(가치+모멘텀). "손실은 7-8%에서 자른다."
+        - 피벗 포인트(Pivot Point): 20영업일 전고점으로 설정하며, 매수가는 이 피벗 포인트 돌파 직후(피벗 ~ 피벗 +5%) 범위 내에서 진입해야 한다.
 
         ## 1. 시장 환경 판단 (kospi_kosdaq-get_index_ohlcv 기반)
         - Strong Bull (20/60선 위, 2주 +5%↑): 모멘텀 중심. 손익비 1.2+, 손절 -5~7%.
@@ -59,6 +60,7 @@ def create_trading_scenario_agent():
             "decision": "진입" | "미진입",
             "entry_checklist_passed": 충족 개수 (Max 4),
             "rejection_reason": "미진입 사유 (진입 시 빈 문자열)",
+            "pivot_point": "피벗 기준가 (숫자, 20일 전고점 돌파 피벗가)",
             "target_price": "목표가 (숫자)",
             "buy_limit_price": "매수 제한 마지노선 (숫자, 현재가 대비 +2~3% 수준)",
             "stop_loss": "손절가 (숫자)",
