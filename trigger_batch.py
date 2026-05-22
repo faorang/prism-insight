@@ -887,28 +887,6 @@ def select_final_tickers(triggers: dict, trade_date: str = None, use_hybrid: boo
                     selected_tickers.add(ticker)
                     logger.info(f"[{name}] Final selection: {ticker}")
                     break
-
-    # 4. Add more by overall score if less than 3
-    if len(selected_tickers) < 3:
-        # Sort all candidates by score
-        all_candidates = []
-        for name, df in trigger_candidates.items():
-            for ticker in df.index:
-                if ticker not in selected_tickers:
-                    score = df.loc[ticker, score_column] if score_column in df.columns else 0
-                    all_candidates.append((name, ticker, score, df.loc[[ticker]]))
-
-        all_candidates.sort(key=lambda x: x[2], reverse=True)
-
-        for trigger_name, ticker, _, ticker_df in all_candidates:
-            if ticker not in selected_tickers and len(selected_tickers) < 3:
-                if trigger_name in final_result:
-                    final_result[trigger_name] = pd.concat([final_result[trigger_name], ticker_df])
-                else:
-                    final_result[trigger_name] = ticker_df
-                selected_tickers.add(ticker)
-                logger.info(f"[{trigger_name}] Additional selection: {ticker}")
-
     return final_result
 
 # --- Batch execution function ---
