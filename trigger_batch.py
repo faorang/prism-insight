@@ -840,30 +840,34 @@ def select_final_tickers(triggers: dict, trade_date: str = None, use_hybrid: boo
             # v1.16.6: Calculate final score: composite score (30%) + agent score (70%)
             # Increase agent score weight to prioritize stocks likely to be approved by agents
             if "composite_score" in scored_df.columns and "agent_fit_score" in scored_df.columns:
-                # Normalize composite score (0~1)
-                cp_max = scored_df["composite_score"].max()
-                cp_min = scored_df["composite_score"].min()
-                cp_range = cp_max - cp_min if cp_max > cp_min else 1
-                scored_df["composite_score_norm"] = (scored_df["composite_score"] - cp_min) / cp_range
+                # Filter out candidates that do not meet the criteria (agent_fit_score <= 0)
+                scored_df = scored_df[scored_df["agent_fit_score"] > 0.0]
 
-                # Calculate final score (v1.16.6: adjusted weights)
-                scored_df["final_score"] = (
-                    scored_df["composite_score_norm"] * 0.3 +
-                    scored_df["agent_fit_score"] * 0.7
-                )
+                if not scored_df.empty:
+                    # Normalize composite score (0~1)
+                    cp_max = scored_df["composite_score"].max()
+                    cp_min = scored_df["composite_score"].min()
+                    cp_range = cp_max - cp_min if cp_max > cp_min else 1
+                    scored_df["composite_score_norm"] = (scored_df["composite_score"] - cp_min) / cp_range
 
-                # Sort by final score
-                scored_df = scored_df.sort_values("final_score", ascending=False)
+                    # Calculate final score (v1.16.6: adjusted weights)
+                    scored_df["final_score"] = (
+                        scored_df["composite_score_norm"] * 0.3 +
+                        scored_df["agent_fit_score"] * 0.7
+                    )
 
-                # Logging
-                logger.info(f"[{name}] Hybrid score calculation complete:")
-                for ticker in scored_df.index[:3]:
-                    logger.info(f"  - {ticker} ({scored_df.loc[ticker, 'stock_name'] if 'stock_name' in scored_df.columns else ''}): "
-                               f"Composite={scored_df.loc[ticker, 'composite_score']:.3f}, "
-                               f"Agent={scored_df.loc[ticker, 'agent_fit_score']:.3f}, "
-                               f"Final={scored_df.loc[ticker, 'final_score']:.3f}, "
-                               f"Risk-reward={scored_df.loc[ticker, 'risk_reward_ratio']:.2f}, "
-                               f"Stop-loss={scored_df.loc[ticker, 'stop_loss_pct']*100:.1f}%")
+                    # Sort by final score
+                    scored_df = scored_df.sort_values("final_score", ascending=False)
+
+                    # Logging
+                    logger.info(f"[{name}] Hybrid score calculation complete:")
+                    for ticker in scored_df.index[:3]:
+                        logger.info(f"  - {ticker} ({scored_df.loc[ticker, 'stock_name'] if 'stock_name' in scored_df.columns else ''}): "
+                                   f"Composite={scored_df.loc[ticker, 'composite_score']:.3f}, "
+                                   f"Agent={scored_df.loc[ticker, 'agent_fit_score']:.3f}, "
+                                   f"Final={scored_df.loc[ticker, 'final_score']:.3f}, "
+                                   f"Risk-reward={scored_df.loc[ticker, 'risk_reward_ratio']:.2f}, "
+                                   f"Stop-loss={scored_df.loc[ticker, 'stop_loss_pct']*100:.1f}%")
 
             trigger_candidates[name] = scored_df
 
@@ -883,10 +887,42 @@ def select_final_tickers(triggers: dict, trade_date: str = None, use_hybrid: boo
             # Select rank 1 excluding duplicates
             for ticker in sorted_df.index:
                 if ticker not in selected_tickers:
+                    # Double check to ensure agent score is valid
+                    if use_hybrid and trade_date and "agent_fit_score" in sorted_df.columns:
+                        if sorted_df.loc[ticker, "agent_fit_score"] <= 0.0:
+                            continue
                     final_result[name] = sorted_df.loc[[ticker]]
                     selected_tickers.add(ticker)
                     logger.info(f"[{name}] Final selection: {ticker}")
                     break
+
+    # 4. Add more by overall score if less than 3 (only for candidates meeting the criteria)
+    if len(selected_tickers) < 3:
+        # Sort all candidates by score
+        all_candidates = []
+        for name, df in trigger_candidates.items():
+            if df.empty:
+                continue
+            for ticker in df.index:
+                if ticker not in selected_tickers:
+                    # Filter out candidates with agent_fit_score <= 0.0 in hybrid mode
+                    if use_hybrid and trade_date and "agent_fit_score" in df.columns:
+                        if df.loc[ticker, "agent_fit_score"] <= 0.0:
+                            continue
+                    score = df.loc[ticker, score_column] if score_column in df.columns else 0
+                    all_candidates.append((name, ticker, score, df.loc[[ticker]]))
+
+        all_candidates.sort(key=lambda x: x[2], reverse=True)
+
+        for trigger_name, ticker, _, ticker_df in all_candidates:
+            if ticker not in selected_tickers and len(selected_tickers) < 3:
+                if trigger_name in final_result:
+                    final_result[trigger_name] = pd.concat([final_result[trigger_name], ticker_df])
+                else:
+                    final_result[trigger_name] = ticker_df
+                selected_tickers.add(ticker)
+                logger.info(f"[{trigger_name}] Additional selection: {ticker}")
+
     return final_result
 
 # --- Batch execution function ---
