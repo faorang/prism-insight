@@ -62,50 +62,6 @@ AIが生成したApple Inc.の分析レポートをご覧ください：
 
 ---
 
-## ⚡ 60秒で試す（米国株）
-
-PRISM-INSIGHTを最も手軽に試す方法です。必要なのは **OpenAI APIキー** のみです。
-
-```bash
-# Clone and run the quickstart script
-git clone https://github.com/dragon1086/prism-insight.git
-cd prism-insight
-./quickstart.sh YOUR_OPENAI_API_KEY
-```
-
-これでApple（AAPL）のAI分析レポートが生成されます。他の銘柄も試せます：
-```bash
-python3 demo.py MSFT              # Microsoft
-python3 demo.py NVDA              # NVIDIA
-python3 demo.py TSLA --language ko  # Tesla（韓国語レポート）
-```
-
-> 💡 **OpenAI APIキーの取得**は [OpenAI Platform](https://platform.openai.com/api-keys) から行えます
->
-> 📰 **オプション**: ニュース分析のために [Perplexity APIキー](https://www.perplexity.ai/) を `mcp_agent.config.yaml` に追加できます
-
-AIが生成したPDFレポートは `prism-us/pdf_reports/` に保存されます。
-
-<details>
-<summary>🐳 Docker を使用する場合（Python環境構築不要）</summary>
-
-```bash
-# 1. Set your OpenAI API key
-export OPENAI_API_KEY=sk-your-key-here
-
-# 2. Start container
-docker-compose -f docker-compose.quickstart.yml up -d
-
-# 3. Run analysis
-docker exec -it prism-quickstart python3 demo.py NVDA
-```
-
-レポートは `./quickstart-output/` に保存されます。
-
-</details>
-
----
-
 ## 🚀 フルインストール
 
 ### 前提条件
@@ -159,7 +115,7 @@ docker exec prism-insight-container python3 stock_analysis_orchestrator.py --mod
 
 ## 📖 PRISM-INSIGHTとは？
 
-PRISM-INSIGHTは、**韓国（KOSPI/KOSDAQ）** および **米国（NYSE/NASDAQ）** 市場に対応した、**完全オープンソース・無料** のAI駆動型株式分析システムです。
+PRISM-INSIGHTは、**韓国（KOSPI/KOSDAQ）** 市場に対応した、**完全オープンソース・無料** のAI駆動型株式分析システムです。
 
 ### コア機能
 - **急騰銘柄検出** - 異常な出来高・価格変動を示す銘柄の自動検出
@@ -208,7 +164,6 @@ PRISM-INSIGHTは、**韓国（KOSPI/KOSDAQ）** および **米国（NYSE/NASDAQ
 | **💱 自動売買** | 韓国投資証券APIを通じた売買執行 |
 | **🎨 ダッシュボード** | ポートフォリオ、取引履歴、パフォーマンスの透明な追跡 |
 | **🧠 自己改善** | トレーディングジャーナルのフィードバックループ — 過去のトリガー勝率が将来の買い判断に自動的に反映されます（[詳細](docs/TRADING_JOURNAL.md#performance-tracker-피드백-루프-self-improving-trading)） |
-| **🇺🇸 米国市場** | NYSE/NASDAQ分析の完全サポート |
 
 <details>
 <summary>🖼️ スクリーンショットを表示</summary>
@@ -235,21 +190,6 @@ PRISM-INSIGHTは、**韓国（KOSPI/KOSDAQ）** および **米国（NYSE/NASDAQ
 
 ---
 
-## 🇺🇸 米国株モジュール
-
-米国市場にも同じAI駆動ワークフローを適用：
-
-```bash
-# Run US analysis
-python prism-us/us_stock_analysis_orchestrator.py --mode morning --no-telegram
-
-# With English reports
-python prism-us/us_stock_analysis_orchestrator.py --mode morning --language en
-```
-
-**データソース**: yahoo-finance-mcp、sec-edgar-mcp（SEC提出書類、インサイダー取引）
-
----
 
 ## 📚 ドキュメント
 
@@ -288,7 +228,7 @@ npm run dev
 # Visit http://localhost:3000
 ```
 
-**特徴**: ポートフォリオ概要、取引履歴、パフォーマンス指標、市場セレクター（韓国/米国）
+**特徴**: ポートフォリオ概要、取引履歴、パフォーマンス指標
 
 📖 **ダッシュボードセットアップガイド**: [examples/dashboard/DASHBOARD_README.md](examples/dashboard/DASHBOARD_README.md)
 
@@ -302,9 +242,6 @@ npm run dev
 - **[perplexity](https://github.com/perplexityai/modelcontextprotocol)** - Web検索
 - **[sqlite](https://github.com/modelcontextprotocol/servers-archived)** - トレーディングシミュレーションDB
 
-### 米国市場
-- **[yahoo-finance-mcp](https://pypi.org/project/yahoo-finance-mcp/)** - OHLCV、財務データ
-- **[sec-edgar-mcp](https://pypi.org/project/sec-edgar-mcp/)** - SEC提出書類、インサイダー取引
 
 ---
 

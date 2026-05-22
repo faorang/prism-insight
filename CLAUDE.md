@@ -4,11 +4,11 @@
 
 ## Quick Overview
 
-**PRISM-INSIGHT** = AI-powered Korean/US stock analysis & automated trading system
+**PRISM-INSIGHT** = AI-powered Korean stock analysis & automated trading system
 
 ```yaml
 Stack: Python 3.10+, mcp-agent, GPT-5/Claude 4.6, SQLite, Telegram, KIS API
-Scale: ~70 files, 16,000+ LOC, 13+ AI agents, KR/US dual market support
+Scale: ~70 files, 16,000+ LOC, 13+ AI agents, KR market support
 ```
 
 ## Project Structure
@@ -20,10 +20,6 @@ prism-insight/
 │   ├── analysis.py          # Core orchestration
 │   └── report_generation.py # Report templates
 ├── trading/                  # KIS API Trading (KR)
-├── prism-us/                # US Stock Module (mirror of KR)
-│   ├── cores/agents/        # US-specific agents
-│   ├── trading/             # KIS Overseas API
-│   └── us_stock_analysis_orchestrator.py
 ├── examples/                 # Dashboards, messaging
 └── tests/                    # Test suite
 ```
@@ -34,11 +30,7 @@ prism-insight/
 |---------|---------|
 | `python stock_analysis_orchestrator.py --mode morning` | KR morning analysis |
 | `python stock_analysis_orchestrator.py --mode morning --no-telegram` | Local test (no Telegram) |
-| `python prism-us/us_stock_analysis_orchestrator.py --mode morning` | US morning analysis |
 | `python trigger_batch.py morning INFO` | KR surge detection only |
-| `python prism-us/us_trigger_batch.py morning INFO` | US surge detection only |
-| `python demo.py 005930` | Single stock report (KR) |
-| `python demo.py AAPL --market us` | Single stock report (US) |
 | `python weekly_insight_report.py --dry-run` | Weekly insight report (print only) |
 | `python weekly_insight_report.py --broadcast-languages en,ja` | Weekly report + broadcast |
 
@@ -65,12 +57,7 @@ async with AsyncTradingContext(mode="demo") as trader:
 result = requests.get(url)  # Use aiohttp instead
 ```
 
-### Safe Type Conversion (v2.2 - KIS API)
-```python
-# KIS API may return '' instead of 0 - always use safe helpers
-from trading.us_stock_trading import _safe_float, _safe_int
-price = _safe_float(data.get('last'))  # Handles '', None, invalid strings
-```
+
 
 ### Korean Report Tone (v2.3.0)
 All Korean (ko) report sections must use formal polite style (합쇼체):
@@ -110,37 +97,16 @@ TRIGGER_CRITERIA = {
 }
 ```
 
-## KR vs US Differences
 
-| Item | KR | US |
-|------|----|----|
-| Data Source | pykrx, kospi_kosdaq MCP | yfinance, sec-edgar MCP |
-| Market Hours | 09:00-15:30 KST | 09:30-16:00 EST |
-| Market Cap Filter | 5000억 KRW | $20B USD |
-| DB Tables | `stock_holdings` | `us_stock_holdings` |
-| Trading API | KIS 국내주식 | KIS 해외주식 (예약주문 지원) |
-
-## US Reserved Orders (Important)
-
-US market operates on different timezone. When market is closed:
-- **Buy**: Requires `limit_price` for reserved order
-- **Sell**: Can use `limit_price` or `use_moo=True` (Market On Open)
-
-```python
-# Smart buy/sell auto-selects method based on market hours
-result = await trading.async_buy_stock(ticker=ticker, limit_price=current_price)
-result = await trading.async_sell_stock(ticker=ticker, limit_price=current_price)
-```
 
 ## Database Tables
 
 | Table | Purpose |
 |-------|---------|
-| `stock_holdings` / `us_stock_holdings` | Current portfolio |
-| `trading_history` / `us_trading_history` | Trade records |
-| `watchlist_history` / `us_watchlist_history` | Analyzed but not entered |
-| `analysis_performance_tracker` / `us_analysis_performance_tracker` | 7/14/30-day tracking |
-| `us_holding_decisions` | US AI holding analysis (v2.2.0) |
+| `stock_holdings` | Current portfolio |
+| `trading_history` | Trade records |
+| `watchlist_history` | Analyzed but not entered |
+| `analysis_performance_tracker` | 7/14/30-day tracking |
 
 ## Quick Troubleshooting
 
@@ -150,7 +116,6 @@ result = await trading.async_sell_stock(ticker=ticker, limit_price=current_price
 | Playwright PDF fails | `python3 -m playwright install chromium` |
 | Korean fonts missing | `sudo dnf install google-nanum-fonts && fc-cache -fv` |
 | KIS auth fails | Check `trading/config/kis_devlp.yaml` |
-| prism-us import error | Use `_import_from_main_cores()` helper |
 | Telegram message in English | v2.2.0 restored Korean templates - pull latest |
 | Broadcast translation empty | gpt-5-mini fallback added in v2.2.0 |
 | `/report` 오류 후 재사용 불가 | v2.5.0 수정 - 서버 오류 시 자동 환급됨, 재시도 가능 |

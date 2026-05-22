@@ -62,48 +62,6 @@ Watch an AI-generated Apple Inc. analysis report:
 
 ---
 
-## ⚡ Try in 60 Seconds (US Stocks)
-
-The fastest way to try PRISM-INSIGHT. Only requires an **OpenAI API key**.
-
-```bash
-# Clone and run the quickstart script
-git clone https://github.com/dragon1086/prism-insight.git
-cd prism-insight
-./quickstart.sh YOUR_OPENAI_API_KEY
-```
-
-This generates an AI analysis report for Apple (AAPL). Try other stocks:
-```bash
-python3 demo.py MSFT              # Microsoft
-python3 demo.py NVDA              # NVIDIA
-python3 demo.py TSLA --language ko  # Tesla (Korean report)
-```
-
-> 💡 **Get your OpenAI API key** from [OpenAI Platform](https://platform.openai.com/api-keys)
->
-> 📰 **Optional**: Add a [Perplexity API key](https://www.perplexity.ai/) to `mcp_agent.config.yaml` for news analysis
-
-Your AI-generated PDF reports will be saved in `prism-us/pdf_reports/`.
-
-<details>
-<summary>🐳 Or use Docker (no Python setup needed)</summary>
-
-```bash
-# 1. Set your OpenAI API key
-export OPENAI_API_KEY=sk-your-key-here
-
-# 2. Start container
-docker-compose -f docker-compose.quickstart.yml up -d
-
-# 3. Run analysis
-docker exec -it prism-quickstart python3 demo.py NVDA
-```
-
-Reports will be saved to `./quickstart-output/`.
-
-</details>
-
 ---
 
 ## 🚀 Full Installation
@@ -159,7 +117,7 @@ docker exec prism-insight-container python3 stock_analysis_orchestrator.py --mod
 
 ## 📖 What is PRISM-INSIGHT?
 
-PRISM-INSIGHT is a **completely open-source, free** AI-powered stock analysis system for **Korean (KOSPI/KOSDAQ)** and **US (NYSE/NASDAQ)** markets.
+PRISM-INSIGHT is a **completely open-source, free** AI-powered stock analysis system for **Korean (KOSPI/KOSDAQ)** markets.
 
 ### Core Capabilities
 - **Surge Stock Detection** - Automatic detection of stocks with unusual volume/price movements
@@ -208,7 +166,6 @@ PRISM-INSIGHT is a **completely open-source, free** AI-powered stock analysis sy
 | **💱 Auto Trading** | Execution via Korea Investment & Securities API |
 | **🎨 Dashboard** | Transparent portfolio, trades, and performance tracking |
 | **🧠 Self-Improving** | Trading journal feedback loop — past trigger win rates automatically inform future buy decisions ([details](docs/TRADING_JOURNAL.md#performance-tracker-피드백-루프-self-improving-trading)) |
-| **🇺🇸 US Markets** | Full support for NYSE/NASDAQ analysis |
 
 <details>
 <summary>🖼️ View Screenshots</summary>
@@ -234,20 +191,6 @@ PRISM-INSIGHT is a **completely open-source, free** AI-powered stock analysis sy
 👉 **[Live Dashboard](https://analysis.stocksimulation.kr/)**
 
 ---
-
-## 🇺🇸 US Stock Market Module
-
-Same AI-powered workflow for US markets:
-
-```bash
-# Run US analysis
-python prism-us/us_stock_analysis_orchestrator.py --mode morning --no-telegram
-
-# With English reports
-python prism-us/us_stock_analysis_orchestrator.py --mode morning --language en
-```
-
-**Data Sources**: yahoo-finance-mcp, sec-edgar-mcp (SEC filings, insider trading)
 
 ---
 
@@ -288,7 +231,7 @@ npm run dev
 # Visit http://localhost:3000
 ```
 
-**Features**: Portfolio overview, trading history, performance metrics, market selector (KR/US)
+**Features**: Portfolio overview, trading history, performance metrics
 
 📖 **Dashboard Setup Guide**: [examples/dashboard/DASHBOARD_README.md](examples/dashboard/DASHBOARD_README.md)
 
@@ -301,10 +244,6 @@ npm run dev
 - **[firecrawl](https://github.com/mendableai/firecrawl-mcp-server)** - Web crawling
 - **[perplexity](https://github.com/perplexityai/modelcontextprotocol)** - Web search
 - **[sqlite](https://github.com/modelcontextprotocol/servers-archived)** - Trading simulation DB
-
-### US Market
-- **[yahoo-finance-mcp](https://pypi.org/project/yahoo-finance-mcp/)** - OHLCV, financials
-- **[sec-edgar-mcp](https://pypi.org/project/sec-edgar-mcp/)** - SEC filings, insider trading
 
 ---
 

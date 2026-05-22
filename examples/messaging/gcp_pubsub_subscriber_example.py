@@ -75,51 +75,16 @@ def is_market_hours(market: str = "KR") -> bool:
     Check if current time is during regular market hours
 
     Args:
-        market: "KR" (Korea) or "US" (USA)
+        market: "KR" (Korea)
 
     Returns:
         bool: Whether market is open
     """
-    if market == "US":
-        return is_us_market_hours()
-
     # Korea: 09:00~15:30 KST
     now = datetime.now().time()
     market_open = time(9, 0)
     market_close = time(15, 30)
     return market_open <= now <= market_close
-
-
-def is_us_market_hours() -> bool:
-    """Check if current time is during US market hours (09:30~16:00 EST, trading days only)"""
-    try:
-        # Use prism-us/check_market_day.py (NYSE calendar based)
-        import sys
-        sys.path.insert(0, str(PROJECT_ROOT / "prism-us"))
-        from check_market_day import is_market_open
-        return is_market_open()
-    except ImportError:
-        # fallback: calculate directly with pytz
-        try:
-            import pytz
-            us_eastern = pytz.timezone('US/Eastern')
-            now_est = datetime.now(us_eastern)
-
-            # Check weekend (EST timezone)
-            if now_est.weekday() >= 5:
-                return False
-
-            current_time = now_est.time()
-            market_open = time(9, 30)
-            market_close = time(16, 0)
-            return market_open <= current_time <= market_close
-        except ImportError:
-            # If pytz is also unavailable, approximate calculation based on KST
-            now = datetime.now()
-            if now.weekday() >= 5:  # Weekend
-                return False
-            now_time = now.time()
-            return now_time >= time(23, 30) or now_time <= time(6, 0)
 
 
 def is_market_day_check() -> bool:
@@ -137,14 +102,11 @@ def get_next_market_open(market: str = "KR") -> datetime:
     Calculate next trading day's market open time
 
     Args:
-        market: "KR" (Korea) or "US" (USA)
+        market: "KR" (Korea)
 
     Returns:
         datetime: Next trading day's market open time
     """
-    if market == "US":
-        return get_next_us_market_open()
-
     # Korea: Next trading day 09:05 KST
     now = datetime.now()
     next_day = now + timedelta(days=1)
@@ -178,69 +140,6 @@ def get_next_market_open(market: str = "KR") -> datetime:
 
     # Set to 09:05 (stabilization time after market open)
     return next_day.replace(hour=9, minute=5, second=0, microsecond=0)
-
-
-def get_next_us_market_open() -> datetime:
-    """
-    Calculate next US trading day's market open time (09:35 EST -> convert to KST)
-
-    Returns:
-        datetime: Next US trading day's market open time (KST)
-    """
-    try:
-        # Use prism-us/check_market_day.py (NYSE calendar based)
-        import sys
-        sys.path.insert(0, str(PROJECT_ROOT / "prism-us"))
-        from check_market_day import get_next_trading_day, EST, KST
-
-        next_trading_day = get_next_trading_day()
-        if next_trading_day:
-            import pytz
-            # Set to 09:35 EST (stabilization time after market open)
-            market_open_est = datetime.combine(next_trading_day, time(9, 35))
-            market_open_est = EST.localize(market_open_est)
-
-            # Convert to KST
-            market_open_kst = market_open_est.astimezone(KST)
-            return market_open_kst.replace(tzinfo=None)  # Return naive datetime
-
-    except ImportError:
-        pass
-
-    # fallback: calculate directly with pytz
-    try:
-        import pytz
-        us_eastern = pytz.timezone('US/Eastern')
-        kst = pytz.timezone('Asia/Seoul')
-
-        now_est = datetime.now(us_eastern)
-        next_day_est = now_est + timedelta(days=1)
-
-        # Find next trading day (search up to 7 days)
-        for _ in range(7):
-            if next_day_est.weekday() >= 5:
-                next_day_est += timedelta(days=1)
-                continue
-            break
-
-        # Set to 09:35 EST
-        market_open_est = next_day_est.replace(hour=9, minute=35, second=0, microsecond=0)
-        market_open_kst = market_open_est.astimezone(kst)
-        return market_open_kst.replace(tzinfo=None)
-
-    except ImportError:
-        # If pytz is also unavailable, approximate calculation (EST + 14 hours = KST)
-        now = datetime.now()
-        next_day = now + timedelta(days=1)
-
-        for _ in range(7):
-            if next_day.weekday() >= 5:
-                next_day += timedelta(days=1)
-                continue
-            break
-
-        # 23:35 KST (next day 09:35 EST)
-        return next_day.replace(hour=23, minute=35, second=0, microsecond=0)
 
 
 class ScheduledOrderManager:
@@ -511,86 +410,7 @@ async def execute_sell_trade(ticker: str, company_name: str, logger: logging.Log
         return {"success": False, "message": str(e)}
 
 
-async def execute_us_buy_trade(ticker: str, company_name: str, logger: logging.Logger, limit_price: Optional[float] = None) -> Dict[str, Any]:
-    """Execute actual US stock buy order (async)
 
-    Args:
-        ticker: Stock ticker symbol
-        company_name: Company name for logging
-        logger: Logger instance
-        limit_price: Limit price in USD for reserved orders (required for off-hours trading)
-    """
-    try:
-        # Import from prism-us module
-        import sys
-        sys.path.insert(0, str(PROJECT_ROOT / "prism-us"))
-        from trading.us_stock_trading import USStockTrading
-
-        trading = USStockTrading()
-
-        # Get current price for limit_price if not provided (needed for reserved orders)
-        effective_limit_price = limit_price
-        if not effective_limit_price:
-            price_info = trading.get_current_price(ticker)
-            if price_info:
-                effective_limit_price = price_info['current_price']
-
-        trade_result = await trading.async_buy_stock(ticker=ticker, limit_price=effective_limit_price)
-
-        if trade_result['success']:
-            logger.info(f"✅ 🇺🇸 US buy successful: {company_name}({ticker}) - {trade_result['message']}")
-        else:
-            logger.error(f"❌ 🇺🇸 US buy failed: {company_name}({ticker}) - {trade_result['message']}")
-
-        return trade_result
-
-    except ImportError as e:
-        logger.error(f"US Trading module import failed: {e}")
-        return {"success": False, "message": f"Import error: {e}"}
-    except Exception as e:
-        logger.error(f"Error during US buy execution: {e}", exc_info=True)
-        return {"success": False, "message": str(e)}
-
-
-async def execute_us_sell_trade(ticker: str, company_name: str, logger: logging.Logger, limit_price: Optional[float] = None) -> Dict[str, Any]:
-    """Execute actual US stock sell order (async)
-
-    Args:
-        ticker: Stock ticker symbol
-        company_name: Company name for logging
-        logger: Logger instance
-        limit_price: Limit price in USD for reserved orders (required for off-hours trading)
-    """
-    try:
-        # Import from prism-us module
-        import sys
-        sys.path.insert(0, str(PROJECT_ROOT / "prism-us"))
-        from trading.us_stock_trading import USStockTrading
-
-        trading = USStockTrading()
-
-        # Get current price for limit_price if not provided (needed for reserved orders)
-        effective_limit_price = limit_price
-        if not effective_limit_price:
-            price_info = trading.get_current_price(ticker)
-            if price_info:
-                effective_limit_price = price_info['current_price']
-
-        trade_result = await trading.async_sell_stock(ticker=ticker, limit_price=effective_limit_price)
-
-        if trade_result['success']:
-            logger.info(f"✅ 🇺🇸 US sell successful: {company_name}({ticker}) - {trade_result['message']}")
-        else:
-            logger.error(f"❌ 🇺🇸 US sell failed: {company_name}({ticker}) - {trade_result['message']}")
-
-        return trade_result
-
-    except ImportError as e:
-        logger.error(f"US Trading module import failed: {e}")
-        return {"success": False, "message": f"Import error: {e}"}
-    except Exception as e:
-        logger.error(f"Error during US sell execution: {e}", exc_info=True)
-        return {"success": False, "message": str(e)}
 
 
 def main():
@@ -643,26 +463,18 @@ def main():
             """Execute scheduled order (sync wrapper)"""
             signal = order.get("signal", {})
             signal_type = order.get("signal_type", "BUY")
-            market = order.get("market", "KR")
             ticker = signal.get("ticker", "")
             company_name = signal.get("company_name", "")
             # Get price from signal for limit orders (signal may contain price info)
             price = signal.get("price", 0)
 
-            # Call different trading functions based on market
+            # Call KR trading functions
             # Pass price as limit_price for reserved orders
-            if market == "US":
-                limit_price = float(price) if price else None
-                if signal_type == "SELL":
-                    return asyncio.run(execute_us_sell_trade(ticker, company_name, logger, limit_price=limit_price))
-                else:  # BUY
-                    return asyncio.run(execute_us_buy_trade(ticker, company_name, logger, limit_price=limit_price))
-            else:  # KR (default)
-                limit_price = int(price) if price else None
-                if signal_type == "SELL":
-                    return asyncio.run(execute_sell_trade(ticker, company_name, logger, limit_price=limit_price))
-                else:  # BUY
-                    return asyncio.run(execute_buy_trade(ticker, company_name, logger, limit_price=limit_price))
+            limit_price = int(price) if price else None
+            if signal_type == "SELL":
+                return asyncio.run(execute_sell_trade(ticker, company_name, logger, limit_price=limit_price))
+            else:  # BUY
+                return asyncio.run(execute_buy_trade(ticker, company_name, logger, limit_price=limit_price))
 
         # Start background scheduler
         scheduled_order_manager.start_scheduler(execute_scheduled_order)
@@ -710,6 +522,11 @@ def main():
         price = signal.get("price", 0)
         market = signal.get("market", "KR")  # KR (Korea) or US (USA)
 
+        # Ignore US market signals
+        if market == "US":
+            logger.info(f"🇺🇸 US stock signal received for {company_name}({ticker}), but US trading is disabled. Ignoring signal.")
+            return
+
         # Emoji by signal type
         emoji = {
             "BUY": "📈",
@@ -718,8 +535,8 @@ def main():
         }.get(signal_type, "📌")
 
         # Market label
-        market_label = "🇺🇸" if market == "US" else "🇰🇷"
-        currency = "USD" if market == "US" else "KRW"
+        market_label = "🇰🇷"
+        currency = "KRW"
 
         # Log basic signal info
         logger.info(f"{emoji} {market_label} [{signal_type}] {company_name}({ticker}) @ {price:,.2f} {currency}")
@@ -759,10 +576,7 @@ def main():
                 else:
                     # Live trading or market hours: execute immediately
                     logger.info(f"🚀 Executing buy order: {market_label} {company_name}({ticker})")
-                    if market == "US":
-                        asyncio.run(execute_us_buy_trade(ticker, company_name, logger, limit_price=float(price) if price else None))
-                    else:
-                        asyncio.run(execute_buy_trade(ticker, company_name, logger, limit_price=int(price) if price else None))
+                    asyncio.run(execute_buy_trade(ticker, company_name, logger, limit_price=int(price) if price else None))
             else:
                 logger.info(f"🔸 [DRY-RUN] Buy skipped: {market_label} {company_name}({ticker})")
 
@@ -798,10 +612,7 @@ def main():
                 else:
                     # Live trading or market hours: execute immediately
                     logger.info(f"🚀 Executing sell order: {market_label} {company_name}({ticker})")
-                    if market == "US":
-                        asyncio.run(execute_us_sell_trade(ticker, company_name, logger, limit_price=float(price) if price else None))
-                    else:
-                        asyncio.run(execute_sell_trade(ticker, company_name, logger, limit_price=int(price) if price else None))
+                    asyncio.run(execute_sell_trade(ticker, company_name, logger, limit_price=int(price) if price else None))
             else:
                 logger.info(f"🔸 [DRY-RUN] Sell skipped: {market_label} {company_name}({ticker})")
 

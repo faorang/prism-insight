@@ -21,11 +21,7 @@ SCRIPT_DIR = Path(__file__).parent.resolve()
 TRADING_DIR = SCRIPT_DIR
 
 # Add paths for importing trading module
-# IMPORTANT: Order matters! PARENT_DIR must come BEFORE prism-us
-# because prism-us/trading/ exists and would shadow the main trading/ package
 PARENT_DIR = SCRIPT_DIR.parent
-sys.path.insert(0, str(PARENT_DIR / "prism-us" / "trading"))  # prism-us/trading for us_stock_trading
-sys.path.insert(0, str(PARENT_DIR / "prism-us"))  # prism-us for US modules
 sys.path.insert(0, str(TRADING_DIR))              # trading/ for local imports
 sys.path.insert(0, str(PARENT_DIR))               # project root - MUST be first for 'from trading.xxx'
 
@@ -39,15 +35,6 @@ with open(CONFIG_FILE, encoding="UTF-8") as f:
 # Import local modules
 from trading.domestic_stock_trading import DomesticStockTrading
 from telegram_bot_agent import TelegramBotAgent
-
-# Import US trading module (optional - may not be available)
-try:
-    from us_stock_trading import USStockTrading
-    US_TRADING_AVAILABLE = False
-except ImportError as e:
-    US_TRADING_AVAILABLE = False
-except Exception as e:
-    US_TRADING_AVAILABLE = False
 
 # Logging configuration
 logging.basicConfig(
@@ -143,25 +130,18 @@ class PortfolioTelegramReporter:
     def create_portfolio_message(
         self,
         kr_portfolio: List[Dict[str, Any]],
-        kr_account_summary: Dict[str, Any],
-        us_portfolio: List[Dict[str, Any]] = None,
-        us_account_summary: Dict[str, Any] = None
+        kr_account_summary: Dict[str, Any]
     ) -> str:
         """
-        Generate telegram message based on KR and US portfolio data
+        Generate telegram message based on KR portfolio data
 
         Args:
             kr_portfolio: Korean stock portfolio data
             kr_account_summary: Korean account summary data
-            us_portfolio: US stock portfolio data (optional)
-            us_account_summary: US account summary data (optional)
 
         Returns:
             Formatted telegram message
         """
-        us_portfolio = us_portfolio or []
-        us_account_summary = us_account_summary or {}
-
         current_time = datetime.datetime.now().strftime("%m/%d %H:%M")
         mode_emoji = "🧪" if self.trading_mode == "demo" else "💰"
         mode_text = "모의투자" if self.trading_mode == "demo" else "실전투자"
@@ -207,37 +187,6 @@ class PortfolioTelegramReporter:
 
         message += "\n"
 
-        # ========== US Account Summary ==========
-        if us_portfolio or us_account_summary:
-            message += f"🇺🇸 *미국주식 계좌*\n"
-
-            if us_account_summary:
-                us_total_eval = us_account_summary.get('total_eval_amount', 0)
-                us_total_profit = us_account_summary.get('total_profit_amount', 0)
-                us_total_profit_rate = us_account_summary.get('total_profit_rate', 0)
-                us_cash = us_account_summary.get('usd_cash', 0)
-                exchange_rate = us_account_summary.get('exchange_rate', 0)
-
-                # Show stock evaluation if any holdings
-                if us_total_eval > 0:
-                    profit_emoji = "📈" if us_total_profit >= 0 else "📉"
-                    message += f"📊 보유주식: `{self.format_currency(us_total_eval, 'USD')}`\n"
-                    message += f"{profit_emoji} 평가손익: `{self.format_currency_with_sign(us_total_profit, 'USD')}` "
-                    message += f"({self.format_percentage(us_total_profit_rate)})\n"
-
-                # Always show USD cash
-                message += f"💵 USD 현금: `{self.format_currency(us_cash, 'USD')}`"
-                if exchange_rate > 0:
-                    krw_value = us_cash * exchange_rate
-                    message += f" (≈{krw_value:,.0f}원)\n"
-                    message += f"📈 환율: `{exchange_rate:,.2f}원/USD`\n"
-                else:
-                    message += "\n"
-            else:
-                message += "❌ 계좌 정보를 가져올 수 없습니다\n"
-
-            message += "\n"
-
         # ========== KR Holdings ==========
         message += "━" * 20 + "\n"
 
@@ -270,51 +219,18 @@ class PortfolioTelegramReporter:
         else:
             message += "🇰🇷 *한국 보유종목*: 없음\n"
 
-        # ========== US Holdings ==========
-        if us_portfolio:
-            message += "\n" + "━" * 20 + "\n"
-            message += f"🇺🇸 *미국 보유종목* ({len(us_portfolio)}개)\n"
-
-            for i, stock in enumerate(us_portfolio, 1):
-                ticker = stock.get('ticker', '???')
-                stock_name = stock.get('stock_name', 'Unknown')
-                quantity = stock.get('quantity', 0)
-                profit_amount = stock.get('profit_amount', 0)
-                profit_rate = stock.get('profit_rate', 0)
-                eval_amount = stock.get('eval_amount', 0)
-                avg_price = stock.get('avg_price', 0)
-                exchange = stock.get('exchange', '')
-
-                # Return status
-                if profit_rate > 0:
-                    status_emoji = "⬆️"
-                elif profit_rate < 0:
-                    status_emoji = "⬇️"
-                else:
-                    status_emoji = "➖"
-
-                # Stock information
-                exchange_tag = f"[{exchange}]" if exchange else ""
-                message += f"\n*{i}. {ticker}* {exchange_tag} {status_emoji}\n"
-                message += f"  {stock_name[:20]}{'...' if len(stock_name) > 20 else ''}\n"
-                message += f"  평가: `{self.format_currency(eval_amount, 'USD')}`\n"
-                message += f"  단가: `{self.format_currency(avg_price, 'USD')}` ({quantity}주)\n"
-                message += f"  손익: `{self.format_currency_with_sign(profit_amount, 'USD')}`  |  {self.format_percentage(profit_rate)}\n"
-
         return message
 
 
-    async def get_trading_data(self) -> Tuple[List, Dict, List, Dict]:
+    async def get_trading_data(self) -> Tuple[List, Dict]:
         """
-        Fetch trading data for both KR and US markets
+        Fetch trading data for KR market
 
         Returns:
-            (kr_portfolio, kr_account_summary, us_portfolio, us_account_summary) tuple
+            (kr_portfolio, kr_account_summary) tuple
         """
         kr_portfolio = []
         kr_account_summary = {}
-        us_portfolio = []
-        us_account_summary = {}
 
         # Fetch KR trading data
         try:
@@ -331,25 +247,7 @@ class PortfolioTelegramReporter:
         except Exception as e:
             logger.error(f"Error fetching KR trading data: {str(e)}")
 
-        # Fetch US trading data (if available)
-        if US_TRADING_AVAILABLE:
-            try:
-                us_trader = USStockTrading(mode=self.trading_mode)
-
-                logger.info("Fetching US portfolio data...")
-                us_portfolio = us_trader.get_portfolio()
-
-                logger.info("Fetching US account summary...")
-                us_account_summary = us_trader.get_account_summary() or {}
-
-                logger.info(f"US data fetch complete: {len(us_portfolio)} holdings")
-
-            except Exception as e:
-                logger.error(f"Error fetching US trading data: {str(e)}")
-        else:
-            logger.info("US trading module not available, skipping US portfolio")
-
-        return kr_portfolio, kr_account_summary, us_portfolio, us_account_summary
+        return kr_portfolio, kr_account_summary
 
     async def send_portfolio_report(self) -> bool:
         """
@@ -361,13 +259,12 @@ class PortfolioTelegramReporter:
         try:
             logger.info("Starting portfolio report generation...")
 
-            # Fetch trading data (KR + US)
-            kr_portfolio, kr_account_summary, us_portfolio, us_account_summary = await self.get_trading_data()
+            # Fetch trading data
+            kr_portfolio, kr_account_summary = await self.get_trading_data()
 
             # Generate message
             message = self.create_portfolio_message(
-                kr_portfolio, kr_account_summary,
-                us_portfolio, us_account_summary
+                kr_portfolio, kr_account_summary
             )
 
             logger.info("Sending telegram message...")
@@ -466,8 +363,8 @@ class PortfolioTelegramReporter:
 
             title = status_messages.get(status_type, "📊 **Status Check**")
 
-            # Fetch account summaries (KR + US)
-            _, kr_account_summary, _, us_account_summary = await self.get_trading_data()
+            # Fetch account summaries
+            _, kr_account_summary = await self.get_trading_data()
 
             message = f"{title} {mode_emoji}\n"
             message += f"📅 {current_time}\n\n"
@@ -485,20 +382,6 @@ class PortfolioTelegramReporter:
                 message += f"{profit_emoji} P/L: {self.format_currency_with_sign(total_profit)} ({self.format_percentage(total_profit_rate)})\n"
             else:
                 message += "🇰🇷 ❌ Failed to retrieve account info\n"
-
-            # US account summary
-            if us_account_summary:
-                us_total_eval = us_account_summary.get('total_eval_amount', 0)
-                us_total_profit = us_account_summary.get('total_profit_amount', 0)
-                us_total_profit_rate = us_account_summary.get('total_profit_rate', 0)
-                us_cash = us_account_summary.get('usd_cash', 0)
-
-                message += f"\n🇺🇸 *USA*\n"
-                if us_total_eval > 0:
-                    us_profit_emoji = "📈" if us_total_profit >= 0 else "📉"
-                    message += f"📊 Holdings: {self.format_currency(us_total_eval, 'USD')}\n"
-                    message += f"{us_profit_emoji} P/L: {self.format_currency_with_sign(us_total_profit, 'USD')} ({self.format_percentage(us_total_profit_rate)})\n"
-                message += f"💵 USD Cash: {self.format_currency(us_cash, 'USD')}\n"
 
             message += "\n🤖 Automated Status Check"
 

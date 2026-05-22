@@ -33,8 +33,7 @@ from analysis_manager import (
 from report_generator import (
     generate_evaluation_response, get_cached_report, generate_follow_up_response,
     get_or_create_global_mcp_app, cleanup_global_mcp_app,
-    generate_us_evaluation_response, generate_us_follow_up_response,
-    get_cached_us_report, generate_journal_conversation_response
+    generate_journal_conversation_response
 )
 from tracking.user_memory import UserMemoryManager
 from datetime import datetime, timedelta
@@ -72,9 +71,7 @@ CHOOSING_TICKER, ENTERING_AVGPRICE, ENTERING_PERIOD, ENTERING_TONE, ENTERING_BAC
 REPORT_CHOOSING_TICKER = 0  # State for /report command
 HISTORY_CHOOSING_TICKER = 0  # State for /history command
 
-# US stocks conversation state definitions
-US_CHOOSING_TICKER, US_ENTERING_AVGPRICE, US_ENTERING_PERIOD, US_ENTERING_TONE, US_ENTERING_BACKGROUND = range(5, 10)
-US_REPORT_CHOOSING_TICKER = 10  # State for /us_report command
+
 
 # Journal conversation state definitions
 JOURNAL_ENTERING = 20  # State for /journal command
@@ -136,47 +133,7 @@ def generate_triggers_message(db_path: str) -> str:
         except sqlite3.Error:
             pass
 
-        # Query US analysis data
-        us_analysis = {}
-        try:
-            # Check if table exists
-            cursor.execute("""
-                SELECT name FROM sqlite_master
-                WHERE type='table' AND name='us_analysis_performance_tracker'
-            """)
-            if cursor.fetchone():
-                cursor.execute("""
-                    SELECT trigger_type,
-                           COUNT(*) as total,
-                           SUM(CASE WHEN return_30d IS NOT NULL THEN 1 ELSE 0 END) as completed,
-                           AVG(CASE WHEN return_30d IS NOT NULL THEN return_30d ELSE NULL END) as avg_return,
-                           SUM(CASE WHEN return_30d IS NOT NULL AND return_30d > 0 THEN 1 ELSE 0 END) as wins,
-                           SUM(CASE WHEN return_30d IS NOT NULL AND return_30d <= 0 THEN 1 ELSE 0 END) as losses
-                    FROM us_analysis_performance_tracker
-                    WHERE trigger_type IS NOT NULL
-                    GROUP BY trigger_type
-                    ORDER BY completed DESC
-                """)
-                for row in cursor.fetchall():
-                    us_analysis[row['trigger_type']] = dict(row)
-        except sqlite3.Error:
-            pass
 
-        # Query US trading data
-        us_trading = {}
-        try:
-            cursor.execute("""
-                SELECT COALESCE(trigger_type, 'AI Analysis') as trigger_type,
-                       COUNT(*) as count,
-                       SUM(CASE WHEN profit_rate > 0 THEN 1 ELSE 0 END) as wins,
-                       AVG(profit_rate) as avg_profit
-                FROM us_trading_history
-                GROUP BY COALESCE(trigger_type, 'AI Analysis')
-            """)
-            for row in cursor.fetchall():
-                us_trading[row['trigger_type']] = dict(row)
-        except sqlite3.Error:
-            pass
 
         conn.close()
 
@@ -272,26 +229,12 @@ def generate_triggers_message(db_path: str) -> str:
         else:
             msg_parts.append("  데이터 없음")
 
-        # US section
-        msg_parts.append("\n🇺🇸 미국시장")
-        msg_parts.append("─────────────────")
-        us_triggers = []
-        for trigger_type, analysis_data in us_analysis.items():
-            trading_data = us_trading.get(trigger_type, {})
-            us_triggers.append(_format_trigger_line(trigger_type, analysis_data, trading_data))
 
-        us_triggers.sort(key=lambda x: (grade_order[x[0]], -x[1]))
-
-        if us_triggers:
-            for _, _, line in us_triggers:
-                msg_parts.append(line)
-        else:
-            msg_parts.append("  데이터 없음")
 
         # Summary & insight
         msg_parts.append("\n━━━━━━━━━━━━━━━━━━━━")
 
-        all_triggers = kr_triggers + us_triggers
+        all_triggers = kr_triggers
         a_grade = [t for t in all_triggers if t[0] == 'A']
         c_or_d = [t for t in all_triggers if t[0] in ('C', 'D')]
 
@@ -656,63 +599,7 @@ class TelegramAIBot:
         )
         self.application.add_handler(conv_handler)
 
-        # ==========================================================================
-        # US stocks conversation handlers
-        # ==========================================================================
 
-        # US evaluation conversation handler (/us_evaluate)
-        us_evaluate_handler = ConversationHandler(
-            entry_points=[
-                CommandHandler("us_evaluate", self.handle_us_evaluate_start),
-                MessageHandler(filters.Regex(r'^/us_evaluate(@\w+)?$'), self.handle_us_evaluate_start)
-            ],
-            states={
-                US_CHOOSING_TICKER: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_us_ticker_input)
-                ],
-                US_ENTERING_AVGPRICE: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_us_avgprice_input)
-                ],
-                US_ENTERING_PERIOD: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_us_period_input)
-                ],
-                US_ENTERING_TONE: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_us_tone_input)
-                ],
-                US_ENTERING_BACKGROUND: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_us_background_input)
-                ]
-            },
-            fallbacks=[
-                CommandHandler("cancel", self.handle_cancel),
-                CommandHandler("start", self.handle_cancel),
-                CommandHandler("help", self.handle_cancel)
-            ],
-            per_chat=False,
-            per_user=True,
-            conversation_timeout=300,
-        )
-        self.application.add_handler(us_evaluate_handler)
-
-        # US report conversation handler (/us_report)
-        us_report_handler = ConversationHandler(
-            entry_points=[
-                CommandHandler("us_report", self.handle_us_report_start),
-                MessageHandler(filters.Regex(r'^/us_report(@\w+)?$'), self.handle_us_report_start)
-            ],
-            states={
-                US_REPORT_CHOOSING_TICKER: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_us_report_ticker_input)
-                ]
-            },
-            fallbacks=[
-                CommandHandler("cancel", self.handle_cancel)
-            ],
-            per_chat=False,
-            per_user=True,
-            conversation_timeout=300,
-        )
-        self.application.add_handler(us_report_handler)
 
         # ==========================================================================
         # Journal (investment diary) conversation handler (/journal)
@@ -775,30 +662,19 @@ class TelegramAIBot:
         
         # Check context expiration
         if conv_context.is_expired():
-            # Different guidance message depending on market type
-            if conv_context.market_type == "us":
-                await update.message.reply_text(
-                    "이전 대화 세션이 만료되었습니다. 새로운 평가를 시작하려면 /us_evaluate 명령어를 사용해주세요."
-                )
-            else:
-                await update.message.reply_text(
-                    "이전 대화 세션이 만료되었습니다. 새로운 평가를 시작하려면 /evaluate 명령어를 사용해주세요."
-                )
+            await update.message.reply_text(
+                "이전 대화 세션이 만료되었습니다. 새로운 평가를 시작하려면 /evaluate 명령어를 사용해주세요."
+            )
             del self.conversation_contexts[replied_to_msg_id]
             return
 
         # Get user message
         user_question = update.message.text.strip()
 
-        # Waiting message (based on market type)
-        if conv_context.market_type == "us":
-            waiting_message = await update.message.reply_text(
-                "🇺🇸 추가 질문에 대해 분석 중입니다... 잠시만 기다려주세요. 💭"
-            )
-        else:
-            waiting_message = await update.message.reply_text(
-                "추가 질문에 대해 분석 중입니다... 잠시만 기다려주세요. 💭"
-            )
+        # Waiting message
+        waiting_message = await update.message.reply_text(
+            "추가 질문에 대해 분석 중입니다... 잠시만 기다려주세요. 💭"
+        )
 
         try:
             # Add user question to conversation history
@@ -807,25 +683,14 @@ class TelegramAIBot:
             # Create context to pass to LLM
             full_context = conv_context.get_context_for_llm()
 
-            # Use different response generator based on market type
-            if conv_context.market_type == "us":
-                # Generate response for US market
-                response = await generate_us_follow_up_response(
-                    conv_context.ticker,
-                    conv_context.ticker_name,
-                    full_context,
-                    user_question,
-                    conv_context.tone
-                )
-            else:
-                # Generate response for Korean market (existing)
-                response = await generate_follow_up_response(
-                    conv_context.ticker,
-                    conv_context.ticker_name,
-                    full_context,
-                    user_question,
-                    conv_context.tone
-                )
+            # Generate response for Korean market (existing)
+            response = await generate_follow_up_response(
+                conv_context.ticker,
+                conv_context.ticker_name,
+                full_context,
+                user_question,
+                conv_context.tone
+            )
             
             # Delete waiting message
             await waiting_message.delete()
@@ -861,8 +726,7 @@ class TelegramAIBot:
         # Refund daily limit if the report failed due to a server-side error
         # (subprocess timeout, internal AI agent error, etc.) so the user can retry.
         if getattr(request, 'user_id', None) and self._is_server_error(request):
-            command = "us_report" if request.market_type == "us" else "report"
-            self.refund_daily_limit(request.user_id, command)
+            self.refund_daily_limit(request.user_id, "report")
 
         try:
             # Send PDF file
@@ -929,9 +793,6 @@ class TelegramAIBot:
             "/evaluate - 보유 종목 평가 시작\n"
             "/report - 상세 분석 보고서 요청\n"
             "/history - 특정 종목의 분석 히스토리 확인\n\n"
-            "🇺🇸 <b>미국 주식</b>\n"
-            "/us_evaluate - 미국 주식 평가 시작\n"
-            "/us_report - 미국 주식 보고서 요청\n\n"
             "📝 <b>투자 일기</b>\n"
             "/journal - 투자 일기 기록\n"
             "/memories - 내 기억 저장소 확인\n\n"
@@ -958,20 +819,17 @@ class TelegramAIBot:
             "/evaluate - 보유 종목 평가 시작\n"
             "/report - 상세 분석 보고서 요청\n"
             "/history - 특정 종목의 분석 히스토리 확인\n\n"
-            "🇺🇸 <b>미국 주식 명령어:</b>\n"
-            "/us_evaluate - 미국 주식 평가 시작\n"
-            "/us_report - 미국 주식 보고서 요청\n\n"
             "📝 <b>투자 일기:</b>\n"
             "/journal - 투자 생각 기록\n"
             "/memories - 내 기억 저장소 확인\n"
-            "  • 종목 코드/티커와 함께 입력 가능\n"
+            "  • 종목 코드와 함께 입력 가능\n"
             "  • 과거 평가 시 기억으로 활용됨\n\n"
             "📡 <b>트리거 신뢰도:</b>\n"
-            "/triggers - KR & US 트리거 신뢰도 리포트 보기\n\n"
-            "<b>보유 종목 평가 방법 (한국/미국 동일):</b>\n"
-            "1. /evaluate 또는 /us_evaluate 명령어 입력\n"
-            "2. 종목 코드/티커 입력 (예: 005930 또는 AAPL)\n"
-            "3. 평균 매수가 입력 (원 또는 달러)\n"
+            "/triggers - 트리거 신뢰도 리포트 보기\n\n"
+            "<b>보유 종목 평가 방법:</b>\n"
+            "1. /evaluate 명령어 입력\n"
+            "2. 종목 코드 입력 (예: 005930)\n"
+            "3. 평균 매수가 입력 (원)\n"
             "4. 보유 기간 입력\n"
             "5. 원하는 피드백 스타일 입력\n"
             "6. 매매 배경 입력 (선택사항)\n"
@@ -1522,9 +1380,7 @@ class TelegramAIBot:
         context.user_data.clear()
 
         await update.message.reply_text(
-            "요청이 취소되었습니다.\n\n"
-            "🇰🇷 국내 주식: /evaluate, /report, /history\n"
-            "🇺🇸 해외 주식: /us_evaluate, /us_report"
+            "🇰🇷 국내 주식: /evaluate, /report, /history"
         )
         return ConversationHandler.END
 
@@ -1533,8 +1389,7 @@ class TelegramAIBot:
         """Handle conversation cancellation (called from outside conversation)"""
         await update.message.reply_text(
             "현재 진행 중인 대화가 없습니다.\n\n"
-            "🇰🇷 국내 주식: /evaluate, /report, /history\n"
-            "🇺🇸 해외 주식: /us_evaluate, /us_report"
+            "🇰🇷 국내 주식: /evaluate, /report, /history"
         )
 
     @staticmethod
@@ -1670,374 +1525,7 @@ class TelegramAIBot:
             logger.warning(f"No matching stock: '{stock_input}'")
             return None, None, f"'{stock_input}'에 해당하는 종목을 찾을 수 없습니다. 정확한 종목명이나 코드를 입력해주세요."
 
-    # US ticker validation cache
-    _us_ticker_cache: dict = {}
 
-    async def validate_us_ticker(self, ticker_input: str) -> tuple:
-        """
-        Validate US stock ticker symbol
-
-        Args:
-            ticker_input (str): Ticker symbol (e.g., AAPL, MSFT, GOOGL)
-
-        Returns:
-            tuple: (ticker, company_name, error_message)
-        """
-        if not ticker_input:
-            return None, None, "티커 심볼을 입력해주세요. (예: AAPL, MSFT)"
-
-        ticker = ticker_input.strip().upper()
-        logger.info(f"Starting US ticker validation: {ticker}")
-
-        # Check cache
-        if ticker in self._us_ticker_cache:
-            cached = self._us_ticker_cache[ticker]
-            logger.info(f"Using cached US ticker info: {ticker} -> {cached['name']}")
-            return ticker, cached['name'], None
-
-        # Validate ticker format (1-5 letter alphabets)
-        if not re.match(r'^[A-Z]{1,5}$', ticker):
-            return None, None, (
-                f"'{ticker_input}'는 유효한 미국 티커 형식이 아닙니다.\n"
-                "미국 티커는 1-5개의 영문 알파벳입니다. (예: AAPL, MSFT, GOOGL)"
-            )
-
-        # Validate ticker with yfinance
-        try:
-            import yfinance as yf
-
-            stock = yf.Ticker(ticker)
-            info = stock.info
-
-            # Extract company name
-            company_name = info.get('longName') or info.get('shortName')
-
-            if not company_name:
-                return None, None, (
-                    f"'{ticker}' 티커에 대한 정보를 찾을 수 없습니다.\n"
-                    "티커 심볼이 올바른지 확인해주세요."
-                )
-
-            # Save to cache
-            self._us_ticker_cache[ticker] = {'name': company_name}
-            logger.info(f"US ticker validation successful: {ticker} -> {company_name}")
-
-            return ticker, company_name, None
-
-        except Exception as e:
-            logger.error(f"Error validating US ticker: {e}")
-            # Default handling if yfinance is missing or error occurs
-            return ticker, f"{ticker} (미확인)", None
-
-    # ==========================================================================
-    # US stock evaluation handler (/us_evaluate)
-    # ==========================================================================
-
-    async def handle_us_evaluate_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle US evaluate command - first step"""
-        user_id = update.effective_user.id
-        user_name = update.effective_user.first_name
-
-        # Check channel subscription
-        is_subscribed = await self.check_channel_subscription(user_id)
-
-        if not is_subscribed:
-            await update.message.reply_text(
-                "이 봇은 채널 구독자만 사용할 수 있습니다.\n"
-                "아래 링크를 통해 채널을 구독해주세요:\n\n"
-                "https://t.me/stock_ai_agent"
-            )
-            return ConversationHandler.END
-
-        # Check if group chat or private chat
-        is_group = update.effective_chat.type in ["group", "supergroup"]
-
-        logger.info(f"US evaluation command started - User: {user_name}, Chat type: {'group' if is_group else 'private'}")
-
-        # Mention username in group chats
-        greeting = f"{user_name}님, " if is_group else ""
-
-        await update.message.reply_text(
-            f"{greeting}🇺🇸 미국 주식 평가를 시작합니다.\n\n"
-            "보유하신 종목의 티커 심볼을 입력해주세요.\n"
-            "예: AAPL, MSFT, GOOGL, NVDA"
-        )
-        return US_CHOOSING_TICKER
-
-    async def handle_us_ticker_input(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle US ticker input"""
-        user_id = update.effective_user.id
-        user_input = update.message.text.strip()
-        logger.info(f"Received US ticker input - User: {user_id}, Input: {user_input}")
-
-        # Validate ticker
-        ticker, company_name, error_message = await self.validate_us_ticker(user_input)
-
-        if error_message:
-            await update.message.reply_text(error_message)
-            return US_CHOOSING_TICKER
-
-        # Save stock information
-        context.user_data['us_ticker'] = ticker
-        context.user_data['us_ticker_name'] = company_name
-
-        logger.info(f"US stock selected: {company_name} ({ticker})")
-
-        await update.message.reply_text(
-            f"🇺🇸 {company_name} ({ticker}) 종목을 선택하셨습니다.\n\n"
-            f"USD 기준 평균 매수가를 입력해주세요. (숫자만 입력)\n"
-            f"예: 150.50"
-        )
-
-        logger.info(f"State transition: US_ENTERING_AVGPRICE - User: {user_id}")
-        return US_ENTERING_AVGPRICE
-
-    @staticmethod
-    async def handle_us_avgprice_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle US average purchase price input (USD)"""
-        try:
-            avg_price = float(update.message.text.strip().replace(',', '').replace('$', ''))
-            context.user_data['us_avg_price'] = avg_price
-
-            await update.message.reply_text(
-                f"보유 기간을 입력해주세요. (월 단위)\n"
-                f"예: 6 (6개월)"
-            )
-            return US_ENTERING_PERIOD
-
-        except ValueError:
-            await update.message.reply_text(
-                "숫자 형식으로 입력해주세요. (예: 150.50)\n"
-                "달러 기호($)와 쉼표는 자동으로 제거됩니다."
-            )
-            return US_ENTERING_AVGPRICE
-
-    @staticmethod
-    async def handle_us_period_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle US holding period input"""
-        try:
-            period = int(update.message.text.strip())
-            context.user_data['us_period'] = period
-
-            await update.message.reply_text(
-                "어떤 스타일이나 톤으로 피드백을 받고 싶으신가요?\n"
-                "예: 직설적으로, 전문가처럼, 친구처럼, 간결하게 등"
-            )
-            return US_ENTERING_TONE
-
-        except ValueError:
-            await update.message.reply_text(
-                "숫자 형식으로 입력해주세요.\n"
-                "예: 6"
-            )
-            return US_ENTERING_PERIOD
-
-    @staticmethod
-    async def handle_us_tone_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle US feedback style/tone input"""
-        tone = update.message.text.strip()
-        context.user_data['us_tone'] = tone
-
-        await update.message.reply_text(
-            "이 종목을 매매한 이유나 주요 매매 이력이 있다면 알려주세요.\n"
-            "(선택 사항, 없으면 '없음'을 입력하세요)"
-        )
-        return US_ENTERING_BACKGROUND
-
-    async def handle_us_background_input(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle US trading background input and generate AI response"""
-        background = update.message.text.strip()
-        context.user_data['us_background'] = background if background.lower() not in ['none', '없음'] else ""
-
-        # Waiting response message
-        waiting_message = await update.message.reply_text(
-            "🇺🇸 미국 주식을 분석 중입니다... 잠시 기다려주세요."
-        )
-
-        # Request analysis from AI agent
-        ticker = context.user_data['us_ticker']
-        ticker_name = context.user_data.get('us_ticker_name', ticker)
-        avg_price = context.user_data['us_avg_price']
-        period = context.user_data['us_period']
-        tone = context.user_data['us_tone']
-        background = context.user_data['us_background']
-        chat_id = update.effective_chat.id
-        user_id = update.effective_user.id
-
-        try:
-            # Query user memory context
-            memory_context = ""
-            if self.memory_manager:
-                memory_context = self.memory_manager.build_llm_context(
-                    user_id=user_id,
-                    ticker=ticker,
-                    max_tokens=4000
-                )
-                if memory_context:
-                    logger.info(f"US user memory context loaded: {len(memory_context)} chars")
-
-            # Generate US AI response (including memory_context)
-            response = await generate_us_evaluation_response(
-                ticker, ticker_name, avg_price, period, tone, background,
-                memory_context=memory_context
-            )
-
-            # Check if response is empty
-            if not response or not response.strip():
-                response = "응답 생성 중 오류가 발생했습니다. 다시 시도해주세요."
-                logger.error(f"Empty response generated: {ticker_name}({ticker})")
-
-            # Delete waiting message
-            await waiting_message.delete()
-
-            # Send response
-            sent_message = await update.message.reply_text(
-                response + "\n\n💡 추가 질문이 있으시면 이 메시지에 답장(Reply)해주세요."
-            )
-
-            # Save conversation context (US market)
-            conv_context = ConversationContext(market_type="us")
-            conv_context.message_id = sent_message.message_id
-            conv_context.chat_id = chat_id
-            conv_context.user_id = update.effective_user.id
-            conv_context.ticker = ticker
-            conv_context.ticker_name = ticker_name
-            conv_context.avg_price = avg_price
-            conv_context.period = period
-            conv_context.tone = tone
-            conv_context.background = background
-            conv_context.add_to_history("assistant", response)
-
-            # Save context
-            self.conversation_contexts[sent_message.message_id] = conv_context
-            logger.info(f"US conversation context saved: Message ID {sent_message.message_id}")
-
-            # Save evaluation result to user memory
-            if self.memory_manager:
-                self.memory_manager.save_memory(
-                    user_id=user_id,
-                    memory_type=self.memory_manager.MEMORY_EVALUATION,
-                    content={
-                        'ticker': ticker,
-                        'ticker_name': ticker_name,
-                        'avg_price': avg_price,
-                        'period': period,
-                        'tone': tone,
-                        'background': background,
-                        'response_summary': response[:500]  # Save response summary
-                    },
-                    ticker=ticker,
-                    ticker_name=ticker_name,
-                    market_type='us',
-                    command_source='/us_evaluate',
-                    message_id=sent_message.message_id
-                )
-                logger.info(f"US evaluation result saved to memory: user={user_id}, ticker={ticker}")
-
-        except Exception as e:
-            logger.error(f"Error generating or sending US response: {str(e)}, {traceback.format_exc()}")
-            await waiting_message.delete()
-            await update.message.reply_text("분석 중 오류가 발생했습니다. 다시 시도해주세요.")
-
-        # End conversation
-        return ConversationHandler.END
-
-    # ==========================================================================
-    # US stock report handler (/us_report)
-    # ==========================================================================
-
-    async def handle_us_report_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle US report command - first step"""
-        user_id = update.effective_user.id
-        user_name = update.effective_user.first_name
-
-        # Check channel subscription
-        is_subscribed = await self.check_channel_subscription(user_id)
-
-        if not is_subscribed:
-            await update.message.reply_text(
-                "이 봇은 채널 구독자만 사용할 수 있습니다.\n"
-                "아래 링크를 통해 채널을 구독해주세요:\n\n"
-                "https://t.me/stock_ai_agent"
-            )
-            return ConversationHandler.END
-
-        # Check daily usage limit
-        if not self.check_daily_limit(user_id, "us_report"):
-            await update.message.reply_text(
-                "⚠️ /us_report 명령어는 하루에 1회만 사용할 수 있습니다.\n\n"
-                "내일 다시 이용해 주세요."
-            )
-            return ConversationHandler.END
-
-        # Check if group chat or private chat
-        is_group = update.effective_chat.type in ["group", "supergroup"]
-        greeting = f"{user_name}님, " if is_group else ""
-
-        await update.message.reply_text(
-            f"{greeting}🇺🇸 미국 주식 분석 보고서 요청입니다.\n\n"
-            "분석할 종목의 티커 심볼을 입력해주세요.\n"
-            "예: AAPL, MSFT, GOOGL, NVDA"
-        )
-
-        return US_REPORT_CHOOSING_TICKER
-
-    async def handle_us_report_ticker_input(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle ticker input for US report request"""
-        user_id = update.effective_user.id
-        user_input = update.message.text.strip()
-        chat_id = update.effective_chat.id
-
-        logger.info(f"Received US report ticker input - User: {user_id}, Input: {user_input}")
-
-        # Validate ticker
-        ticker, company_name, error_message = await self.validate_us_ticker(user_input)
-
-        if error_message:
-            await update.message.reply_text(error_message)
-            return US_REPORT_CHOOSING_TICKER
-
-        # Send waiting message
-        waiting_message = await update.message.reply_text(
-            f"🇺🇸 {company_name} ({ticker}) 분석 보고서 생성 요청이 등록되었습니다.\n\n"
-            f"요청은 접수 순서대로 처리되며, 분석에는 약 5-10분이 소요됩니다.\n\n"
-            f"다른 사용자의 요청이 많을 경우 대기 시간이 길어질 수 있습니다.\n\n"
-            f"완료되면 바로 알려드리겠습니다."
-        )
-
-        # Create US analysis request and add to queue
-        request = AnalysisRequest(
-            stock_code=ticker,
-            company_name=company_name,
-            chat_id=chat_id,
-            message_id=waiting_message.message_id,
-            market_type="us",  # Explicitly mark as US stock
-            user_id=user_id
-        )
-
-        # Check if cached US report exists
-        is_cached, cached_content, cached_file, cached_pdf = get_cached_us_report(ticker)
-
-        if is_cached:
-            logger.info(f"Found cached US report: {cached_file}")
-            # Send result immediately if cached report exists
-            request.result = cached_content
-            request.status = "completed"
-            request.report_path = cached_file
-            request.pdf_path = cached_pdf
-
-            await waiting_message.edit_text(
-                f"✅ {company_name} ({ticker}) 분석 보고서가 준비되었습니다. 곧 전송됩니다."
-            )
-
-            # Send result
-            await self.send_report_result(request)
-        else:
-            # New analysis needed - add to queue
-            self.pending_requests[request.id] = request
-            analysis_queue.put(request)
-
-        return ConversationHandler.END
 
     # ==========================================================================
     # Journal (investment diary) handler (/journal)
