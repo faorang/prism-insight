@@ -24,7 +24,7 @@ from cores.utils import clean_markdown
 # Market analysis cache storage (global variable)
 _market_analysis_cache = {}
 
-async def analyze_stock(company_code: str = "000660", company_name: str = "SK하이닉스", reference_date: str = None, language: str = "ko"):
+async def analyze_stock(company_code: str = "000660", company_name: str = "SK하이닉스", reference_date: str = None, language: str = "ko", volume_profile_info: str = None):
     """
     Generate comprehensive stock analysis report
 
@@ -158,7 +158,7 @@ async def analyze_stock(company_code: str = "000660", company_name: str = "SK하
             logger.info(f"Processing investment_strategy for {company_name}...")
 
             investment_strategy = await generate_investment_strategy(
-                section_reports, combined_reports, company_name, company_code, reference_date, logger, language
+                section_reports, combined_reports, company_name, company_code, reference_date, logger, language, volume_profile_info=volume_profile_info
             )
             section_reports["investment_strategy"] = investment_strategy.lstrip('\n')
             logger.info(f"Completed investment_strategy - {len(investment_strategy)} characters")
