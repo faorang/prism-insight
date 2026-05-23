@@ -440,6 +440,15 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
                                    f"현재가: {current_price:,.0f}원\n"
                     if pivot_point and pivot_point > 0:
                         skip_message += f"피벗 기준가: {pivot_point:,.0f}원\n"
+                        
+                    vp_info = scenario.get("volume_profile_info", "")
+                    if vp_info and vp_info != "No significant upper resistance":
+                        skip_message += f"매물 저항대: {vp_info}\n"
+                        
+                    rr_ratio = scenario.get("risk_reward_ratio", 0)
+                    if rr_ratio:
+                        skip_message += f"기대 손익비: {float(rr_ratio):.1f}배\n"
+
                     skip_message += f"매수 Score: {buy_score}/10\n" \
                                     f"결정: {decision}\n" \
                                     f"시장 상황: {market_condition_text}\n" \

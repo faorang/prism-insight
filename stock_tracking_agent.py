@@ -437,6 +437,13 @@ class StockTrackingAgent:
             # Determine initial decision
             decision = self._normalize_decision(scenario.get("decision", "No entry"))
 
+            # volume_profile_info extraction and fallback
+            vp_info = scenario.get("volume_profile_info", "")
+            if not vp_info or vp_info == "No significant upper resistance":
+                trigger_info = getattr(self, 'trigger_info_map', {}).get(ticker, {})
+                vp_info = str(trigger_info.get('volume_profile_info', 'No significant upper resistance'))
+            scenario["volume_profile_info"] = vp_info
+
             # 5% Pivot Rule validation for buy (Enter) decisions
             if decision == "Enter":
                 # Get pivot_point from scenario (AI suggested)
@@ -619,6 +626,15 @@ class StockTrackingAgent:
                       f"매수가: {current_price:,.0f}원\n"
             if pivot_point and pivot_point > 0:
                 message += f"피벗 기준가: {pivot_point:,.0f}원\n"
+                
+            vp_info = scenario.get("volume_profile_info", "")
+            if vp_info and vp_info != "No significant upper resistance":
+                message += f"매물 저항대: {vp_info}\n"
+                
+            rr_ratio = scenario.get("risk_reward_ratio", 0)
+            if rr_ratio:
+                message += f"기대 손익비: {float(rr_ratio):.1f}배\n"
+
             message += f"목표가: {scenario.get('target_price', 0):,.0f}원\n" \
                        f"손절가: {scenario.get('stop_loss', 0):,.0f}원\n" \
                        f"투자기간: {scenario.get('investment_period', '단기')}\n" \
@@ -1677,7 +1693,8 @@ class StockTrackingAgent:
                                             'trigger_type': trigger_type,
                                             'trigger_mode': trigger_data.get('metadata', {}).get('trigger_mode', ''),
                                             'risk_reward_ratio': stock.get('risk_reward_ratio', 0),
-                                            'pivot_point': stock.get('pivot_point', 0)
+                                            'pivot_point': stock.get('pivot_point', 0),
+                                            'volume_profile_info': stock.get('volume_profile_info', 'No significant upper resistance')
                                         }
                         logger.info(f"Loaded trigger info for {len(self.trigger_info_map)} stocks")
                 except Exception as e:

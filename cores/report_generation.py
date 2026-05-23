@@ -330,7 +330,7 @@ Comprehensive Analysis Report:
             return "## Executive Summary\n\nA problem occurred while generating the analysis summary."
 
 
-async def generate_investment_strategy(section_reports, combined_reports, company_name, company_code, reference_date, logger, language="ko"):
+async def generate_investment_strategy(section_reports, combined_reports, company_name, company_code, reference_date, logger, language="ko", volume_profile_info=None):
     """
     Generate investment strategy report
 
@@ -424,8 +424,10 @@ async def generate_investment_strategy(section_reports, combined_reports, compan
 ##분석일: {reference_date}(YYYYMMDD 형식)
 """
             message = f"""{company_name}({company_code})의 투자 전략 분석 보고서를 작성해주세요.
-
-## 앞서 분석된 다른 섹션의 내용:
+"""
+            if volume_profile_info:
+                message += f"\n## 참고 매물대 분석 정보 (Volume Profile):\n- {volume_profile_info}\n\n"
+            message += f"""## 앞서 분석된 다른 섹션의 내용:
 {combined_reports}
 
 ## 투자 전략 작성 지침:
@@ -518,8 +520,10 @@ Company: {company_name} ({company_code})
 """
             message = f"""Please write an investment strategy analysis report for {company_name}({company_code}).
 (Report language: {language_name})
-
-## Contents of Other Previously Analyzed Sections:
+"""
+            if volume_profile_info:
+                message += f"\n## Reference Volume Profile Info:\n- {volume_profile_info}\n\n"
+            message += f"""## Contents of Other Previously Analyzed Sections:
 {combined_reports}
 
 ## Investment Strategy Writing Guidelines:

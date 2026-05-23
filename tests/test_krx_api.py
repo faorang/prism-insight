@@ -6,6 +6,11 @@ Verifies that krx_data_client works properly on the server.
 import datetime
 import sys
 from pathlib import Path
+import logging
+
+logging.basicConfig(
+    level=logging.DEBUG,
+)
 
 # Load .env from project root
 from dotenv import load_dotenv

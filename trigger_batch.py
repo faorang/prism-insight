@@ -345,6 +345,8 @@ def calculate_agent_fit_metrics(ticker: str, current_price: float, trade_date: s
         "risk_reward_ratio": 0,
         "agent_fit_score": 0,
         "pivot_point": 0.0,
+        "trade_value": 0.0,
+        "volume_profile_info": "No significant upper resistance",
     }
 
     if current_price <= 0:
@@ -356,22 +358,21 @@ def calculate_agent_fit_metrics(ticker: str, current_price: float, trade_date: s
     rr_target = criteria["rr_target"]
 
     # v1.16.6 Core change: Apply fixed stop-loss method
-    # Before: 10-day low based → 48%+ stop-loss on surge stocks → agent rejection
-    # After: Current price based fixed ratio → always meets agent criteria
     stop_loss_price = current_price * (1 - sl_max)
     stop_loss_pct = sl_max  # Fixed value (5% or 7%)
 
-    # Target price & Pivot point calculation: Query 20 days of data for pivot calculation
-    multi_day_df = get_multi_day_ohlcv(ticker, trade_date, 20)
+    # Query 60 days of data for Volume Profile and Pivot Point calculations
+    multi_day_df = get_multi_day_ohlcv(ticker, trade_date, 60)
     
     pivot_point = 0.0
     is_pivot_valid = False
     
-    if not multi_day_df.empty and len(multi_day_df) >= 2:
-        high_col = "High" if "High" in multi_day_df.columns else "고가"
-        if high_col in multi_day_df.columns:
-            # 당일(마지막 행)을 제외한 과거 데이터에서의 최고가
-            past_df = multi_day_df.iloc[:-1]
+    # 1. Pivot Point: 20-day high (excluding today)
+    pivot_df = multi_day_df.tail(20) if not multi_day_df.empty else pd.DataFrame()
+    if not pivot_df.empty and len(pivot_df) >= 2:
+        high_col = "High" if "High" in pivot_df.columns else "고가"
+        if high_col in pivot_df.columns:
+            past_df = pivot_df.iloc[:-1]
             if not past_df.empty:
                 pivot_point = float(past_df[high_col].max())
             else:
@@ -381,39 +382,77 @@ def calculate_agent_fit_metrics(ticker: str, current_price: float, trade_date: s
     else:
         pivot_point = float(current_price)
 
-    # 피벗 포인트 조건 사전 필터링 (pivot_point <= current_price <= pivot_point * 1.07)
+    # Pivot Point breakout range check (pivot_point <= current_price <= pivot_point * 1.07)
     if pivot_point and pivot_point > 0:
         if pivot_point <= current_price <= pivot_point * 1.07:
             is_pivot_valid = True
 
-    if multi_day_df.empty or len(multi_day_df) < 3:
-        # Default to current price + 15% when data is insufficient
-        target_price = current_price * 1.15
-        logger.debug(f"{ticker}: Insufficient data, applying default target price ({target_price:.0f})")
-    else:
-        # Check column name (English/Korean compatibility)
-        high_col = "High" if "High" in multi_day_df.columns else "고가"
+    # 2. Absolute trading value filter (minimum 5 billion KRW)
+    is_value_valid = False
+    trade_value = 0.0
+    if not multi_day_df.empty:
+        amount_col = "Amount" if "Amount" in multi_day_df.columns else "거래대금"
+        close_col = "Close" if "Close" in multi_day_df.columns else "종가"
+        volume_col = "Volume" if "Volume" in multi_day_df.columns else "거래량"
+        
+        if amount_col in multi_day_df.columns:
+            trade_value = float(multi_day_df.iloc[-1][amount_col])
+        elif close_col in multi_day_df.columns and volume_col in multi_day_df.columns:
+            trade_value = float(multi_day_df.iloc[-1][close_col] * multi_day_df.iloc[-1][volume_col])
+            
+        if trade_value >= 5_000_000_000: # 5 Billion KRW
+            is_value_valid = True
 
-        if high_col not in multi_day_df.columns:
-            target_price = current_price * 1.15
-            logger.debug(f"{ticker}: No high column, applying default target price")
-        else:
-            # Filter out 0 values (market holidays or data errors)
-            valid_highs = multi_day_df[high_col][multi_day_df[high_col] > 0]
-            if valid_highs.empty:
-                target_price = current_price * 1.15
-            else:
-                # Resistance level (highest among recent N-day highs)
-                target_price = valid_highs.max()
+    # 3. Volume Profile & Dynamic Target Price (60-day base)
+    target_price = current_price * 1.15 # Default
+    has_volume_profile = False
+    volume_profile_info = "No significant upper resistance"
+    
+    if not multi_day_df.empty and len(multi_day_df) >= 5:
+        close_col = "Close" if "Close" in multi_day_df.columns else "종가"
+        volume_col = "Volume" if "Volume" in multi_day_df.columns else "거래량"
+        
+        if close_col in multi_day_df.columns and volume_col in multi_day_df.columns:
+            clean_df = multi_day_df[(multi_day_df[close_col] > 0) & (multi_day_df[volume_col] > 0)].copy()
+            if len(clean_df) >= 5:
+                min_p = float(clean_df[close_col].min())
+                max_p = float(clean_df[close_col].max())
+                
+                if min_p < max_p:
+                    num_bins = 10
+                    bins = np.linspace(min_p, max_p, num_bins + 1)
+                    
+                    # Cut data into bins
+                    clean_df["bin"] = pd.cut(clean_df[close_col], bins=bins, labels=False, include_lowest=True)
+                    
+                    # Sum volumes by bin
+                    bin_volumes = clean_df.groupby("bin", observed=False)[volume_col].sum().to_dict()
+                    total_volume = clean_df[volume_col].sum()
+                    
+                    # Find High Volume Nodes (HVNs) - sorted by volume descending
+                    sorted_bins = sorted(bin_volumes.items(), key=lambda x: x[1], reverse=True)
+                    
+                    # Find the first high volume bin that is above current_price
+                    hvn_target_bin = None
+                    for bin_idx, vol in sorted_bins:
+                        bin_min, bin_max = bins[int(bin_idx)], bins[int(bin_idx)+1]
+                        if bin_min >= current_price:
+                            hvn_target_bin = int(bin_idx)
+                            break
+                    
+                    if hvn_target_bin is not None:
+                        # Dynamic target is the lower bound of the first high volume resistance bin
+                        target_price = float(bins[hvn_target_bin])
+                        has_volume_profile = True
+                        
+                        vol_ratio = (bin_volumes[hvn_target_bin] / total_volume) * 100 if total_volume > 0 else 0
+                        volume_profile_info = f"1st Major Resistance: {bins[hvn_target_bin]:,.0f} ~ {bins[hvn_target_bin+1]:,.0f} KRW (Vol share: {vol_ratio:.1f}%)"
 
-    # v1.16.6 Residual risk mitigation: Guarantee minimum +15% target
+    # Guarantee minimum +15% target
     min_target = current_price * 1.15
     if target_price <= current_price:
         target_price = min_target
-        logger.debug(f"{ticker}: Target price below current price, applying minimum ({target_price:.0f})")
     elif target_price < min_target:
-        # Raise to minimum if resistance is below +15%
-        logger.debug(f"{ticker}: Target price {target_price:.0f} → raised to minimum {min_target:.0f}")
         target_price = min_target
 
     # Calculate risk-reward ratio
@@ -425,17 +464,28 @@ def calculate_agent_fit_metrics(ticker: str, current_price: float, trade_date: s
     else:
         risk_reward_ratio = 0
 
-    # v1.16.6: Calculate agent fit score (simplified)
-    # sl_score = 1.0 since stop-loss is always within criteria
+    # 4. Expectation Risk/Reward Ratio validation
+    is_rr_valid = False
+    if risk_reward_ratio >= 1.5:
+        is_rr_valid = True
+
+    # Calculate agent fit score (risk-reward 60%, stop-loss 40%)
     rr_score = min(risk_reward_ratio / rr_target, 1.0) if risk_reward_ratio > 0 else 0
     sl_score = 1.0  # Always perfect score since stop-loss is fixed
-
-    # Final score (risk-reward 60%, stop-loss 40%)
     agent_fit_score = rr_score * 0.6 + sl_score * 0.4
 
-    # 피벗 돌파 조건 미충족 시 agent_fit_score를 0으로 강제 하향하여 1차 종목 선정에서 제외
-    if not is_pivot_valid:
-        logger.info(f"{ticker}: Pivot condition not met (Pivot: {pivot_point:.0f}, Current: {current_price:.0f}). Filtering out.")
+    # Enforce strict hybrid rule criteria
+    is_qualified = is_pivot_valid and is_value_valid and is_rr_valid
+    if not is_qualified:
+        rejections = []
+        if not is_pivot_valid:
+            rejections.append(f"Pivot Rule Failed (Pivot: {pivot_point:.0f}, Current: {current_price:.0f})")
+        if not is_value_valid:
+            rejections.append(f"Trading Value Rule Failed (Value: {trade_value/1e9:.1f}B < 5.0B)")
+        if not is_rr_valid:
+            rejections.append(f"Risk/Reward Rule Failed (Ratio: {risk_reward_ratio:.2f} < 1.5)")
+            
+        logger.info(f"{ticker}: Filtering out. Reasons: {', '.join(rejections)}")
         agent_fit_score = 0.0
 
     result = {
@@ -445,11 +495,13 @@ def calculate_agent_fit_metrics(ticker: str, current_price: float, trade_date: s
         "risk_reward_ratio": risk_reward_ratio,
         "agent_fit_score": agent_fit_score,
         "pivot_point": pivot_point,
+        "trade_value": trade_value,
+        "volume_profile_info": volume_profile_info,
     }
 
     logger.debug(f"{ticker}: Stop-loss={stop_loss_price:.0f}, Target={target_price:.0f}, "
                  f"Stop-loss%={stop_loss_pct*100:.1f}% (fixed), Risk-reward={risk_reward_ratio:.2f}, "
-                 f"Agent score={agent_fit_score:.3f}, Pivot={pivot_point:.0f}")
+                 f"Agent score={agent_fit_score:.3f}, Pivot={pivot_point:.0f}, Value={trade_value/1e9:.1f}B")
 
     return result
 
@@ -481,6 +533,8 @@ def score_candidates_by_agent_criteria(candidates_df: pd.DataFrame, trade_date: 
     result_df["risk_reward_ratio"] = 0.0
     result_df["agent_fit_score"] = 0.0
     result_df["pivot_point"] = 0.0
+    result_df["trade_value"] = 0.0
+    result_df["volume_profile_info"] = ""
 
     for ticker in result_df.index:
         current_price = result_df.loc[ticker, "Close"]
@@ -492,6 +546,8 @@ def score_candidates_by_agent_criteria(candidates_df: pd.DataFrame, trade_date: 
         result_df.loc[ticker, "risk_reward_ratio"] = metrics["risk_reward_ratio"]
         result_df.loc[ticker, "agent_fit_score"] = metrics["agent_fit_score"]
         result_df.loc[ticker, "pivot_point"] = metrics["pivot_point"]
+        result_df.loc[ticker, "trade_value"] = metrics["trade_value"]
+        result_df.loc[ticker, "volume_profile_info"] = metrics["volume_profile_info"]
 
     return result_df
 
@@ -1024,6 +1080,8 @@ def run_batch(trigger_time: str = "morning", log_level: str = "INFO", output_fil
                         stock_info["stop_loss_price"] = float(stocks_df.loc[ticker, "stop_loss_price"]) if "stop_loss_price" in stocks_df.columns else 0
                         stock_info["target_price"] = float(stocks_df.loc[ticker, "target_price"]) if "target_price" in stocks_df.columns else 0
                         stock_info["pivot_point"] = float(stocks_df.loc[ticker, "pivot_point"]) if "pivot_point" in stocks_df.columns else 0
+                        stock_info["volume_profile_info"] = str(stocks_df.loc[ticker, "volume_profile_info"]) if "volume_profile_info" in stocks_df.columns else "No significant upper resistance"
+
                     if "final_score" in stocks_df.columns:
                         stock_info["final_score"] = float(stocks_df.loc[ticker, "final_score"])
 

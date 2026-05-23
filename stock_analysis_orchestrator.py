@@ -332,12 +332,18 @@ class StockAnalysisOrchestrator:
                                 col_name = "Risk/Reward Ratio" if "Risk/Reward Ratio" in stocks_df.columns else "손익비"
                                 rr_ratio = float(stocks_df.loc[ticker, col_name])
 
+                            # Get volume_profile_info if available
+                            volume_profile_info = ""
+                            if "volume_profile_info" in stocks_df.columns:
+                                volume_profile_info = str(stocks_df.loc[ticker, "volume_profile_info"])
+
                             tickers.append({
                                 'code': ticker,
                                 'name': name,
                                 'trigger_type': trigger_type,
                                 'trigger_mode': mode,
-                                'risk_reward_ratio': rr_ratio
+                                'risk_reward_ratio': rr_ratio,
+                                'volume_profile_info': volume_profile_info
                             })
 
             logger.info(f"Number of selected stocks: {len(tickers)}")
@@ -911,6 +917,8 @@ class StockAnalysisOrchestrator:
                     pass
                 logger.info(f"Final tickers list: {tickers}")
 
+                sys.exit(0)
+
                 # 1-1. Send trigger results to telegram immediately
                 if os.path.exists(results_file):
                     logger.info(f"Trigger results file confirmed: {results_file}")
@@ -1038,9 +1046,11 @@ class StockAnalysisOrchestrator:
                 ticker = ticker_info.get('code')
                 # Use 'or' to handle both None and empty string cases
                 company_name = ticker_info.get('name') or f"Stock_{ticker}"
+                volume_profile_info = ticker_info.get('volume_profile_info', None)
             else:
                 ticker = ticker_info
                 company_name = f"Stock_{ticker}"
+                volume_profile_info = None
 
             logger.info(f"[{idx}/{len(tickers)}] Starting stock analysis: {company_name}({ticker})")
 
@@ -1058,7 +1068,8 @@ class StockAnalysisOrchestrator:
                     company_code=ticker,
                     company_name=company_name,
                     reference_date=reference_date,
-                    language=language
+                    language=language,
+                    volume_profile_info=volume_profile_info
                 )
 
                 # Save result
