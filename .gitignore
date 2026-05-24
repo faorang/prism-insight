@@ -122,3 +122,4 @@ dart_cache/
 docs_cache/
 market_cap_chart.md
 sqlite/sqlite_mcp_server.db
+kospi-kosdaq-stock-server/
