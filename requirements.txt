@@ -2,7 +2,8 @@ streamlit>=1.10.0
 pandas~=2.2.3
 numpy~=2.2.3
 # mcp-agent>=0.2.6  # TODO: upstream PR #648 머지 후 복원
-mcp-agent @ git+https://github.com/dragon1086/mcp-agent.git@430b9e4dcf3fa3bed8ac7921cedc8602e01cbd7d
+# mcp-agent @ git+https://github.com/dragon1086/mcp-agent.git@430b9e4dcf3fa3bed8ac7921cedc8602e01cbd7d
+mcp-agent @ git+https://github.com/faorang/mcp-agent.git@3286c5b9f73e19bc5682b7fb585ca667eac7edf2
 requests~=2.32.3
 aiohttp~=3.11.13
 python-dateutil~=2.9.0.post0
@@ -44,7 +45,8 @@ holidays~=0.68
 
 python-telegram-bot[job-queue]>=20.0
 
-kospi_kosdaq_stock_server>=0.3.37
+# kospi_kosdaq_stock_server @ git+https://github.com/faorang/kospi-kosdaq-stock-server.git@dd15f62523e2645a59b7eea26ec788cf3a9d8097
+-e ./kospi-kosdaq-stock-server
 DateTime~=5.5
 matplotlib~=3.10.1
 seaborn~=0.13.2
