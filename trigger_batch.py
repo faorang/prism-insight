@@ -466,7 +466,7 @@ def calculate_agent_fit_metrics(ticker: str, current_price: float, trade_date: s
 
     # 4. Expectation Risk/Reward Ratio validation
     is_rr_valid = False
-    if risk_reward_ratio >= 1.5:
+    if risk_reward_ratio >= rr_target:
         is_rr_valid = True
 
     # Calculate agent fit score (risk-reward 60%, stop-loss 40%)
@@ -483,7 +483,7 @@ def calculate_agent_fit_metrics(ticker: str, current_price: float, trade_date: s
         if not is_value_valid:
             rejections.append(f"Trading Value Rule Failed (Value: {trade_value/1e9:.1f}B < 5.0B)")
         if not is_rr_valid:
-            rejections.append(f"Risk/Reward Rule Failed (Ratio: {risk_reward_ratio:.2f} < 1.5)")
+            rejections.append(f"Risk/Reward Rule Failed (Ratio: {risk_reward_ratio:.2f} < {rr_target:.2f})")
             
         logger.info(f"{ticker}: Filtering out. Reasons: {', '.join(rejections)}")
         agent_fit_score = 0.0

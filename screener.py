@@ -282,8 +282,13 @@ def process_ticker(item, start_date, end_date):
         # 몸통(종가-시가)보다 윗꼬리가 너무 길면 매도세가 강하다고 판단
         body_size = abs(curr_price - open_price)
         upper_shadow = high - max(open_price, curr_price)
-        # 몸통이 거의 없는 도지형이거나 윗꼬리가 몸통의 60%를 넘으면 제외
-        if body_size == 0 or upper_shadow > (body_size * 0.6): return None
+        # 몸통이 거의 없는 도지형이거나 윗꼬리가 몸통의 60%를 넘으면 제외 (단, 윗꼬리가 없는 경우는 허용)
+        if body_size == 0:
+            if upper_shadow > 0:
+                return None
+        else:
+            if upper_shadow > (body_size * 0.6):
+                return None
 
         # 2. 당일 급등주 제외 (단타 방지)
         # 당일 10% 이상 오른 종목은 LLM이 분석하기엔 이미 변동성이 너무 큼
@@ -345,13 +350,20 @@ def get_expanded_candidates(market_type="KOSDAQ", top_n=3):
     # 2. 전 종목 리스트 확보 및 지수 수익률 계산
     df_list = fdr.StockListing(market_type)
 
-    # 지수 기표 가져오기 (RS 계산용)
+    # 지수 기표 가져오기 (RS 계산용) - 예외 처리 추가로 안정성 확보
     index_symbol = "KQ11" if market_type == "KOSDAQ" else "KS11"
-    idx_df = fdr.DataReader(index_symbol, start_date, end_date)
-    idx_return = (idx_df['Close'].iloc[-1] / idx_df['Close'].iloc[-2] - 1) * 100
-
-    print(f"시장 지수({index_symbol}) 수익률: {round(idx_return, 2)}%")
-    print(f"{idx_df['Close'].iloc[-1]}, {idx_df['Close'].iloc[-2]}")
+    try:
+        idx_df = fdr.DataReader(index_symbol, start_date, end_date)
+        if not idx_df.empty and len(idx_df) >= 2:
+            idx_return = (idx_df['Close'].iloc[-1] / idx_df['Close'].iloc[-2] - 1) * 100
+            print(f"시장 지수({index_symbol}) 수익률: {round(idx_return, 2)}%")
+            print(f"{idx_df['Close'].iloc[-1]}, {idx_df['Close'].iloc[-2]}")
+        else:
+            idx_return = 0.0
+            print(f"시장 지수({index_symbol}) 데이터가 부족하여 RS 기준점 수익률을 0%로 설정합니다.")
+    except Exception as e:
+        idx_return = 0.0
+        print(f"시장 지수 데이터를 불러오는데 실패하여 RS 기준점 수익률을 0%로 설정합니다. 오류: {e}")
 
     # 3. RS(상대적 강도) 미리 계산
     df_list['CalcRatio'] = get_safe_changes_ratio(df_list) # 이전 단계에서 만든 안전 함수
