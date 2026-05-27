@@ -429,6 +429,36 @@ class StockAnalysisOrchestrator:
                 logger.error(f"Error during telegram message generation for {report_pdf_path}: {str(e)}")
 
         return message_paths
+    async def send_telegram_message_only(message: str):
+        from telegram_bot_agent import TelegramBotAgent
+        import os
+        from dotenv import load_dotenv
+
+        # env파일 로드
+        load_dotenv(dotenv_path=str('./.env'))
+
+
+        # 텔레그램 설정
+        telegram_token = os.environ.get("TELEGRAM_BOT_TOKEN")
+        chat_id = os.environ.get("TELEGRAM_CHANNEL_ID")
+
+        if not telegram_token:
+            raise ValueError("텔레그램 봇 토큰이 필요합니다. 환경 변수 TELEGRAM_BOT_TOKEN 또는 파라미터로 제공해주세요.")
+
+        if not chat_id:
+            raise ValueError("텔레그램 채널 ID가 필요합니다. 환경 변수 TELEGRAM_CHANNEL_ID 또는 파라미터로 제공해주세요.")
+
+        telegram_bot = TelegramBotAgent(token=telegram_token)
+        # 텔레그램 전송
+        success = await telegram_bot.send_message(chat_id, message)
+
+        if success:
+            print("텔레그램 전송 성공!")
+            return True
+        else:
+            print("텔레그램 전송 실패!")
+            return False
+
 
     async def send_telegram_messages(self, message_paths, pdf_paths, report_paths=None):
         """
@@ -893,13 +923,22 @@ class StockAnalysisOrchestrator:
 
                 if not tickers:
                     logger.warning("No stocks selected. Terminating process.")
-                    return
 
                 try:
                     import screener
                     my_screen_tickers = screener.get_candidates("KOSPI", 1)
                     if my_screen_tickers is not None and not my_screen_tickers.empty:
-                        my_screen_tickers = my_screen_tickers.apply(lambda row: {'code': row['Code'], 'name': row['Name']}, axis=1).to_list()
+                        my_screen_tickers = my_screen_tickers.apply(
+                            lambda row: {
+                                'code': row['Code'],
+                                'name': row['Name'],
+                                'current_price': float(row['Close']) if 'Close' in row else 0.0,
+                                'change_rate': float(row['ChangesRatio']) if 'ChangesRatio' in row else 0.0,
+                                'volume': 0,
+                                'trade_value': float(row['Amount']) if 'Amount' in row else 0.0,
+                                'volume_profile_info': "No significant upper resistance"
+                            }, axis=1
+                        ).to_list()
 
                         for item in my_screen_tickers:
                             item['trigger_type'] = "My Custom Screen"
@@ -913,9 +952,49 @@ class StockAnalysisOrchestrator:
                         filtered_data = [item for item in my_screen_tickers if item['code'] not in existing_codes]
                         # 한 번에 확장
                         tickers.extend(filtered_data)
-                except:
-                    pass
+
+                        # results_file에 "My Custom Screen"으로 추가하기
+                        if filtered_data and os.path.exists(results_file):
+                            try:
+                                with open(results_file, 'r', encoding='utf-8') as f:
+                                    res_data = json.load(f)
+                                
+                                json_filtered_data = []
+                                for item in filtered_data:
+                                    json_filtered_data.append({
+                                        "code": item['code'],
+                                        "name": item['name'],
+                                        "current_price": item.get('current_price', 0.0),
+                                        "change_rate": item.get('change_rate', 0.0),
+                                        "volume": item.get('volume', 0),
+                                        "trade_value": item.get('trade_value', 0.0),
+                                        "volume_profile_info": item.get('volume_profile_info', "No significant upper resistance"),
+                                        "risk_reward_ratio": item.get('risk_reward_ratio', 0.0),
+                                        "stop_loss_pct": 0.0,
+                                        "stop_loss_price": 0.0,
+                                        "agent_fit_score": 0.0
+                                    })
+                                
+                                if "My Custom Screen" not in res_data:
+                                    res_data["My Custom Screen"] = []
+                                
+                                existing_res_codes = {x['code'] for x in res_data["My Custom Screen"]}
+                                for j_item in json_filtered_data:
+                                    if j_item['code'] not in existing_res_codes:
+                                        res_data["My Custom Screen"].append(j_item)
+                                
+                                with open(results_file, 'w', encoding='utf-8') as f:
+                                    json.dump(res_data, f, ensure_ascii=False, indent=2)
+                                logger.info(f"Successfully added custom screen tickers to {results_file}")
+                            except Exception as e:
+                                logger.error(f"Error saving custom screen tickers to {results_file}: {str(e)}")
+                except Exception as e:
+                    logger.error(f"Error in custom screener processing: {str(e)}")
                 logger.info(f"Final tickers list: {tickers}")
+
+                if not tickers:
+                    await self.send_telegram_message_only(f"금일 {mode} 매매에 해당하는 종목이 없습니다.")
+                    return
 
                 # 1-1. Send trigger results to telegram immediately
                 if os.path.exists(results_file):
