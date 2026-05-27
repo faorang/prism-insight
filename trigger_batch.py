@@ -367,14 +367,36 @@ def calculate_agent_fit_metrics(ticker: str, current_price: float, trade_date: s
     pivot_point = 0.0
     is_pivot_valid = False
     
-    # 1. Pivot Point: 20-day high (excluding today)
-    pivot_df = multi_day_df.tail(20) if not multi_day_df.empty else pd.DataFrame()
+    # 1. Pivot Point & Moving Average calculation based on trigger type
+    pivot_point = 0.0
+    is_pivot_valid = False
+    is_ma_valid = False
+    ma_value = 0.0
+
+    lookback = 20
+    use_close_for_pivot = False
+
+    if trigger_type == "갭 상승 모멘텀 상위주":
+        lookback = 20
+        use_close_for_pivot = True
+    elif trigger_type in ["거래량 급증 상위주", "시총 대비 집중 자금 유입 상위주"]:
+        lookback = 10
+        use_close_for_pivot = False
+    else:
+        lookback = 20
+        use_close_for_pivot = False
+
+    # Extract historical df for pivot calculation
+    pivot_df = multi_day_df.tail(lookback) if not multi_day_df.empty else pd.DataFrame()
     if not pivot_df.empty and len(pivot_df) >= 2:
         high_col = "High" if "High" in pivot_df.columns else "고가"
-        if high_col in pivot_df.columns:
-            past_df = pivot_df.iloc[:-1]
-            if not past_df.empty:
-                pivot_point = float(past_df[high_col].max())
+        close_col = "Close" if "Close" in pivot_df.columns else "종가"
+        past_df = pivot_df.iloc[:-1]
+
+        if not past_df.empty:
+            target_col = close_col if use_close_for_pivot else high_col
+            if target_col in past_df.columns:
+                pivot_point = float(past_df[target_col].max())
             else:
                 pivot_point = float(current_price)
         else:
@@ -382,10 +404,27 @@ def calculate_agent_fit_metrics(ticker: str, current_price: float, trade_date: s
     else:
         pivot_point = float(current_price)
 
-    # Pivot Point breakout range check (pivot_point <= current_price <= pivot_point * 1.07)
+    # Pivot Point breakout range check
     if pivot_point and pivot_point > 0:
         if pivot_point <= current_price <= pivot_point * 1.07:
             is_pivot_valid = True
+
+    # 2. Moving Average (MA) filter: 5-day SMA check (excluding today)
+    ma_df = multi_day_df.tail(6) if not multi_day_df.empty else pd.DataFrame()
+    if not ma_df.empty and len(ma_df) >= 2:
+        close_col = "Close" if "Close" in ma_df.columns else "종가"
+        if close_col in ma_df.columns:
+            past_ma_df = ma_df.iloc[:-1].tail(5)
+            if not past_ma_df.empty:
+                ma_value = float(past_ma_df[close_col].mean())
+                if current_price >= ma_value:
+                    is_ma_valid = True
+            else:
+                is_ma_valid = True
+        else:
+            is_ma_valid = True
+    else:
+        is_ma_valid = True
 
     # 2. Absolute trading value filter (minimum 5 billion KRW)
     is_value_valid = False
@@ -475,7 +514,7 @@ def calculate_agent_fit_metrics(ticker: str, current_price: float, trade_date: s
     agent_fit_score = rr_score * 0.6 + sl_score * 0.4
 
     # Enforce strict hybrid rule criteria
-    is_qualified = is_pivot_valid and is_value_valid and is_rr_valid
+    is_qualified = is_pivot_valid and is_value_valid and is_rr_valid and is_ma_valid
     if not is_qualified:
         rejections = []
         if not is_pivot_valid:
@@ -484,6 +523,8 @@ def calculate_agent_fit_metrics(ticker: str, current_price: float, trade_date: s
             rejections.append(f"Trading Value Rule Failed (Value: {trade_value/1e9:.1f}B < 5.0B)")
         if not is_rr_valid:
             rejections.append(f"Risk/Reward Rule Failed (Ratio: {risk_reward_ratio:.2f} < {rr_target:.2f})")
+        if not is_ma_valid:
+            rejections.append(f"MA Rule Failed (MA5: {ma_value:.0f}, Current: {current_price:.0f})")
             
         logger.info(f"{ticker}: Filtering out. Reasons: {', '.join(rejections)}")
         agent_fit_score = 0.0
