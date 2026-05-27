@@ -5,6 +5,9 @@ load_dotenv()  # Load environment variables from .env file (required before krx_
 
 import sys
 import datetime
+import time
+import random
+from concurrent.futures import ThreadPoolExecutor
 import pandas as pd
 import numpy as np
 import logging
@@ -172,31 +175,27 @@ def calculate_rsi(ohlcv_df: pd.DataFrame, period: int = 14) -> float:
 def apply_overheating_filter(candidates: pd.DataFrame, trade_date: str, snapshot: pd.DataFrame, threshold: float = 75.0, limit: int = 10) -> pd.DataFrame:
     """
     Filter out overheated stocks using RSI and return the best 'limit' candidates.
-    Searches through candidates until 'limit' non-overheated stocks are found.
+    Searches through candidates in safe parallel chunks (size 5) with random jitter to prevent API blocking.
     """
     if candidates.empty:
         return candidates
 
     logger.info(f"Applying overheating filter (RSI threshold: {threshold}) - Searching for top {limit} from {len(candidates)} candidates")
+    
+    tickers = list(candidates.index)
     final_indices = []
 
-    for ticker in candidates.index:
+    def check_rsi_for_ticker(ticker):
         try:
-            # Fetch 20 days of data for RSI(14)
+            # API 분산 요청을 위한 미세한 무작위 지터 추가
+            time.sleep(random.uniform(0.05, 0.25))
+
             hist = get_multi_day_ohlcv(ticker, trade_date, days=20)
             if hist.empty:
-                # If data missing, we cautiously include it but move on
-                final_indices.append(ticker)
-                if len(final_indices) >= limit:
-                    break
-                continue
+                return ticker, True, 50.0
 
-            # Ensure current snapshot data is included
             last_hist_date = hist.index[-1]
-            if hasattr(last_hist_date, 'strftime'):
-                last_hist_date_str = last_hist_date.strftime('%Y%m%d')
-            else:
-                last_hist_date_str = str(last_hist_date).replace("-", "")[:8]
+            last_hist_date_str = last_hist_date.strftime('%Y%m%d') if hasattr(last_hist_date, 'strftime') else str(last_hist_date).replace("-", "")[:8]
 
             if last_hist_date_str != trade_date:
                 if ticker in snapshot.index:
@@ -206,21 +205,33 @@ def apply_overheating_filter(candidates: pd.DataFrame, trade_date: str, snapshot
                     hist = pd.concat([hist, today_data])
 
             rsi_val = calculate_rsi(hist)
-            
             if rsi_val >= threshold:
-                logger.info(f"Stock {ticker} skipped: Overheated (RSI: {rsi_val:.2f})")
-                continue
-
-            logger.debug(f"Stock {ticker} accepted (RSI: {rsi_val:.2f})")
-            final_indices.append(ticker)
-            
-            if len(final_indices) >= limit:
-                break
+                return ticker, False, rsi_val
+            return ticker, True, rsi_val
         except Exception as e:
             logger.warning(f"Failed to check RSI for {ticker}: {e}")
-            final_indices.append(ticker)
-            if len(final_indices) >= limit:
-                break
+            return ticker, True, 50.0
+
+    # API 과사용 방지를 위해 5개씩 청크 단위로 나누어 병렬 처리 진행
+    chunk_size = 5
+    for i in range(0, len(tickers), chunk_size):
+        chunk_tickers = tickers[i:i + chunk_size]
+        
+        # 청크 단위로 5개 스레드로 동시 요청 제한
+        with ThreadPoolExecutor(max_workers=len(chunk_tickers)) as executor:
+            results = list(executor.map(check_rsi_for_ticker, chunk_tickers))
+
+        # 청크 결과 적용
+        for ticker, accepted, rsi_val in results:
+            if accepted:
+                final_indices.append(ticker)
+            else:
+                logger.info(f"Stock {ticker} skipped: Overheated (RSI: {rsi_val:.2f})")
+
+        # 조기 종료 조건: 필요한 limit 수량을 채웠으면 다음 청크는 조회하지 않음
+        if len(final_indices) >= limit:
+            final_indices = final_indices[:limit]
+            break
 
     return candidates.loc[final_indices]
 
@@ -552,15 +563,6 @@ def score_candidates_by_agent_criteria(candidates_df: pd.DataFrame, trade_date: 
     Calculate agent criteria scores for candidate stocks and add to DataFrame.
 
     v1.16.6: Apply differentiated criteria by trigger type
-
-    Args:
-        candidates_df: Candidate stocks DataFrame (index: stock code, Close column required)
-        trade_date: Reference trading date
-        lookback_days: Number of past business days to query
-        trigger_type: Trigger type (used for differentiated criteria)
-
-    Returns:
-        DataFrame with agent criteria scores added
     """
     if candidates_df.empty:
         return candidates_df
@@ -577,10 +579,19 @@ def score_candidates_by_agent_criteria(candidates_df: pd.DataFrame, trade_date: 
     result_df["trade_value"] = 0.0
     result_df["volume_profile_info"] = ""
 
-    for ticker in result_df.index:
+    def fetch_metrics(ticker):
+        # API 요청이 동시에 뭉치지 않도록 미세한 지터 추가
+        time.sleep(random.uniform(0.05, 0.25))
         current_price = result_df.loc[ticker, "Close"]
         metrics = calculate_agent_fit_metrics(ticker, current_price, trade_date, lookback_days, trigger_type)
+        return ticker, metrics
 
+    # 통과된 소수 종목(통상 10개 미만)에 한해 병렬 처리 (최대 3개 스레드로 보수적으로 제어)
+    tickers = list(result_df.index)
+    with ThreadPoolExecutor(max_workers=min(len(tickers), 3)) as executor:
+        results = list(executor.map(fetch_metrics, tickers))
+
+    for ticker, metrics in results:
         result_df.loc[ticker, "stop_loss_price"] = metrics["stop_loss_price"]
         result_df.loc[ticker, "target_price"] = metrics["target_price"]
         result_df.loc[ticker, "stop_loss_pct"] = metrics["stop_loss_pct"]
