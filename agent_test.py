@@ -24,22 +24,21 @@ async def main():
         instruction="""
         간결한응답
         """,
-        # server_names=[""]
+        server_names=["time"]
     )
     # LLM 호출하여 매도 의사결정 생성
     llm = await sell_decision_agent.attach_llm(OpenAIAugmentedLLM)
 
     response = await llm.generate_str(
         message="""
-        안녕
+        안녕, 지금 시간은?
         """,
         request_params=RequestParams(
-            model="gpt-5.4",
-            maxTokens=6000,
-            reasoning_effort="medium",
-            metadata={
-                "service_tier":"flex",
-            }
+            model="gpt-5.4-mini",
+            reasoning_effort="none",
+            maxTokens=32000,
+            parallel_tool_calls=True,
+            use_history=True,
         )
     )
     print(response)

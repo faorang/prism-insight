@@ -444,7 +444,7 @@ class StockTrackingAgent:
                 vp_info = str(trigger_info.get('volume_profile_info', 'No significant upper resistance'))
             scenario["volume_profile_info"] = vp_info
 
-            # 5% Pivot Rule validation for buy (Enter) decisions
+            # Pivot Rule validation for buy (Enter) decisions
             if decision == "Enter":
                 # Get pivot_point from scenario (AI suggested)
                 pivot_val = scenario.get("pivot_point", 0)
@@ -459,22 +459,34 @@ class StockTrackingAgent:
                 if pivot_point <= 0:
                     pivot_point = float(current_price)
                     
-                logger.info(f"{ticker}({company_name}): Verifying 5% pivot rule. Pivot: {pivot_point:,.0f}, Current: {current_price:,.0f}")
+                # Parse dynamic pivot buffer percentage from scenario, default is 5.0%
+                pivot_buffer_pct = scenario.get("pivot_buffer_pct", 5.0)
+                try:
+                    pivot_buffer_pct = float(pivot_buffer_pct)
+                    # Bound between 5.0% and 8.0% for safety
+                    pivot_buffer_pct = min(max(pivot_buffer_pct, 5.0), 8.0)
+                except (ValueError, TypeError):
+                    pivot_buffer_pct = 5.0
+                
+                pivot_multiplier = 1.0 + (pivot_buffer_pct / 100.0)
+                
+                logger.info(f"{ticker}({company_name}): Verifying pivot rule. Pivot: {pivot_point:,.0f}, Current: {current_price:,.0f}, Buffer: {pivot_buffer_pct:.1f}%")
                 
                 if current_price < pivot_point:
                     decision = "Watch"
                     scenario["decision"] = "Watch"
                     scenario["rejection_reason"] = f"Pivot point not breakout yet (Current: {current_price:,.0f} < Pivot: {pivot_point:,.0f})"
                     logger.info(f"{ticker}({company_name}): Decision changed to Watch. Reason: {scenario['rejection_reason']}")
-                elif current_price > pivot_point * 1.05:
+                elif current_price > pivot_point * pivot_multiplier:
                     decision = "Skip"
                     scenario["decision"] = "Skip"
-                    scenario["rejection_reason"] = f"Chase buying prohibited (Current: {current_price:,.0f} > 1.05 * Pivot: {pivot_point*1.05:,.0f})"
+                    scenario["rejection_reason"] = f"Chase buying prohibited (Current: {current_price:,.0f} > {pivot_multiplier:.2f} * Pivot: {pivot_point*pivot_multiplier:,.0f})"
                     logger.info(f"{ticker}({company_name}): Decision changed to Skip. Reason: {scenario['rejection_reason']}")
                 else:
-                    logger.info(f"{ticker}({company_name}): 5% pivot rule satisfied. Decision remains Enter.")
-                    # Ensure pivot_point is set in scenario for buy_stock
+                    logger.info(f"{ticker}({company_name}): {pivot_buffer_pct:.1f}% pivot rule satisfied. Decision remains Enter.")
+                    # Ensure pivot_point and pivot_buffer_pct are set in scenario for buy_stock
                     scenario["pivot_point"] = pivot_point
+                    scenario["pivot_buffer_pct"] = pivot_buffer_pct
 
             # Return result
             return {
