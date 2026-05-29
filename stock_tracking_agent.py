@@ -1424,23 +1424,6 @@ class StockTrackingAgent:
             logger.error(traceback.format_exc())
             return 0, 0
 
-    async def _notify_firebase(self, message: str, chat_id: str, message_id: int = None, msg_type=None):
-        """Send Firebase Bridge notification for Prism Mobile push (never affects Telegram delivery)."""
-        try:
-            from firebase_bridge import notify
-            await notify(
-                message=message,
-                market="kr",
-                telegram_message_id=message_id,
-                channel_id=chat_id,
-                msg_type=msg_type,
-            )
-        except Exception as e:
-            logger.debug(f"Firebase bridge: {e}")
-
-    def _schedule_firebase(self, message: str, chat_id: str, message_id: int = None, msg_type=None):
-        """Schedule Firebase notification as non-blocking task. Returns the task."""
-        return asyncio.create_task(self._notify_firebase(message, chat_id, message_id, msg_type=msg_type))
 
     async def send_telegram_message(self, chat_id: str, language: str = "ko") -> bool:
         """
@@ -1500,11 +1483,9 @@ class StockTrackingAgent:
                 except Exception as e:
                     logger.error(f"Translation failed: {str(e)}. Using original Korean messages.")
 
-            # Send each message (Firebase notifications are non-blocking)
+            # Send each message
             success = True
-            firebase_tasks = []
-            for idx, message in enumerate(self.message_queue):
-                msg_type = self._msg_types[idx] if idx < len(self._msg_types) else None
+            for message in self.message_queue:
                 logger.info(f"Sending Telegram message: {chat_id}")
                 try:
                     # Telegram message length limit (4096 characters)
@@ -1512,11 +1493,10 @@ class StockTrackingAgent:
 
                     if len(message) <= MAX_MESSAGE_LENGTH:
                         # Send in one message if short
-                        result = await self.telegram_bot.send_message(
+                        await self.telegram_bot.send_message(
                             chat_id=chat_id,
                             text=message
                         )
-                        firebase_tasks.append(self._schedule_firebase(message, chat_id, result.message_id, msg_type=msg_type))
                     else:
                         # Split and send if long
                         parts = []
@@ -1534,18 +1514,12 @@ class StockTrackingAgent:
                             parts.append(current_part.rstrip())
 
                         # Send split messages
-                        first_msg_id = None
                         for i, part in enumerate(parts, 1):
-                            result = await self.telegram_bot.send_message(
+                            await self.telegram_bot.send_message(
                                 chat_id=chat_id,
                                 text=f"[{i}/{len(parts)}]\n{part}"
                             )
-                            if i == 1:
-                                first_msg_id = result.message_id
                             await asyncio.sleep(0.5)  # Short delay between split messages
-
-                        # Notify with full original message, link to first part
-                        firebase_tasks.append(self._schedule_firebase(message, chat_id, first_msg_id, msg_type=msg_type))
 
                     logger.info(f"Telegram message sent: {chat_id}")
                 except TelegramError as e:
@@ -1554,10 +1528,6 @@ class StockTrackingAgent:
 
                 # Delay to prevent API rate limiting
                 await asyncio.sleep(1)
-
-            # Gather Firebase notifications (non-blocking for Telegram delivery)
-            if firebase_tasks:
-                await asyncio.gather(*firebase_tasks, return_exceptions=True)
 
             # Send to broadcast channels if configured (awaited in run() finally block)
             if hasattr(self, 'telegram_config') and self.telegram_config and self.telegram_config.broadcast_languages:
@@ -1596,10 +1566,8 @@ class StockTrackingAgent:
 
                     logger.info(f"Sending tracking messages to {lang} channel")
 
-                    # Translate and send each message (Firebase non-blocking)
-                    firebase_tasks = []
-                    for msg_idx, message in enumerate(messages):
-                        msg_type = msg_types[msg_idx] if msg_types and msg_idx < len(msg_types) else None
+                    # Translate and send each message
+                    for message in messages:
                         try:
                             # Translate message
                             logger.info(f"Translating tracking message to {lang}")
@@ -1614,11 +1582,10 @@ class StockTrackingAgent:
                             MAX_MESSAGE_LENGTH = 4096
 
                             if len(translated_message) <= MAX_MESSAGE_LENGTH:
-                                result = await self.telegram_bot.send_message(
+                                await self.telegram_bot.send_message(
                                     chat_id=channel_id,
                                     text=translated_message
                                 )
-                                firebase_tasks.append(self._schedule_firebase(translated_message, channel_id, result.message_id, msg_type=msg_type))
                             else:
                                 # Split long messages
                                 parts = []
@@ -1636,27 +1603,18 @@ class StockTrackingAgent:
                                     parts.append(current_part.rstrip())
 
                                 # Send split messages
-                                first_msg_id = None
                                 for i, part in enumerate(parts, 1):
-                                    result = await self.telegram_bot.send_message(
+                                    await self.telegram_bot.send_message(
                                         chat_id=channel_id,
                                         text=f"[{i}/{len(parts)}]\n{part}"
                                     )
-                                    if i == 1:
-                                        first_msg_id = result.message_id
                                     await asyncio.sleep(0.5)
-
-                                firebase_tasks.append(self._schedule_firebase(translated_message, channel_id, first_msg_id, msg_type=msg_type))
 
                             logger.info(f"Tracking message sent successfully to {lang} channel")
                             await asyncio.sleep(1)
 
                         except Exception as e:
                             logger.error(f"Error sending tracking message to {lang}: {str(e)}")
-
-                    # Gather Firebase notifications for this language
-                    if firebase_tasks:
-                        await asyncio.gather(*firebase_tasks, return_exceptions=True)
 
                 except Exception as e:
                     logger.error(f"Error processing language {lang}: {str(e)}")

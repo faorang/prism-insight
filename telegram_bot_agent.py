@@ -62,17 +62,6 @@ class TelegramBotAgent:
                 parse_mode=parse_mode
             )
             logger.info(f"Message sent successfully ({parse_mode}): {chat_id}")
-            # Firebase Bridge - save metadata + push notification
-            try:
-                from firebase_bridge import notify
-                await notify(
-                    message=message,
-                    telegram_message_id=result.message_id,
-                    channel_id=chat_id,
-                    msg_type=msg_type,
-                )
-            except Exception as e:
-                logger.debug(f"Firebase bridge: {e}")
             return True
         except RetryAfter as e:
             # Rate limit hit, wait and retry
@@ -105,16 +94,6 @@ class TelegramBotAgent:
                         text=message
                     )
                     logger.info(f"Message sent successfully (plain text): {chat_id}")
-                    try:
-                        from firebase_bridge import notify
-                        await notify(
-                            message=message,
-                            telegram_message_id=result.message_id,
-                            channel_id=chat_id,
-                            msg_type=msg_type,
-                        )
-                    except Exception as e:
-                        logger.debug(f"Firebase bridge: {e}")
                     return True
                 except TelegramError as e2:
                     logger.error(f"Plain text message send also failed: {e2}")
@@ -144,19 +123,6 @@ class TelegramBotAgent:
                     parse_mode="Markdown"  # Markdown format support
                 )
             logger.info(f"File sent successfully: {document_path}")
-            try:
-                from firebase_bridge import notify
-                telegram_link = f"https://t.me/{os.environ.get('TELEGRAM_CHANNEL_USERNAME', 'stock_ai_agent')}/{result.message_id}"
-                await notify(
-                    message=caption or str(document_path),
-                    telegram_message_id=result.message_id,
-                    channel_id=chat_id,
-                    has_pdf=True,
-                    pdf_telegram_link=telegram_link,
-                    msg_type=msg_type or "pdf",
-                )
-            except Exception as e:
-                logger.debug(f"Firebase bridge: {e}")
             return True
         except RetryAfter as e:
             # Rate limit hit, wait and retry
