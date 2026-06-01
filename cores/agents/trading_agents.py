@@ -161,9 +161,9 @@ def create_trading_scenario_agent():
             "valuation_analysis": "동종업계 밸류에이션 비교 결과",
             "sector_outlook": "업종 전망 및 동향",
             "buy_score": 1.0~10.0,
-            "min_score": 6.5~7.0,
+            "min_score": 시장 체제별 요구 점수 (parabolic/bull: 4, sideways: 5, bear: 5~6),
             "decision": "진입" | "미진입",
-            "entry_checklist_passed": 충족 개수 (Max 4),
+            "entry_checklist_passed": 충족 개수 (Max 4, F1~F4 통과 수),
             "rejection_reason": "미진입 사유 (진입 시 빈 문자열)",
             "pivot_point": "피벗 기준가 (숫자, 20일 전고점 돌파 피벗가)",
             "pivot_buffer_pct": "피벗 돌파 허용 버퍼 퍼센트 (숫자, 기본값 5.0, 강력한 모멘텀 돌파 시 5.0~8.0 범위로 설정 가능)",
@@ -171,7 +171,7 @@ def create_trading_scenario_agent():
             "target_price": "목표가 (숫자, 1차 매물 저항대 하단 가격 기준)",
             "buy_limit_price": "매수 제한 마지노선 (숫자, 현재가 대비 +2~3% 수준)",
             "stop_loss": "손절가 (숫자)",
-            "risk_reward_ratio": 기대 손익비 (소수점 1자리, 최소 1.5 이상 권장),
+            "risk_reward_ratio": 기대 손익비 (소수점 1자리, target_price와 stop_loss 기반 계산),
             "expected_return_pct": 기대수익률(%, 양수),
             "expected_loss_pct": 예상손실률(%, 양수),
             "investment_period": "단기" | "중기" | "장기",
@@ -179,6 +179,11 @@ def create_trading_scenario_agent():
             "sector": "산업군",
             "market_condition": "시장 추세 추론 근거 및 결과",
             "max_portfolio_size": 7,
+            "journal_reflection": {
+                "referenced": false,
+                "recent_exit_caution": null,
+                "applied_lessons": null
+            },
             "trading_scenarios": {
                 "key_levels": {
                     "primary_support": 1700,
