@@ -98,7 +98,7 @@ def create_trading_scenario_agent():
         | strong_bear   | 6 | 1.8 | -5% | 2개+ | 1 |
 
         결정 규칙:
-        - buy_score ≥ min_score AND risk_reward_ratio ≥ floor AND |expected_loss_pct| ≤ 최대 손절폭
+        - buy_score ≥ min_score AND risk_reward_ratio ≥ floor AND expected_loss_pct ≤ |최대 손절폭|
           AND momentum_signal_count 충족 AND additional_confirmation_count 충족
           → **진입**.
         - 위 조건 중 하나라도 미달 → **미진입**. 미달 항목을 rejection_reason에 명시하십시오.
@@ -181,11 +181,11 @@ def create_trading_scenario_agent():
             "max_portfolio_size": 7,
             "trading_scenarios": {
                 "key_levels": {
-                    "primary_support": "1700" | 1700 | "1700~1800" (설명 문구 절대 금지),
-                    "secondary_support": "...",
-                    "primary_resistance": "...",
-                    "secondary_resistance": "...",
-                    "volume_baseline": "평소 거래량"
+                    "primary_support": 1700,
+                    "secondary_support": 1600,
+                    "primary_resistance": 1900,
+                    "secondary_resistance": 2000,
+                    "volume_baseline": "150,000"
                 },
                 "sell_triggers": ["익절조건1", "손절조건1", "시간조건"],
                 "hold_conditions": ["보유조건1"],
