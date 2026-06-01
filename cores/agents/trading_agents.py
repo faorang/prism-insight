@@ -192,7 +192,6 @@ def create_trading_scenario_agent():
                 "portfolio_context": "포트폴리오 의미"
             }
         }
-        }
         """
 
     return Agent(
