@@ -324,6 +324,62 @@ TRIGGER_CRITERIA = {
     "default": {"rr_target": 1.5, "sl_max": 0.07}
 }
 
+# v2.0.0: Market regime criteria (synchronized with trading_agents.py)
+REGIME_CRITERIA = {
+    "strong_bull":   {"rr_target": 1.0, "sl_max": 0.07},
+    "moderate_bull": {"rr_target": 1.2, "sl_max": 0.07},
+    "sideways":      {"rr_target": 1.3, "sl_max": 0.06},
+    "moderate_bear": {"rr_target": 1.5, "sl_max": 0.05},
+    "strong_bear":   {"rr_target": 1.8, "sl_max": 0.05},
+}
+
+
+def determine_market_regime(trade_date: str) -> str:
+    """
+    Determine KOSPI market regime based on KOSPI 20-day SMA and 2-week return.
+    Calculations align with the logic defined in cores/agents/trading_agents.py.
+    """
+    try:
+        import FinanceDataReader as fdr
+        import datetime
+
+        end_dt = datetime.datetime.strptime(trade_date, "%Y%m%d")
+        start_dt = end_dt - datetime.timedelta(days=50)  # Enough room for 30 business days
+
+        # Fetch KOSPI index data (KS11)
+        df = fdr.DataReader("KS11", start_dt.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d"))
+        if df.empty or len(df) < 20:
+            logger.warning("Insufficient KOSPI data to determine regime. Defaulting to sideways.")
+            return "sideways"
+
+        close = df['Close']
+        current_val = float(close.iloc[-1])
+        ma20 = float(close.rolling(window=20).mean().iloc[-1])
+
+        # 2-week return (approx 10 business days)
+        idx_prev = max(0, len(close) - 11)
+        prev_val = float(close.iloc[idx_prev])
+        return_2w = ((current_val / prev_val) - 1) * 100
+
+        logger.info(f"Regime Check - Current KOSPI: {current_val:.2f}, 20-day SMA: {ma20:.2f}, 2-week return: {return_2w:.2f}%")
+
+        if abs(current_val - ma20) / ma20 <= 0.005:
+            return "sideways"
+        elif current_val > ma20:
+            if return_2w >= 5.0:
+                return "strong_bull"
+            else:
+                return "moderate_bull"
+        else: # current_val < ma20
+            if return_2w <= -5.0:
+                return "strong_bear"
+            else:
+                return "moderate_bear"
+
+    except Exception as e:
+        logger.error(f"Error determining market regime: {e}")
+        return "sideways"
+
 
 def calculate_agent_fit_metrics(ticker: str, current_price: float, trade_date: str, lookback_days: int = 10, trigger_type: str = None) -> dict:
     """
@@ -334,10 +390,7 @@ def calculate_agent_fit_metrics(ticker: str, current_price: float, trade_date: s
     - Reason: Improved to allow surge stocks to meet agent criteria
     - Risk-reward ratio: Maintain resistance level based, guarantee minimum +15%
 
-    Criteria by trigger type (synchronized with trading_agents.py):
-    - Volume surge/Gap up/Intraday rise: Risk-reward 1.2+, Stop-loss 5%
-    - Closing strength/Fund inflow: Risk-reward 1.3+, Stop-loss 5%
-    - Sideways: Risk-reward 1.5+, Stop-loss 7%
+    v2.0.0: Modified to adapt dynamically to market regime.
 
     Args:
         ticker: Stock code
@@ -363,12 +416,20 @@ def calculate_agent_fit_metrics(ticker: str, current_price: float, trade_date: s
     if current_price <= 0:
         return result
 
-    # v1.16.6: Query criteria by trigger type (query first)
-    criteria = TRIGGER_CRITERIA.get(trigger_type, TRIGGER_CRITERIA["default"])
-    sl_max = criteria["sl_max"]
-    rr_target = criteria["rr_target"]
+    # v2.0.0: Query KOSPI regime and dynamically adjust limits
+    regime = determine_market_regime(trade_date)
+    regime_criteria = REGIME_CRITERIA.get(regime, REGIME_CRITERIA["sideways"])
+    
+    # Retrieve trigger-specific default criteria as fallback / combination
+    trigger_criteria = TRIGGER_CRITERIA.get(trigger_type, TRIGGER_CRITERIA["default"])
+    
+    # Select the more conservative parameter to satisfy both trigger intent and LLM regime rules
+    sl_max = min(regime_criteria["sl_max"], trigger_criteria["sl_max"])
+    rr_target = max(regime_criteria["rr_target"], trigger_criteria["rr_target"])
+    
+    logger.info(f"{ticker}: Active regime is {regime}. Dynamic limits: sl_max={sl_max*100:.1f}%, rr_target={rr_target:.2f}")
 
-    # v1.16.6 Core change: Apply fixed stop-loss method
+    # Apply stop-loss calculation
     stop_loss_price = current_price * (1 - sl_max)
     stop_loss_pct = sl_max  # Fixed value (5% or 7%)
 

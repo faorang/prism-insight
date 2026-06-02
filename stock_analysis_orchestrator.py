@@ -926,68 +926,110 @@ class StockAnalysisOrchestrator:
 
                 try:
                     import screener
-                    my_screen_tickers = screener.get_candidates("KOSPI", 1)
-                    if my_screen_tickers is not None and not my_screen_tickers.empty:
-                        my_screen_tickers = my_screen_tickers.apply(
-                            lambda row: {
-                                'code': row['Code'],
-                                'name': row['Name'],
-                                'current_price': float(row['Close']) if 'Close' in row else 0.0,
-                                'change_rate': float(row['ChangesRatio']) if 'ChangesRatio' in row else 0.0,
-                                'volume': 0,
-                                'trade_value': float(row['Amount']) if 'Amount' in row else 0.0,
-                                'volume_profile_info': "No significant upper resistance"
-                            }, axis=1
-                        ).to_list()
+                    from trigger_batch import score_candidates_by_agent_criteria, get_nearest_business_day_in_a_week
+                    
+                    # Fetch candidates from both KOSPI and KOSDAQ
+                    logger.info("Executing custom screener for KOSPI and KOSDAQ...")
+                    cands = []
+                    for market in ["KOSPI", "KOSDAQ"]:
+                        try:
+                            df_cand = screener.get_candidates(market, 1)
+                            if df_cand is not None and not df_cand.empty:
+                                cands.append(df_cand)
+                        except Exception as se:
+                            logger.error(f"Screener failed for {market}: {str(se)}")
+                            
+                    if cands:
+                        raw_screen_df = pd.concat(cands, ignore_index=True)
+                    else:
+                        raw_screen_df = pd.DataFrame()
+                        
+                    if not raw_screen_df.empty:
+                        # Convert to index-based DataFrame for scoring, ensuring 'Code' is the index
+                        raw_screen_df.set_index('Code', inplace=True, drop=False)
+                        
+                        # Fetch trade date
+                        today_str = datetime.now().strftime("%Y%m%d")
+                        trade_date = get_nearest_business_day_in_a_week(today_str, prev=True)
+                        
+                        logger.info(f"Scoring custom screener candidates using agent criteria (reference date: {trade_date})...")
+                        scored_screener_df = score_candidates_by_agent_criteria(
+                            raw_screen_df, trade_date, lookback_days=10, trigger_type="default"
+                        )
+                        
+                        # Filter out candidates that do not satisfy the criteria (agent_fit_score <= 0.0)
+                        valid_screener_df = scored_screener_df[scored_screener_df["agent_fit_score"] > 0.0]
+                        logger.info(f"Custom screen candidates after agent criteria filtering: {len(valid_screener_df)}/{len(raw_screen_df)}")
+                        
+                        if not valid_screener_df.empty:
+                            my_screen_tickers = valid_screener_df.apply(
+                                lambda row: {
+                                    'code': row['Code'],
+                                    'name': row['Name'],
+                                    'current_price': float(row['Close']) if 'Close' in row else 0.0,
+                                    'change_rate': float(row['ChangesRatio']) if 'ChangesRatio' in row else 0.0,
+                                    'volume': int(row['Volume']) if 'Volume' in row else 0,
+                                    'trade_value': float(row['Amount']) if 'Amount' in row else 0.0,
+                                    'volume_profile_info': str(row['volume_profile_info']) if 'volume_profile_info' in row else "No significant upper resistance",
+                                    'risk_reward_ratio': float(row['risk_reward_ratio']) if 'risk_reward_ratio' in row else 0.0,
+                                    'stop_loss_pct': float(row['stop_loss_pct']) * 100 if 'stop_loss_pct' in row else 0.0,
+                                    'stop_loss_price': float(row['stop_loss_price']) if 'stop_loss_price' in row else 0.0,
+                                    'target_price': float(row['target_price']) if 'target_price' in row else 0.0,
+                                    'pivot_point': float(row['pivot_point']) if 'pivot_point' in row else 0.0,
+                                    'agent_fit_score': float(row['agent_fit_score']) if 'agent_fit_score' in row else 0.0
+                                }, axis=1
+                            ).to_list()
 
-                        for item in my_screen_tickers:
-                            item['trigger_type'] = "My Custom Screen"
-                            item['trigger_mode'] = mode
-                            item['risk_reward_ratio'] = 0
-                        logger.info(f"My screen tickers: {my_screen_tickers}")
-                        logger.info(f"Existing tickers before merging: {tickers}")
+                            for item in my_screen_tickers:
+                                item['trigger_type'] = "My Custom Screen"
+                                item['trigger_mode'] = mode
+                                
+                            logger.info(f"Valid screen tickers: {my_screen_tickers}")
+                            logger.info(f"Existing tickers before merging: {tickers}")
 
-                        existing_codes = {item['code'] for item in tickers}
-                        # 중복되지 않은 것만 골라낸 새 리스트 생성
-                        filtered_data = [item for item in my_screen_tickers if item['code'] not in existing_codes]
-                        # 한 번에 확장
-                        tickers.extend(filtered_data)
+                            existing_codes = {item['code'] for item in tickers}
+                            # 중복되지 않은 것만 골라낸 새 리스트 생성
+                            filtered_data = [item for item in my_screen_tickers if item['code'] not in existing_codes]
+                            # 한 번에 확장
+                            tickers.extend(filtered_data)
 
-                        # results_file에 "My Custom Screen"으로 추가하기
-                        if filtered_data and os.path.exists(results_file):
-                            try:
-                                with open(results_file, 'r', encoding='utf-8') as f:
-                                    res_data = json.load(f)
-                                
-                                json_filtered_data = []
-                                for item in filtered_data:
-                                    json_filtered_data.append({
-                                        "code": item['code'],
-                                        "name": item['name'],
-                                        "current_price": item.get('current_price', 0.0),
-                                        "change_rate": item.get('change_rate', 0.0),
-                                        "volume": item.get('volume', 0),
-                                        "trade_value": item.get('trade_value', 0.0),
-                                        "volume_profile_info": item.get('volume_profile_info', "No significant upper resistance"),
-                                        "risk_reward_ratio": item.get('risk_reward_ratio', 0.0),
-                                        "stop_loss_pct": 0.0,
-                                        "stop_loss_price": 0.0,
-                                        "agent_fit_score": 0.0
-                                    })
-                                
-                                if "My Custom Screen" not in res_data:
-                                    res_data["My Custom Screen"] = []
-                                
-                                existing_res_codes = {x['code'] for x in res_data["My Custom Screen"]}
-                                for j_item in json_filtered_data:
-                                    if j_item['code'] not in existing_res_codes:
-                                        res_data["My Custom Screen"].append(j_item)
-                                
-                                with open(results_file, 'w', encoding='utf-8') as f:
-                                    json.dump(res_data, f, ensure_ascii=False, indent=2)
-                                logger.info(f"Successfully added custom screen tickers to {results_file}")
-                            except Exception as e:
-                                logger.error(f"Error saving custom screen tickers to {results_file}: {str(e)}")
+                            # results_file에 "My Custom Screen"으로 추가하기
+                            if filtered_data and os.path.exists(results_file):
+                                try:
+                                    with open(results_file, 'r', encoding='utf-8') as f:
+                                        res_data = json.load(f)
+                                    
+                                    json_filtered_data = []
+                                    for item in filtered_data:
+                                        json_filtered_data.append({
+                                            "code": item['code'],
+                                            "name": item['name'],
+                                            "current_price": item.get('current_price', 0.0),
+                                            "change_rate": item.get('change_rate', 0.0),
+                                            "volume": item.get('volume', 0),
+                                            "trade_value": item.get('trade_value', 0.0),
+                                            "volume_profile_info": item.get('volume_profile_info', "No significant upper resistance"),
+                                            "risk_reward_ratio": item.get('risk_reward_ratio', 0.0),
+                                            "stop_loss_pct": item.get('stop_loss_pct', 0.0),
+                                            "stop_loss_price": item.get('stop_loss_price', 0.0),
+                                            "target_price": item.get('target_price', 0.0),
+                                            "pivot_point": item.get('pivot_point', 0.0),
+                                            "agent_fit_score": item.get('agent_fit_score', 0.0)
+                                        })
+                                    
+                                    if "My Custom Screen" not in res_data:
+                                        res_data["My Custom Screen"] = []
+                                    
+                                    existing_res_codes = {x['code'] for x in res_data["My Custom Screen"]}
+                                    for j_item in json_filtered_data:
+                                        if j_item['code'] not in existing_res_codes:
+                                            res_data["My Custom Screen"].append(j_item)
+                                    
+                                    with open(results_file, 'w', encoding='utf-8') as f:
+                                        json.dump(res_data, f, ensure_ascii=False, indent=2)
+                                    logger.info(f"Successfully added custom screen tickers to {results_file}")
+                                except Exception as e:
+                                    logger.error(f"Error saving custom screen tickers to {results_file}: {str(e)}")
                 except Exception as e:
                     logger.error(f"Error in custom screener processing: {str(e)}")
                 logger.info(f"Final tickers list: {tickers}")
