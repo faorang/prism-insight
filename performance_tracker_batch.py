@@ -126,16 +126,33 @@ class PerformanceTrackerBatch:
         Returns:
             Current close price or None
         """
+        # Try FinanceDataReader first (fast, reliable, no login required)
+        try:
+            import FinanceDataReader as fdr
+            today = datetime.now()
+            # Query last 10 days to handle holidays and weekends
+            start_date = (today - timedelta(days=10)).strftime("%Y-%m-%d")
+            end_date = today.strftime("%Y-%m-%d")
+            
+            df = fdr.DataReader(ticker, start_date, end_date)
+            if df is not None and not df.empty:
+                latest_close = df['Close'].iloc[-1]
+                logger.debug(f"[{ticker}] Price fetched via FinanceDataReader: {latest_close}")
+                return float(latest_close)
+        except Exception as e:
+            logger.debug(f"[{ticker}] FinanceDataReader query failed: {e}")
+
+        # Fallback to krx_data_client
         if not KRX_AVAILABLE:
             logger.error("krx_data_client is not available.")
             return None
 
         try:
             # Get nearest business day within last 7 days
-            today = datetime.now().strftime("%Y%m%d")
-            week_ago = (datetime.now() - timedelta(days=7)).strftime("%Y%m%d")
+            today_str = datetime.now().strftime("%Y%m%d")
+            week_ago_str = (datetime.now() - timedelta(days=7)).strftime("%Y%m%d")
 
-            df = get_market_ohlcv_by_date(week_ago, today, ticker)
+            df = get_market_ohlcv_by_date(week_ago_str, today_str, ticker)
 
             if df is None or df.empty:
                 logger.warning(f"[{ticker}] No price data available")
