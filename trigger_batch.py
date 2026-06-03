@@ -8,6 +8,7 @@ import datetime
 import time
 import random
 from concurrent.futures import ThreadPoolExecutor
+from functools import lru_cache
 import pandas as pd
 import numpy as np
 import logging
@@ -180,7 +181,10 @@ def apply_overheating_filter(candidates: pd.DataFrame, trade_date: str, snapshot
     if candidates.empty:
         return candidates
 
-    logger.info(f"Applying overheating filter (RSI threshold: {threshold}) - Searching for top {limit} from {len(candidates)} candidates")
+    # v2.1.0: 동적 RSI 과열 기준 적용 (강세장일 때는 85.0으로 완화)
+    regime = determine_market_regime(trade_date)
+    active_threshold = 85.0 if regime in ["strong_bull", "moderate_bull"] else threshold
+    logger.info(f"Applying overheating filter (RSI threshold: {active_threshold:.1f}, market regime: {regime}) - Searching for top {limit} from {len(candidates)} candidates")
     
     tickers = list(candidates.index)
     final_indices = []
@@ -205,7 +209,7 @@ def apply_overheating_filter(candidates: pd.DataFrame, trade_date: str, snapshot
                     hist = pd.concat([hist, today_data])
 
             rsi_val = calculate_rsi(hist)
-            if rsi_val >= threshold:
+            if rsi_val >= active_threshold:
                 return ticker, False, rsi_val
             return ticker, True, rsi_val
         except Exception as e:
@@ -334,6 +338,7 @@ REGIME_CRITERIA = {
 }
 
 
+@lru_cache(maxsize=128)
 def determine_market_regime(trade_date: str) -> str:
     """
     Determine KOSPI market regime based on KOSPI 20-day SMA and 2-week return.
@@ -476,9 +481,13 @@ def calculate_agent_fit_metrics(ticker: str, current_price: float, trade_date: s
     else:
         pivot_point = float(current_price)
 
-    # Pivot Point breakout range check
+    # Pivot Point breakout range check (v2.2.0: align pivot buffer dynamically with market regime)
+    is_bull = regime in ["strong_bull", "moderate_bull"]
+    pivot_buffer_pct = 15.0 if is_bull else 8.0
+    pivot_multiplier = 1.0 + (pivot_buffer_pct / 100.0)
+
     if pivot_point and pivot_point > 0:
-        if pivot_point <= current_price <= pivot_point * 1.07:
+        if pivot_point <= current_price <= pivot_point * pivot_multiplier:
             is_pivot_valid = True
 
     # 2. Moving Average (MA) filter: 5-day SMA check (excluding today)

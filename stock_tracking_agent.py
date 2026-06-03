@@ -459,12 +459,23 @@ class StockTrackingAgent:
                 if pivot_point <= 0:
                     pivot_point = float(current_price)
                     
+                # v2.1.0: 마켓 레짐에 따른 피벗 버퍼 한도 완화 (강세장 시 최대 15.0% 허용)
+                try:
+                    from trigger_batch import determine_market_regime
+                    today_str = datetime.now().strftime("%Y%m%d")
+                    regime = determine_market_regime(today_str)
+                    is_bull = regime in ["strong_bull", "moderate_bull"]
+                except Exception as regime_err:
+                    logger.warning(f"Failed to check market regime: {regime_err}")
+                    is_bull = False
+
                 # Parse dynamic pivot buffer percentage from scenario, default is 5.0%
                 pivot_buffer_pct = scenario.get("pivot_buffer_pct", 5.0)
                 try:
                     pivot_buffer_pct = float(pivot_buffer_pct)
-                    # Bound between 5.0% and 8.0% for safety
-                    pivot_buffer_pct = min(max(pivot_buffer_pct, 5.0), 8.0)
+                    # Bound between 5.0% and 15.0% for bull market, else 8.0% for safety
+                    max_buffer = 15.0 if is_bull else 8.0
+                    pivot_buffer_pct = min(max(pivot_buffer_pct, 5.0), max_buffer)
                 except (ValueError, TypeError):
                     pivot_buffer_pct = 5.0
                 

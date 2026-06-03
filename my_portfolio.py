@@ -222,8 +222,20 @@ async def check_stop_loss_triggered(db_path: str = "stock_tracking_db.sqlite"):
         # 현재 가격을 가져오는 로직 (예: API 호출)
         current_portpolio = await get_current_stock_price(ticker)
         if current_portpolio is not None:
-            print(f"{ticker} 현재가: {current_portpolio}, 손절가: {stop_loss}, 목표가: {target_price}")
-            if current_portpolio <= stop_loss:
+            # v2.1.0: Whipsaw 방지 필터 (장중에는 손절선 대비 추가 2% 하락 시에만 손절)
+            from datetime import datetime, time as datetime_time
+            now_time = datetime.now().time()
+            # 장마감 시간대(15:00 ~ 15:30) 외에는 휩쏘 버퍼 2% 적용
+            is_market_close_time = (datetime_time(15, 0) <= now_time <= datetime_time(15, 30))
+            
+            # 장중(09:00~15:00)에는 원래 손절가보다 2% 더 하락해야 실시간 손절
+            effective_stop_loss = stop_loss
+            if not is_market_close_time:
+                effective_stop_loss = stop_loss * 0.98
+                
+            print(f"{ticker} 현재가: {current_portpolio}, 유효손절가: {effective_stop_loss:.0f} (원래: {stop_loss}), 목표가: {target_price}")
+            
+            if current_portpolio <= effective_stop_loss:
                 # 주가 정보 업데이트
                 stock['current_price'] = current_portpolio
                 triggered_stocks.append(stock)

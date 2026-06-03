@@ -75,7 +75,7 @@ def create_trading_scenario_agent():
         ## 2단계 — 가격 전략 및 손익비 규칙 (백엔드 연동)
 
         - **pivot_point**: 최근 20영업일 전고점으로 설정합니다.
-        - **buy_limit_price**: 슬리피지 한계선으로, `pivot_point` 대비 최대 +5% (강력한 모멘텀 동반 시 최대 +8%) 이내여야 합니다. 이 범위를 초과하면 "추격 매수 금지"로 미진입 판정합니다.
+        - **buy_limit_price**: 슬리피지 한계선으로, `pivot_point` 대비 최대 +5% 이내여야 합니다. 단, **강세장(strong_bull/moderate_bull) 및 강력한 돌파 모멘텀 동반 시 최대 +15.0%까지 확장**하여 적용하십시오. 이 범위를 초과하는 경우에만 "추격 매수 금지(Chase buying)"로 미진입 판정합니다.
         - **stop_loss**: 주요 지지선 또는 시장 체제별 최대 손절폭 중 더 가까운 값을 채택합니다.
           * expected_loss_pct가 시장 체제별 손절폭의 50% 미만일 경우, 노이즈 손절을 방지하기 위해 최소 floor(예: 3.5% 수준)를 stop_loss로 역산하여 설정합니다.
         - **target_price**: 다음 룰을 순서대로 적용해 첫 번째 해당 케이스를 선택하십시오.
@@ -102,6 +102,9 @@ def create_trading_scenario_agent():
           AND momentum_signal_count 충족 AND additional_confirmation_count 충족
           → **진입**.
         - 위 조건 중 하나라도 미달 → **미진입**. 미달 항목을 rejection_reason에 명시하십시오.
+
+        * **손절폭 예외 조항 (알파 수익 극대화)**:
+          - 강세장(strong_bull/moderate_bull) 체제에서 기대수익률이 25% 이상으로 높고 기대 손익비(RR Ratio)가 2.0배 이상인 초우량 주도주의 경우, 최대 손절폭 한도를 **-10%까지 유연하게 확대**하여 휩쏘 손절을 방지하고 큰 시세를 추종할 수 있습니다.
 
         ### parabolic 행 적용 조건
         기본 regime이 `strong_bull` 이고, KOSPI 90일 수익률 ≥ +30%, KOSPI 30일 수익률 ≥ +10% 이며, 트리거 유형이 "일중 상승률 상위주 / 마감 강도 상위주 / 갭 상승 모멘텀 상위주" 중 하나인 경우에만 적용하십시오.
@@ -166,7 +169,7 @@ def create_trading_scenario_agent():
             "entry_checklist_passed": 충족 개수 (Max 4, F1~F4 통과 수),
             "rejection_reason": "미진입 사유 (진입 시 빈 문자열)",
             "pivot_point": "피벗 기준가 (숫자, 20일 전고점 돌파 피벗가)",
-            "pivot_buffer_pct": "피벗 돌파 허용 버퍼 퍼센트 (숫자, 기본값 5.0, 강력한 모멘텀 돌파 시 5.0~8.0 범위로 설정 가능)",
+            "pivot_buffer_pct": "피벗 돌파 허용 버퍼 퍼센트 (숫자, 기본값 5.0, 강력한 모멘텀 돌파 시 5.0~15.0 범위로 설정 가능)",
             "volume_profile_info": "매물대 저항 정보 (문자열, 예: 1st Major Resistance: XX ~ YY KRW)",
             "target_price": "목표가 (숫자, 1차 매물 저항대 하단 가격 기준)",
             "buy_limit_price": "매수 제한 마지노선 (숫자, 현재가 대비 +2~3% 수준)",
@@ -227,14 +230,17 @@ def create_sell_decision_agent():
 
         ## 2. 매도 규칙
         - 손절(1순위): -7.1% 이상 즉시 매도. (예외: -5~7% & 반등 3%↑ & 거래량 2배↑ & 수급 양호 시 1일 관망)
-        - 수익실현(2순위):
+        - 이익 보전(Break-even & Trailing, 2순위):
+          1) **본전 보호(Break-even)**: 주가가 매수가 대비 +10% 이상 상승한 경우, 손절가(`new_stop_loss`)를 매수가(본전) 이상으로 상향하여 절대 손실 전환이 없도록 방어하십시오. (portfolio_adjustment 활용)
+          2) **이익 보전(Trailing Stop)**: 주가가 상승 추세를 이어갈 때, 최근 최고가 대비 -10% ~ -12% 수준(또는 직전 주요 지지선)으로 손절가(`new_stop_loss`)를 동적으로 따라 올리십시오.
+        - 수익실현(3순위):
           1) 8주 보유법: 매수 후 3주 내 20% 급등 시 최소 8주 보유 (조정 무시).
           2) 강세장(Bull): 추세 생존 시 목표가 초과 보유. 고점 대비 -8~10% 하락 시 매도.
           3) 약세장(Neutral/Weak): 목표가 도달 시 매도. 고점 대비 -3~5% 하락 시 매도.
 
         ## 3. 주의사항 및 도구
         - 시점: 장중(09-15:20, 전일 데이터), 장후(15:30-, 당일 포함). (time-get_current_time 참조)
-        - 도구: stock_holdings 확인. portfolio_adjustment는 시장 격변 시에만 목표/손절가 수정.
+        - 도구: stock_holdings 확인. portfolio_adjustment는 이익 보전(손절가 상향) 또는 시장 격변 시 목표/손절가 수정에 적극 활용하십시오.
         - 제한: kospi_kosdaq-load_all_tickers 사용 금지.
 
         ## JSON 출력 형식

@@ -95,6 +95,8 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
 
         # Auto-migrate: Add missing columns to existing watchlist_history table
         await self._migrate_watchlist_history_columns()
+        # Auto-migrate: Add highest_price to stock_holdings table
+        await self._migrate_stock_holdings_columns()
 
         # Create holding decision table (store AI holding/selling decisions)
         self.cursor.execute("""
@@ -226,6 +228,21 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
 
         except Exception as e:
             logger.error(f"Error migrating watchlist_history columns: {str(e)}")
+
+    async def _migrate_stock_holdings_columns(self):
+        """Auto-migrate: Add highest_price column to stock_holdings if missing"""
+        try:
+            self.cursor.execute("PRAGMA table_info(stock_holdings)")
+            existing_columns = {row[1] for row in self.cursor.fetchall()}
+
+            if "highest_price" not in existing_columns:
+                self.cursor.execute(
+                    "ALTER TABLE stock_holdings ADD COLUMN highest_price REAL DEFAULT 0.0"
+                )
+                self.conn.commit()
+                logger.info("Added column 'highest_price' to stock_holdings table")
+        except Exception as e:
+            logger.error(f"Error migrating stock_holdings columns: {str(e)}")
 
     async def _cleanup_old_watchlist(self):
         """Delete watchlist data older than 1 month"""
@@ -750,8 +767,33 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
             target_price = stock_data.get('target_price', 0)
             stop_loss = stock_data.get('stop_loss', 0)
 
+            # v2.1.0: 최고가(highest_price) 로드 및 갱신 로직
+            highest_price = buy_price  # 기본값
+            try:
+                self.cursor.execute(
+                    "SELECT highest_price FROM stock_holdings WHERE ticker = ?",
+                    (ticker,)
+                )
+                row = self.cursor.fetchone()
+                if row and row[0] is not None and row[0] > 0:
+                    highest_price = max(row[0], current_price)
+                else:
+                    highest_price = max(buy_price, current_price)
+                
+                # DB에 업데이트
+                self.cursor.execute(
+                    "UPDATE stock_holdings SET highest_price = ? WHERE ticker = ?",
+                    (highest_price, ticker)
+                )
+                self.conn.commit()
+            except Exception as hp_err:
+                logger.warning(f"{ticker} Failed to update highest_price: {hp_err}")
+
             # Calculate profit rate
             profit_rate = ((current_price - buy_price) / buy_price) * 100
+            
+            # 최고가 대비 하락률 계산 (Trailing Stop 용)
+            drawdown_from_high = ((current_price - highest_price) / highest_price) * 100
 
             # Days elapsed from buy date
             buy_datetime = datetime.strptime(buy_date, "%Y-%m-%d %H:%M:%S")
@@ -826,6 +868,7 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
                 - 종목명: {company_name}({ticker})
                 - 매수가: {buy_price:,.0f}원
                 - 현재가: {current_price:,.0f}원
+                - 매수 후 최고가: {highest_price:,.0f}원 (최고가 대비 등락률: {drawdown_from_high:.2f}%)
                 - 목표가: {target_price:,.0f}원
                 - 손절가: {stop_loss:,.0f}원
                 - 수익률: {profit_rate:.2f}%
@@ -852,6 +895,7 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
                 - Stock: {company_name}({ticker})
                 - Buy Price: {buy_price:,.0f} KRW
                 - Current Price: {current_price:,.0f} KRW
+                - Highest Price: {highest_price:,.0f} KRW (Drawdown: {drawdown_from_high:.2f}%)
                 - Target Price: {target_price:,.0f} KRW
                 - Stop Loss: {stop_loss:,.0f} KRW
                 - Return: {profit_rate:.2f}%
@@ -902,8 +946,47 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
                 analysis_summary = decision_json.get("analysis_summary", {})
                 portfolio_adjustment = decision_json.get("portfolio_adjustment", {})
 
-                logger.info(f"{ticker}({company_name}) AI sell decision: {'Sell' if should_sell else 'Hold'} (Confidence: {confidence}/10)")
-                logger.info(f"Sell reason: {sell_reason}")
+                # ===== [안전장치 1] 트레일링 스탑 하드 룰 강제 적용 (수익권에서 고점 대비 -12% 하락 시 강제 매도) =====
+                if drawdown_from_high <= -12.0 and profit_rate >= 3.0:
+                    logger.warning(f"{ticker}({company_name}) Trailing Stop hard-rule triggered (Drawdown: {drawdown_from_high:.2f}% <= -12%). Overriding LLM decision.")
+                    should_sell = True
+                    sell_reason = f"Trailing Stop hard-rule triggered (최고가 {highest_price:,.0f}원 대비 -12.0% 돌파, 현재 수익률: {profit_rate:.2f}%)"
+
+                # ===== [안전장치 2] 절대 손절선 하드 룰 강제 적용 (주가 <= stop_loss 시 강제 매도) =====
+                elif stop_loss > 0 and current_price <= stop_loss:
+                    trend = await self._analyze_trend(ticker, days=7)
+                    if not (trend >= 2 and profit_rate > -7):
+                        logger.warning(f"{ticker}({company_name}) Stop-loss hard-rule triggered ({current_price:,.0f} <= stop_loss {stop_loss:,.0f}). Overriding LLM decision.")
+                        should_sell = True
+                        sell_reason = f"Stop-loss hard-rule triggered (stop_loss: {stop_loss:,.0f}원)"
+
+                # ===== [안전장치 3] 본전 보호(Break-even) 및 트레일링 스탑 손절가 상향 강제 적용 =====
+                if not should_sell:
+                    if not isinstance(portfolio_adjustment, dict):
+                        portfolio_adjustment = {}
+                        
+                    calculated_stop_loss = stop_loss
+                    
+                    if profit_rate >= 10.0:
+                        calculated_stop_loss = max(calculated_stop_loss, buy_price)
+                        
+                    if profit_rate >= 3.0:
+                        trailing_line = highest_price * 0.88
+                        calculated_stop_loss = max(calculated_stop_loss, trailing_line)
+                        
+                    current_adjustment_stop_loss = stop_loss
+                    if portfolio_adjustment.get("needed", False) and portfolio_adjustment.get("new_stop_loss") is not None:
+                        current_adjustment_stop_loss = self._safe_number_conversion(portfolio_adjustment.get("new_stop_loss"))
+                        
+                    if calculated_stop_loss > current_adjustment_stop_loss:
+                        logger.info(f"{ticker}({company_name}) Adjusting stop_loss via hard-rule guardrail. Calculated: {calculated_stop_loss:,.0f} > DB/LLM: {current_adjustment_stop_loss:,.0f}")
+                        portfolio_adjustment["needed"] = True
+                        portfolio_adjustment["new_stop_loss"] = calculated_stop_loss
+                        portfolio_adjustment["urgency"] = "medium"
+                        portfolio_adjustment["reason"] = f"Break-even / Trailing Stop hard-rule guardrail (highest_price: {highest_price:,.0f}원)"
+                        
+                logger.info(f"{ticker}({company_name}) AI sell decision (post-guardrail): {'Sell' if should_sell else 'Hold'} (Confidence: {confidence}/10)")
+                logger.info(f"Sell reason (post-guardrail): {sell_reason}")
 
                 # ===== Core: DB processing based on should_sell branch (main flow continues even if errors occur) =====
                 try:
@@ -954,8 +1037,24 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
             target_price = stock_data.get('target_price', 0)
             stop_loss = stock_data.get('stop_loss', 0)
 
+            # v2.1.0: 최고가 로드 및 Trailing Stop용 하락률 계산
+            highest_price = buy_price
+            try:
+                self.cursor.execute(
+                    "SELECT highest_price FROM stock_holdings WHERE ticker = ?",
+                    (ticker,)
+                )
+                row = self.cursor.fetchone()
+                if row and row[0] is not None and row[0] > 0:
+                    highest_price = max(row[0], current_price)
+                else:
+                    highest_price = max(buy_price, current_price)
+            except Exception as hp_err:
+                logger.warning(f"{ticker} Fallback: Failed to fetch highest_price: {hp_err}")
+
             # Calculate profit rate
             profit_rate = ((current_price - buy_price) / buy_price) * 100
+            drawdown_from_high = ((current_price - highest_price) / highest_price) * 100
 
             # Days elapsed from buy date
             buy_datetime = datetime.strptime(buy_date, "%Y-%m-%d %H:%M:%S")
@@ -976,6 +1075,11 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
             trend = await self._analyze_trend(ticker, days=7)
 
             # Check conditions according to sell decision priority
+
+            # 0. v2.1.0: Trailing Stop (익절 보호 룰) 적용
+            # 수익률이 3% 이상 나고 최고가 대비 -12% 하락 돌파 시 즉시 익절/손절 처리
+            if drawdown_from_high <= -12.0 and profit_rate >= 3.0:
+                return True, f"Trailing Stop triggered (최고가 {highest_price:,.0f}원 대비 -12.0% 돌파, 현재 수익률: {profit_rate:.2f}%)"
 
             # 1. Check stop-loss condition (highest priority)
             if stop_loss > 0 and current_price <= stop_loss:

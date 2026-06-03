@@ -176,6 +176,8 @@ class DomesticStockTrading:
 
         try:
             res = ka._url_fetch(api_url, tr_id, "", params)
+            # API rate limit delay: 0.2s for real, 0.5s for demo
+            time.sleep(0.5 if self.mode == "demo" else 0.2)
 
             if res.isOK():
                 data = res.getBody().output
@@ -1402,6 +1404,8 @@ class DomesticStockTrading:
             while tryCount > 0:
                 tryCount -= 1
                 res = ka._url_fetch(api_url, tr_id, "", params)
+                # API rate limit delay: 0.2s for real, 0.5s for demo
+                time.sleep(0.5 if self.mode == "demo" else 0.2)
 
                 if res.isOK():
                     current_portfolio = []
@@ -1492,6 +1496,8 @@ class DomesticStockTrading:
 
         try:
             res = ka._url_fetch(api_url, tr_id, "", params)
+            # API rate limit delay: 0.2s for real, 0.5s for demo
+            time.sleep(0.5 if self.mode == "demo" else 0.2)
 
             if res.isOK():
                 output2 = res.getBody().output2[0]  # Account summary
