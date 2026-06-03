@@ -127,6 +127,101 @@ class PortfolioTelegramReporter:
             sign = "+" if amount >= 0 else ""
             return f"{sign}{amount:,.0f}원" if amount else "0원"
 
+    def get_index_performance(self, start_date: str) -> Dict[str, Any]:
+        """
+        Fetch KOSPI & KOSDAQ returns from start_date to latest date in SQLite DB
+        """
+        result = {}
+        try:
+            import sqlite3
+            db_path = PROJECT_ROOT / "stock_tracking_db.sqlite"
+            if not db_path.exists():
+                logger.warning(f"Database not found at {db_path}, cannot fetch index returns")
+                return result
+
+            with sqlite3.connect(db_path) as conn:
+                cur = conn.cursor()
+                
+                # Fetch start values (closest on or after start_date)
+                cur.execute(
+                    "SELECT date, kospi_index, kosdaq_index FROM market_condition WHERE date >= ? ORDER BY date ASC LIMIT 1",
+                    (start_date,)
+                )
+                start_row = cur.fetchone()
+                
+                # Fetch latest values
+                cur.execute(
+                    "SELECT date, kospi_index, kosdaq_index FROM market_condition ORDER BY date DESC LIMIT 1"
+                )
+                end_row = cur.fetchone()
+                
+                if start_row and end_row:
+                    result['kospi_start'] = start_row[1]
+                    result['kosdaq_start'] = start_row[2]
+                    result['kospi_latest'] = end_row[1]
+                    result['kosdaq_latest'] = end_row[2]
+                    
+                    if start_row[1] > 0:
+                        result['kospi_return'] = ((end_row[1] - start_row[1]) / start_row[1]) * 100.0
+                    else:
+                        result['kospi_return'] = 0.0
+                        
+                    if start_row[2] > 0:
+                        result['kosdaq_return'] = ((end_row[2] - start_row[2]) / start_row[2]) * 100.0
+                    else:
+                        result['kosdaq_return'] = 0.0
+                        
+        except Exception as e:
+            logger.error(f"Error fetching index performance: {e}")
+            
+        return result
+
+    def get_trading_history_stats(self, start_date: str) -> Dict[str, Any]:
+        """
+        Fetch trading history statistics (win rate, count, holding days) from SQLite DB
+        """
+        result = {}
+        try:
+            import sqlite3
+            db_path = PROJECT_ROOT / "stock_tracking_db.sqlite"
+            if not db_path.exists():
+                return result
+
+            with sqlite3.connect(db_path) as conn:
+                cur = conn.cursor()
+                
+                # Check if trading_history table exists first
+                cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='trading_history'")
+                if not cur.fetchone():
+                    return result
+                
+                # Query closed trades summary
+                cur.execute(
+                    """
+                    SELECT 
+                        COUNT(*), 
+                        SUM(CASE WHEN profit_rate > 0 THEN 1 ELSE 0 END), 
+                        AVG(profit_rate),
+                        AVG(holding_days)
+                    FROM trading_history 
+                    WHERE buy_date >= ?
+                    """,
+                    (start_date,)
+                )
+                row = cur.fetchone()
+                if row and row[0] > 0:
+                    result['total_trades'] = row[0]
+                    result['win_trades'] = row[1] or 0
+                    result['loss_trades'] = row[0] - (row[1] or 0)
+                    result['win_rate'] = (result['win_trades'] / row[0]) * 100.0
+                    result['avg_return'] = row[2] or 0.0
+                    result['avg_holding_days'] = row[3] or 0.0
+                    
+        except Exception as e:
+            logger.error(f"Error fetching trading history stats: {e}")
+            
+        return result
+
     def create_portfolio_message(
         self,
         kr_portfolio: List[Dict[str, Any]],
@@ -174,18 +269,71 @@ class PortfolioTelegramReporter:
             # Total assets and season profit
             season_profit_emoji = "📈" if season_profit >= 0 else "📉"
 
+            # Calculate CAGR and elapsed days
+            start_date_str = self.SEASON2_START_DATE.replace(".", "-") # "2025.11.03" -> "2025-11-03"
+            days_elapsed = 0
+            cagr = 0.0
+            try:
+                start_dt = datetime.datetime.strptime(start_date_str, "%Y-%m-%d").date()
+                today_dt = datetime.date.today()
+                days_elapsed = (today_dt - start_dt).days
+                if days_elapsed > 0:
+                    years_elapsed = days_elapsed / 365.0
+                    cagr = ((total_assets / self.SEASON2_START_AMOUNT) ** (1.0 / years_elapsed) - 1.0) * 100.0
+            except Exception as e:
+                logger.error(f"Error calculating CAGR: {e}")
+
+            # Fetch index data and calculate Alpha
+            index_info = self.get_index_performance(start_date_str)
+
             message += f"🇰🇷 *한국주식 계좌*\n"
             message += f"💰 총 자산: `{self.format_currency(total_assets)}`\n"
             message += f"{season_profit_emoji} 시즌 수익: `{self.format_currency_with_sign(season_profit)}` "
             message += f"({self.format_percentage(season_profit_rate)})\n"
+            
+            # 1. Annualized return (CAGR)
+            if days_elapsed > 0:
+                cagr_emoji = "🔥" if cagr >= 0 else "❄️"
+                message += f"{cagr_emoji} 연평균 수익률(CAGR): `{self.format_percentage(cagr)}` ({days_elapsed}일 경과)\n"
+
             message += f"📊 평가손익: `{self.format_currency_with_sign(total_profit)}` "
             message += f"({self.format_percentage(total_profit_rate)})\n"
-            message += f"💳 현금: `{self.format_currency(total_cash)}` ({cash_ratio:.1f}%)\n"
+            message += f"💳 현금: `{self.format_currency(total_cash)}` ({cash_ratio:.1f}%)\n\n"
+
+            # 2. Market Index & Alpha
+            if index_info:
+                message += f"📈 *시장 지수 및 초과수익(Alpha)*\n"
+                if index_info.get('kospi_start') and index_info.get('kospi_latest'):
+                    kospi_ret = index_info['kospi_return']
+                    kospi_alpha = season_profit_rate - kospi_ret
+                    message += f" ▫️ KOSPI: `{index_info['kospi_latest']:,.2f}` ({self.format_percentage(kospi_ret)}) | *Alpha*: `{self.format_percentage(kospi_alpha)}`\n"
+                if index_info.get('kosdaq_start') and index_info.get('kosdaq_latest'):
+                    kosdaq_ret = index_info['kosdaq_return']
+                    kosdaq_alpha = season_profit_rate - kosdaq_ret
+                    message += f" ▫️ KOSDAQ: `{index_info['kosdaq_latest']:,.2f}` ({self.format_percentage(kosdaq_ret)}) | *Alpha*: `{self.format_percentage(kosdaq_alpha)}`\n"
+                message += "\n"
+
+            # 3. Holding performance & trade statistics
+            if kr_portfolio:
+                sorted_portfolio = sorted(kr_portfolio, key=lambda x: x.get('profit_rate', 0))
+                worst_stock = sorted_portfolio[0]
+                best_stock = sorted_portfolio[-1]
+                
+                message += f"🏆 *보유 종목 현황*\n"
+                message += f" ▫️ 최고 수익: `{best_stock.get('stock_name')}` ({self.format_percentage(best_stock.get('profit_rate', 0))})\n"
+                message += f" ▫️ 최저 수익: `{worst_stock.get('stock_name')}` ({self.format_percentage(worst_stock.get('profit_rate', 0))})\n\n"
+
+            trade_stats = self.get_trading_history_stats(start_date_str)
+            if trade_stats:
+                message += f"⚙️ *시즌2 매매 누적 통계*\n"
+                message += f" ▫️ 총 매도: `{trade_stats['total_trades']}회`\n"
+                message += f" ▫️ 승률: `{trade_stats['win_rate']:.1f}%` ({trade_stats['win_trades']}승 {trade_stats['loss_trades']}패)\n"
+                message += f" ▫️ 평균 보유 기간: `{trade_stats['avg_holding_days']:.1f}일`\n"
+                message += f" ▫️ 거래당 평균 손익률: `{self.format_percentage(trade_stats['avg_return'])}`\n\n"
+
         else:
             message += "🇰🇷 *한국주식 계좌*\n"
-            message += "❌ 계좌 정보를 가져올 수 없습니다\n"
-
-        message += "\n"
+            message += "❌ 계좌 정보를 가져올 수 없습니다\n\n"
 
         # ========== KR Holdings ==========
         message += "━" * 20 + "\n"
