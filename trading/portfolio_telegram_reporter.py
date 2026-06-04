@@ -56,9 +56,9 @@ load_dotenv(dotenv_path=str(ENV_FILE))
 class PortfolioTelegramReporter:
     """Class for reporting portfolio status to Telegram"""
 
-    # Season 2 constants
-    SEASON2_START_DATE = "2025.11.03"
-    SEASON2_START_AMOUNT = 4_212_440 # Starting capital in KRW
+    # Season 3 constants
+    SEASON3_START_DATE = "2026.06.04"
+    SEASON3_START_AMOUNT = 4_733_719 # Starting capital in KRW
 
     def __init__(self, telegram_token: str = None, chat_id: str = None, trading_mode: str = None, broadcast_languages: list = None):
         """
@@ -245,9 +245,9 @@ class PortfolioTelegramReporter:
         message = f"📊 포트폴리오 리포트 {mode_emoji}\n"
         message += f"🕐 {current_time} | {mode_text}\n\n"
 
-        # Season 2 info
-        message += f"🏆 *시즌2* (시작: {self.SEASON2_START_DATE})\n"
-        message += f"💵 시작금액: `{self.format_currency(self.SEASON2_START_AMOUNT)}`\n\n"
+        # Season 3 info
+        message += f"🏆 *시즌3* (시작: {self.SEASON3_START_DATE})\n"
+        message += f"💵 시작금액: `{self.format_currency(self.SEASON3_START_AMOUNT)}`\n\n"
 
         # ========== KR Account Summary ==========
         if kr_account_summary:
@@ -259,9 +259,9 @@ class PortfolioTelegramReporter:
 
             total_assets = total_eval
 
-            # Calculate season 2 profit rate (from start amount)
-            season_profit = total_assets - self.SEASON2_START_AMOUNT
-            season_profit_rate = (season_profit / self.SEASON2_START_AMOUNT) * 100 if self.SEASON2_START_AMOUNT > 0 else 0
+            # Calculate season 3 profit rate (from start amount)
+            season_profit = total_assets - self.SEASON3_START_AMOUNT
+            season_profit_rate = (season_profit / self.SEASON3_START_AMOUNT) * 100 if self.SEASON3_START_AMOUNT > 0 else 0
 
             # Calculate cash ratio
             cash_ratio = (total_cash / total_assets * 100) if total_assets > 0 else 0
@@ -270,7 +270,7 @@ class PortfolioTelegramReporter:
             season_profit_emoji = "📈" if season_profit >= 0 else "📉"
 
             # Calculate CAGR and elapsed days
-            start_date_str = self.SEASON2_START_DATE.replace(".", "-") # "2025.11.03" -> "2025-11-03"
+            start_date_str = self.SEASON3_START_DATE.replace(".", "-") # "2026.06.04" -> "2026-06-04"
             days_elapsed = 0
             cagr = 0.0
             try:
@@ -279,7 +279,7 @@ class PortfolioTelegramReporter:
                 days_elapsed = (today_dt - start_dt).days
                 if days_elapsed > 0:
                     years_elapsed = days_elapsed / 365.0
-                    cagr = ((total_assets / self.SEASON2_START_AMOUNT) ** (1.0 / years_elapsed) - 1.0) * 100.0
+                    cagr = ((total_assets / self.SEASON3_START_AMOUNT) ** (1.0 / years_elapsed) - 1.0) * 100.0
             except Exception as e:
                 logger.error(f"Error calculating CAGR: {e}")
 
@@ -325,7 +325,7 @@ class PortfolioTelegramReporter:
 
             trade_stats = self.get_trading_history_stats(start_date_str)
             if trade_stats:
-                message += f"⚙️ *시즌2 매매 누적 통계*\n"
+                message += f"⚙️ *시즌3 매매 누적 통계*\n"
                 message += f" ▫️ 총 매도: `{trade_stats['total_trades']}회`\n"
                 message += f" ▫️ 승률: `{trade_stats['win_rate']:.1f}%` ({trade_stats['win_trades']}승 {trade_stats['loss_trades']}패)\n"
                 message += f" ▫️ 평균 보유 기간: `{trade_stats['avg_holding_days']:.1f}일`\n"
