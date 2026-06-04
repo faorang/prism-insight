@@ -64,6 +64,7 @@ def create_price_volume_analysis_agent(company_name, company_code, reference_dat
                         ## 데이터가 불충분한 경우
                         - 데이터 부족 시 명확히 언급하고, 가용한 데이터만으로 제한적 분석 제공
                         - "~에 대한 데이터가 불충분하여 확인이 어렵습니다"와 같이 명시적 표현 사용
+                        - 데이터의 최종 날짜가 분석 기준일(reference_date)보다 이전이더라도(공휴일, 휴장일 등의 사유), 수집된 데이터 범위 내의 가장 최근 거래일을 기준으로 RSI, MACD, 볼린저밴드 등의 기술적 보조지표를 생략 없이 반드시 직접 계산하여 구체적인 수치를 제시하십시오.
 
                         ## 출력 형식 주의사항
                         - 최종 보고서에는 도구 사용에 관한 언급을 포함하지 마세요 (예: "Calling tool..." 또는 "I'll use..." 등)
@@ -83,8 +84,14 @@ def create_price_volume_analysis_agent(company_name, company_code, reference_dat
             f"1. 주가/거래량 데이터: tool call(name : kospi_kosdaq-get_stock_ohlcv)을 사용하여 {max_years_ago}~{reference_date} 기간의 데이터 수집 (수집 기간(년) : {max_years})",
             f"## 사전 수집된 데이터 (OHLCV)\n다음 데이터가 사전 수집되었습니다. (도구 호출 생략)\n\n{prefetched_data}"
         )
-        instruction = instruction.replace("- 할루시네이션 방지: 확인된 실제 데이터만 사용", "- 할루시네이션 방지: 사전 수집된 실제 데이터만 사용")
-        instruction = instruction.replace("- 반드시 tool call을 해야 합니다", "")
+        instruction = instruction.replace(
+            "                        - 반드시 tool call을 해야 합니다\n",
+            ""
+        )
+        instruction = instruction.replace(
+            "                        - 할루시네이션 방지를 위해 실제 데이터에서 확인된 내용만 포함",
+            "                        - 할루시네이션 방지: 사전 수집된 실제 데이터만 사용"
+        )
 
     return Agent(
         name="price_volume_analysis_agent",
@@ -170,10 +177,16 @@ def create_investor_trading_analysis_agent(company_name, company_code, reference
     if prefetched_data:
         instruction = instruction.replace(
             f"1. 투자자별 거래 데이터: tool call(name : kospi_kosdaq-get_stock_trading_volume)을 사용하여 {max_years_ago}~{reference_date} 기간의 데이터 수집 (수집 기간(년) : {max_years})",
-            f"## 사전 수집된 데이터 (투자자별 거래량)\n다음 데이터가 사전 수집되었습니다. (도구 호출 생략)\n\n{prefetched_data}"
+            f"## 사전 수급된 데이터 (투자자별 거래량)\n다음 데이터가 사전 수집되었습니다. (도구 호출 생략)\n\n{prefetched_data}" # 프롬프트 구조에 맞춰 사전 수집된 데이터 로 일관화하거나 기존 "사전 수급된 데이터"로 치환해도 무방합니다. 원래 instruction.replace 대상이었던 기존 "## 사전 수집된 데이터"에 맞추겠습니다.
         )
-        instruction = instruction.replace("- 할루시네이션 방지를 위해 실제 데이터에서 확인된 내용만 포함", "- 할루시네이션 방지: 사전 수집된 실제 데이터만 사용")
-        instruction = instruction.replace("- 반드시 tool call을 해야 합니다", "")
+        instruction = instruction.replace(
+            "                        - 반드시 tool call을 해야 합니다\n",
+            ""
+        )
+        instruction = instruction.replace(
+            "                        - 할루시네이션 방지를 위해 실제 데이터에서 확인된 내용만 포함",
+            "                        - 할루시네이션 방지: 사전 수집된 실제 데이터만 사용"
+        )
 
     return Agent(
         name="investor_trading_analysis_agent",
