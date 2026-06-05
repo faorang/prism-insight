@@ -1009,8 +1009,13 @@ class StockAnalysisOrchestrator:
                             # If tickers is STILL less than 3, perform final fallback with screener's invalid candidates
                             if len(tickers) < 3 and not invalid_screener_df.empty:
                                 # Sort invalid candidates by RS or ChangesRatio or Amount
-                                sort_col = "RS" if "RS" in invalid_screener_df.columns else "ChangesRatio"
-                                invalid_screener_df = invalid_screener_df.sort_values(sort_col, ascending=False)
+                                sort_col = None
+                                for col in ["RS", "ChangesRatio", "Amount", "Volume"]:
+                                    if col in invalid_screener_df.columns:
+                                        sort_col = col
+                                        break
+                                if sort_col:
+                                    invalid_screener_df = invalid_screener_df.sort_values(sort_col, ascending=False)
                                 
                                 for ticker in invalid_screener_df.index:
                                     if ticker not in existing_codes and len(tickers) < 3:
