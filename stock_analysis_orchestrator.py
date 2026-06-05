@@ -257,7 +257,7 @@ class StockAnalysisOrchestrator:
         logger.info(f"Restored {len(images)} base64 images to translated text")
         return restored_text
 
-    async def run_trigger_batch(self, mode):
+    async def run_trigger_batch(self, mode, exclude_codes: list = None):
         """
         Execute trigger batch and save results (direct import version)
 
@@ -266,6 +266,7 @@ class StockAnalysisOrchestrator:
 
         Args:
             mode (str): 'morning' or 'afternoon'
+            exclude_codes (list): List of stock codes to exclude (already in portfolio)
 
         Returns:
             list: List of selected stock codes
@@ -283,7 +284,7 @@ class StockAnalysisOrchestrator:
             loop = asyncio.get_event_loop()
             results = await loop.run_in_executor(
                 None,
-                lambda: run_batch(mode, "INFO", results_file)
+                lambda: run_batch(mode, "INFO", results_file, exclude_codes)
             )
 
             if not results:
@@ -337,13 +338,18 @@ class StockAnalysisOrchestrator:
                             if "volume_profile_info" in stocks_df.columns:
                                 volume_profile_info = str(stocks_df.loc[ticker, "volume_profile_info"])
 
+                            is_fallback = False
+                            if "is_fallback" in stocks_df.columns:
+                                is_fallback = bool(stocks_df.loc[ticker, "is_fallback"])
+
                             tickers.append({
                                 'code': ticker,
                                 'name': name,
                                 'trigger_type': trigger_type,
                                 'trigger_mode': mode,
                                 'risk_reward_ratio': rr_ratio,
-                                'volume_profile_info': volume_profile_info
+                                'volume_profile_info': volume_profile_info,
+                                'is_fallback': is_fallback
                             })
 
             logger.info(f"Number of selected stocks: {len(tickers)}")
@@ -906,132 +912,174 @@ class StockAnalysisOrchestrator:
             if is_portfolio_full:
                 logger.warning("포트폴리오 종목 갯수가 최대치에 도달했습니다. 신규 종목 추가가 제한될 수 있습니다.")
             else:
+                # 0. Get portfolio stock codes to exclude
+                exclude_codes = []
+                try:
+                    portfolio_tickers = await my_portfolio.get_portfolio_stock()
+                    exclude_codes = [p['ticker'] for p in portfolio_tickers]
+                    logger.info(f"Portfolio stocks to exclude: {exclude_codes}")
+                except Exception as e:
+                    logger.error(f"Error fetching portfolio stocks for exclusion: {str(e)}")
+
                 # 1. Execute trigger batch - changed to async method (improved asyncio resource management)
                 results_file = f"trigger_results_{mode}_{datetime.now().strftime('%Y%m%d')}.json"
-                tickers = await self.run_trigger_batch(mode)
+                tickers = await self.run_trigger_batch(mode, exclude_codes=exclude_codes)
 
-                try:
-                    tickers_backup = tickers.copy()
-                    # [{'ticker': '003720'}, {'ticker': '005930'}, {'ticker': '036570'}, {'ticker': '092200'}]
-                    portfolio_tickers = await my_portfolio.get_portfolio_stock()
+                logger.info(f"Tickers returned from trigger batch: {tickers}")
 
-                    # 포트폴리오 종목은 제외
-                    tickers = [t for t in tickers if t['code'] not in {p['ticker'] for p in portfolio_tickers}]
-                except Exception as e:
-                    logger.error(f"포트폴리오 종목 필터 중 오류: {str(e)}")
-                    tickers = tickers_backup
-
-                if not tickers:
-                    logger.warning("No stocks selected. Terminating process.")
-
-                try:
-                    import screener
-                    from trigger_batch import score_candidates_by_agent_criteria, get_nearest_business_day_in_a_week
-                    
-                    # Fetch candidates from both KOSPI and KOSDAQ
-                    logger.info("Executing custom screener for KOSPI and KOSDAQ...")
-                    cands = []
-                    for market in ["KOSPI", "KOSDAQ"]:
-                        try:
-                            df_cand = screener.get_candidates(market, 1)
-                            if df_cand is not None and not df_cand.empty:
-                                cands.append(df_cand)
-                        except Exception as se:
-                            logger.error(f"Screener failed for {market}: {str(se)}")
-                            
-                    if cands:
-                        raw_screen_df = pd.concat(cands, ignore_index=True)
-                    else:
-                        raw_screen_df = pd.DataFrame()
+                # 2. If tickers count is less than 3, run custom screener to fill up
+                if len(tickers) < 3:
+                    logger.info(f"Selected triggers returned only {len(tickers)} stocks. Running custom screener...")
+                    try:
+                        import screener
+                        from trigger_batch import score_candidates_by_agent_criteria, get_nearest_business_day_in_a_week
                         
-                    if not raw_screen_df.empty:
-                        # Convert to index-based DataFrame for scoring, ensuring 'Code' is the index
-                        raw_screen_df.set_index('Code', inplace=True, drop=False)
-                        
-                        # Fetch trade date
-                        today_str = datetime.now().strftime("%Y%m%d")
-                        trade_date = get_nearest_business_day_in_a_week(today_str, prev=True)
-                        
-                        logger.info(f"Scoring custom screener candidates using agent criteria (reference date: {trade_date})...")
-                        scored_screener_df = score_candidates_by_agent_criteria(
-                            raw_screen_df, trade_date, lookback_days=10, trigger_type="default"
-                        )
-                        
-                        # Filter out candidates that do not satisfy the criteria (agent_fit_score <= 0.0)
-                        valid_screener_df = scored_screener_df[scored_screener_df["agent_fit_score"] > 0.0]
-                        logger.info(f"Custom screen candidates after agent criteria filtering: {len(valid_screener_df)}/{len(raw_screen_df)}")
-                        
-                        if not valid_screener_df.empty:
-                            my_screen_tickers = valid_screener_df.apply(
-                                lambda row: {
-                                    'code': row['Code'],
-                                    'name': row['Name'],
-                                    'current_price': float(row['Close']) if 'Close' in row else 0.0,
-                                    'change_rate': float(row['ChangesRatio']) if 'ChangesRatio' in row else 0.0,
-                                    'volume': int(row['Volume']) if 'Volume' in row else 0,
-                                    'trade_value': float(row['Amount']) if 'Amount' in row else 0.0,
-                                    'volume_profile_info': str(row['volume_profile_info']) if 'volume_profile_info' in row else "No significant upper resistance",
-                                    'risk_reward_ratio': float(row['risk_reward_ratio']) if 'risk_reward_ratio' in row else 0.0,
-                                    'stop_loss_pct': float(row['stop_loss_pct']) * 100 if 'stop_loss_pct' in row else 0.0,
-                                    'stop_loss_price': float(row['stop_loss_price']) if 'stop_loss_price' in row else 0.0,
-                                    'target_price': float(row['target_price']) if 'target_price' in row else 0.0,
-                                    'pivot_point': float(row['pivot_point']) if 'pivot_point' in row else 0.0,
-                                    'agent_fit_score': float(row['agent_fit_score']) if 'agent_fit_score' in row else 0.0
-                                }, axis=1
-                            ).to_list()
-
-                            for item in my_screen_tickers:
-                                item['trigger_type'] = "My Custom Screen"
-                                item['trigger_mode'] = mode
+                        # Fetch candidates from both KOSPI and KOSDAQ
+                        logger.info("Executing custom screener for KOSPI and KOSDAQ...")
+                        cands = []
+                        for market in ["KOSPI", "KOSDAQ"]:
+                            try:
+                                # Query top_n = 3 in screener to have enough fallback pool
+                                df_cand = screener.get_candidates(market, 3)
+                                if df_cand is not None and not df_cand.empty:
+                                    cands.append(df_cand)
+                            except Exception as se:
+                                logger.error(f"Screener failed for {market}: {str(se)}")
                                 
-                            logger.info(f"Valid screen tickers: {my_screen_tickers}")
-                            logger.info(f"Existing tickers before merging: {tickers}")
-
+                        if cands:
+                            raw_screen_df = pd.concat(cands, ignore_index=True)
+                        else:
+                            raw_screen_df = pd.DataFrame()
+                            
+                        if not raw_screen_df.empty:
+                            # Convert to index-based DataFrame for scoring, ensuring 'Code' is the index
+                            raw_screen_df.set_index('Code', inplace=True, drop=False)
+                            
+                            # Filter out portfolio stocks from custom screener candidates
+                            if exclude_codes:
+                                raw_screen_df = raw_screen_df[~raw_screen_df['Code'].isin(exclude_codes)]
+                            
+                            # Fetch trade date
+                            today_str = datetime.now().strftime("%Y%m%d")
+                            trade_date = get_nearest_business_day_in_a_week(today_str, prev=True)
+                            
+                            logger.info(f"Scoring custom screener candidates using agent criteria (reference date: {trade_date})...")
+                            scored_screener_df = score_candidates_by_agent_criteria(
+                                raw_screen_df, trade_date, lookback_days=10, trigger_type="default"
+                            )
+                            
+                            # Partition into valid and invalid (fallback) candidates
+                            valid_screener_df = scored_screener_df[scored_screener_df["agent_fit_score"] > 0.0]
+                            invalid_screener_df = scored_screener_df[scored_screener_df["agent_fit_score"] <= 0.0]
+                            
+                            logger.info(f"Custom screen candidates - Valid: {len(valid_screener_df)}, Invalid: {len(invalid_screener_df)}")
+                            
+                            # Select valid ones first
+                            selected_screeners = []
+                            if not valid_screener_df.empty:
+                                for ticker in valid_screener_df.index:
+                                    row = valid_screener_df.loc[ticker]
+                                    selected_screeners.append({
+                                        'code': row['Code'],
+                                        'name': row['Name'],
+                                        'current_price': float(row['Close']) if 'Close' in row else 0.0,
+                                        'change_rate': float(row['ChangesRatio']) if 'ChangesRatio' in row else 0.0,
+                                        'volume': int(row['Volume']) if 'Volume' in row else 0,
+                                        'trade_value': float(row['Amount']) if 'Amount' in row else 0.0,
+                                        'volume_profile_info': str(row['volume_profile_info']) if 'volume_profile_info' in row else "No significant upper resistance",
+                                        'risk_reward_ratio': float(row['risk_reward_ratio']) if 'risk_reward_ratio' in row else 0.0,
+                                        'stop_loss_pct': float(row['stop_loss_pct']) * 100 if 'stop_loss_pct' in row else 0.0,
+                                        'stop_loss_price': float(row['stop_loss_price']) if 'stop_loss_price' in row else 0.0,
+                                        'target_price': float(row['target_price']) if 'target_price' in row else 0.0,
+                                        'pivot_point': float(row['pivot_point']) if 'pivot_point' in row else 0.0,
+                                        'agent_fit_score': float(row['agent_fit_score']) if 'agent_fit_score' in row else 0.0,
+                                        'is_fallback': False
+                                    })
+                                    
+                            # Extend tickers list
                             existing_codes = {item['code'] for item in tickers}
-                            # 중복되지 않은 것만 골라낸 새 리스트 생성
-                            filtered_data = [item for item in my_screen_tickers if item['code'] not in existing_codes]
-                            # 한 번에 확장
-                            tickers.extend(filtered_data)
-
-                            # results_file에 "My Custom Screen"으로 추가하기
-                            if filtered_data and os.path.exists(results_file):
+                            filtered_screeners = [s for s in selected_screeners if s['code'] not in existing_codes]
+                            for s in filtered_screeners:
+                                s['trigger_type'] = "My Custom Screen"
+                                s['trigger_mode'] = mode
+                                
+                            tickers.extend(filtered_screeners)
+                            existing_codes.update({s['code'] for s in filtered_screeners})
+                            
+                            # If tickers is STILL less than 3, perform final fallback with screener's invalid candidates
+                            if len(tickers) < 3 and not invalid_screener_df.empty:
+                                # Sort invalid candidates by RS or ChangesRatio or Amount
+                                sort_col = "RS" if "RS" in invalid_screener_df.columns else "ChangesRatio"
+                                invalid_screener_df = invalid_screener_df.sort_values(sort_col, ascending=False)
+                                
+                                for ticker in invalid_screener_df.index:
+                                    if ticker not in existing_codes and len(tickers) < 3:
+                                        row = invalid_screener_df.loc[ticker]
+                                        fallback_item = {
+                                            'code': row['Code'],
+                                            'name': row['Name'],
+                                            'current_price': float(row['Close']) if 'Close' in row else 0.0,
+                                            'change_rate': float(row['ChangesRatio']) if 'ChangesRatio' in row else 0.0,
+                                            'volume': int(row['Volume']) if 'Volume' in row else 0,
+                                            'trade_value': float(row['Amount']) if 'Amount' in row else 0.0,
+                                            'volume_profile_info': str(row['volume_profile_info']) if 'volume_profile_info' in row else "No significant upper resistance",
+                                            'risk_reward_ratio': float(row['risk_reward_ratio']) if 'risk_reward_ratio' in row else 0.0,
+                                            'stop_loss_pct': float(row['stop_loss_pct']) * 100 if 'stop_loss_pct' in row else 0.0,
+                                            'stop_loss_price': float(row['stop_loss_price']) if 'stop_loss_price' in row else 0.0,
+                                            'target_price': float(row['target_price']) if 'target_price' in row else 0.0,
+                                            'pivot_point': float(row['pivot_point']) if 'pivot_point' in row else 0.0,
+                                            'agent_fit_score': float(row['agent_fit_score']) if 'agent_fit_score' in row else 0.0,
+                                            'is_fallback': True,
+                                            'trigger_type': "My Custom Screen (Fallback)",
+                                            'trigger_mode': mode
+                                        }
+                                        tickers.append(fallback_item)
+                                        existing_codes.add(ticker)
+                                        logger.info(f"Custom Screen Fallback selection: {ticker}")
+                                        
+                            # Save all screener additions to results_file
+                            all_additions = [t for t in tickers if t.get('trigger_type', '').startswith("My Custom Screen")]
+                            if all_additions and os.path.exists(results_file):
                                 try:
                                     with open(results_file, 'r', encoding='utf-8') as f:
                                         res_data = json.load(f)
                                     
-                                    json_filtered_data = []
-                                    for item in filtered_data:
-                                        json_filtered_data.append({
-                                            "code": item['code'],
-                                            "name": item['name'],
-                                            "current_price": item.get('current_price', 0.0),
-                                            "change_rate": item.get('change_rate', 0.0),
-                                            "volume": item.get('volume', 0),
-                                            "trade_value": item.get('trade_value', 0.0),
-                                            "volume_profile_info": item.get('volume_profile_info', "No significant upper resistance"),
-                                            "risk_reward_ratio": item.get('risk_reward_ratio', 0.0),
-                                            "stop_loss_pct": item.get('stop_loss_pct', 0.0),
-                                            "stop_loss_price": item.get('stop_loss_price', 0.0),
-                                            "target_price": item.get('target_price', 0.0),
-                                            "pivot_point": item.get('pivot_point', 0.0),
-                                            "agent_fit_score": item.get('agent_fit_score', 0.0)
-                                        })
-                                    
                                     if "My Custom Screen" not in res_data:
                                         res_data["My Custom Screen"] = []
-                                    
+                                        
                                     existing_res_codes = {x['code'] for x in res_data["My Custom Screen"]}
-                                    for j_item in json_filtered_data:
-                                        if j_item['code'] not in existing_res_codes:
-                                            res_data["My Custom Screen"].append(j_item)
-                                    
+                                    for item in all_additions:
+                                        if item['code'] not in existing_res_codes:
+                                            res_data["My Custom Screen"].append({
+                                                "code": item['code'],
+                                                "name": item['name'],
+                                                "current_price": item.get('current_price', 0.0),
+                                                "change_rate": item.get('change_rate', 0.0),
+                                                "volume": item.get('volume', 0),
+                                                "trade_value": item.get('trade_value', 0.0),
+                                                "volume_profile_info": item.get('volume_profile_info', "No significant upper resistance"),
+                                                "risk_reward_ratio": item.get('risk_reward_ratio', 0.0),
+                                                "stop_loss_pct": item.get('stop_loss_pct', 0.0),
+                                                "stop_loss_price": item.get('stop_loss_price', 0.0),
+                                                "target_price": item.get('target_price', 0.0),
+                                                "pivot_point": item.get('pivot_point', 0.0),
+                                                "agent_fit_score": item.get('agent_fit_score', 0.0),
+                                                "is_fallback": item.get('is_fallback', False)
+                                            })
+                                            
                                     with open(results_file, 'w', encoding='utf-8') as f:
                                         json.dump(res_data, f, ensure_ascii=False, indent=2)
                                     logger.info(f"Successfully added custom screen tickers to {results_file}")
                                 except Exception as e:
                                     logger.error(f"Error saving custom screen tickers to {results_file}: {str(e)}")
-                except Exception as e:
-                    logger.error(f"Error in custom screener processing: {str(e)}")
+                    except Exception as e:
+                        logger.error(f"Error in custom screener processing: {str(e)}")
+                
+                # 3. Always slice tickers to exactly 3 to ensure we don't exceed the target count
+                if len(tickers) > 3:
+                    logger.info(f"Slicing tickers from {len(tickers)} to exactly 3 stocks")
+                    tickers = tickers[:3]
+
                 logger.info(f"Final tickers list: {tickers}")
 
                 if not tickers:

@@ -1000,12 +1000,15 @@ def select_final_tickers(triggers: dict, trade_date: str = None, use_hybrid: boo
         if not df.empty:
             # Max 10 candidates from each trigger (already returned with head(10))
             candidates = df.copy()
+            candidates["is_fallback"] = False
             trigger_candidates[name] = candidates
             all_tickers.update(candidates.index.tolist())
 
     if not trigger_candidates:
         logger.warning("No candidates from all triggers.")
         return final_result
+
+    discarded_candidates = []
 
     # 2. Hybrid mode: Calculate agent scores
     if use_hybrid and trade_date:
@@ -1018,36 +1021,44 @@ def select_final_tickers(triggers: dict, trade_date: str = None, use_hybrid: boo
             # v1.16.6: Calculate final score: composite score (30%) + agent score (70%)
             # Increase agent score weight to prioritize stocks likely to be approved by agents
             if "composite_score" in scored_df.columns and "agent_fit_score" in scored_df.columns:
-                # Filter out candidates that do not meet the criteria (agent_fit_score <= 0)
-                scored_df = scored_df[scored_df["agent_fit_score"] > 0.0]
+                valid_df = scored_df[scored_df["agent_fit_score"] > 0.0].copy()
+                invalid_df = scored_df[scored_df["agent_fit_score"] <= 0.0].copy()
 
-                if not scored_df.empty:
+                if not valid_df.empty:
                     # Normalize composite score (0~1)
-                    cp_max = scored_df["composite_score"].max()
-                    cp_min = scored_df["composite_score"].min()
+                    cp_max = valid_df["composite_score"].max()
+                    cp_min = valid_df["composite_score"].min()
                     cp_range = cp_max - cp_min if cp_max > cp_min else 1
-                    scored_df["composite_score_norm"] = (scored_df["composite_score"] - cp_min) / cp_range
+                    valid_df["composite_score_norm"] = (valid_df["composite_score"] - cp_min) / cp_range
 
                     # Calculate final score (v1.16.6: adjusted weights)
-                    scored_df["final_score"] = (
-                        scored_df["composite_score_norm"] * 0.3 +
-                        scored_df["agent_fit_score"] * 0.7
+                    valid_df["final_score"] = (
+                        valid_df["composite_score_norm"] * 0.3 +
+                        valid_df["agent_fit_score"] * 0.7
                     )
 
                     # Sort by final score
-                    scored_df = scored_df.sort_values("final_score", ascending=False)
+                    valid_df = valid_df.sort_values("final_score", ascending=False)
 
                     # Logging
                     logger.info(f"[{name}] Hybrid score calculation complete:")
-                    for ticker in scored_df.index[:3]:
-                        logger.info(f"  - {ticker} ({scored_df.loc[ticker, 'stock_name'] if 'stock_name' in scored_df.columns else ''}): "
-                                   f"Composite={scored_df.loc[ticker, 'composite_score']:.3f}, "
-                                   f"Agent={scored_df.loc[ticker, 'agent_fit_score']:.3f}, "
-                                   f"Final={scored_df.loc[ticker, 'final_score']:.3f}, "
-                                   f"Risk-reward={scored_df.loc[ticker, 'risk_reward_ratio']:.2f}, "
-                                   f"Stop-loss={scored_df.loc[ticker, 'stop_loss_pct']*100:.1f}%")
+                    for ticker in valid_df.index[:3]:
+                        logger.info(f"  - {ticker} ({valid_df.loc[ticker, 'stock_name'] if 'stock_name' in valid_df.columns else ''}): "
+                                   f"Composite={valid_df.loc[ticker, 'composite_score']:.3f}, "
+                                   f"Agent={valid_df.loc[ticker, 'agent_fit_score']:.3f}, "
+                                   f"Final={valid_df.loc[ticker, 'final_score']:.3f}, "
+                                   f"Risk-reward={valid_df.loc[ticker, 'risk_reward_ratio']:.2f}, "
+                                   f"Stop-loss={valid_df.loc[ticker, 'stop_loss_pct']*100:.1f}%")
 
-            trigger_candidates[name] = scored_df
+                trigger_candidates[name] = valid_df
+                
+                # Save invalid/discarded candidates for fallback
+                if not invalid_df.empty:
+                    invalid_df["is_fallback"] = True
+                    invalid_df["final_score"] = invalid_df["composite_score"]
+                    discarded_candidates.append((name, invalid_df))
+            else:
+                trigger_candidates[name] = scored_df
 
     # 3. Final stock selection
     selected_tickers = set()
@@ -1101,14 +1112,38 @@ def select_final_tickers(triggers: dict, trade_date: str = None, use_hybrid: boo
                 selected_tickers.add(ticker)
                 logger.info(f"[{trigger_name}] Additional selection: {ticker}")
 
+    # 5. Fallback selection using discarded candidates if less than 3
+    if len(selected_tickers) < 3 and discarded_candidates:
+        logger.info(f"Selected only {len(selected_tickers)} stocks. Performing fallback selection to reach target of 3...")
+        fallback_candidates = []
+        for name, df in discarded_candidates:
+            for ticker in df.index:
+                if ticker not in selected_tickers:
+                    score = df.loc[ticker, "final_score"] if "final_score" in df.columns else 0
+                    fallback_candidates.append((name, ticker, score, df.loc[[ticker]]))
+
+        fallback_candidates.sort(key=lambda x: x[2], reverse=True)
+
+        for trigger_name, ticker, _, ticker_df in fallback_candidates:
+            if ticker not in selected_tickers and len(selected_tickers) < 3:
+                ticker_df = ticker_df.copy()
+                ticker_df["is_fallback"] = True
+                if trigger_name in final_result:
+                    final_result[trigger_name] = pd.concat([final_result[trigger_name], ticker_df])
+                else:
+                    final_result[trigger_name] = ticker_df
+                selected_tickers.add(ticker)
+                logger.info(f"[{trigger_name}] Fallback selection: {ticker} (Score: {ticker_df.loc[ticker, 'composite_score']:.3f})")
+
     return final_result
 
 # --- Batch execution function ---
-def run_batch(trigger_time: str = "morning", log_level: str = "INFO", output_file: str = None):
+def run_batch(trigger_time: str = "morning", log_level: str = "INFO", output_file: str = None, exclude_codes: list = None):
     """
     trigger_time: Execution mode (morning only)
     log_level: "DEBUG", "INFO", "WARNING", etc. (INFO recommended for production)
     output_file: JSON file path to save results (optional)
+    exclude_codes: List of stock codes to exclude (already in portfolio)
     """
     if trigger_time != "morning":
         logger.warning(f"Requested trigger_time is '{trigger_time}', but only 'morning' is supported. Executing morning batch.")
@@ -1132,6 +1167,11 @@ def run_batch(trigger_time: str = "morning", log_level: str = "INFO", output_fil
     # 시작가가 내 slot보다 낮은 종목들만 대상으로 (v1.16.6: 슬로트 조건 추가)
     from trading.domestic_stock_trading import DEFAULT_BUY_AMOUNT
     snapshot = snapshot[snapshot["Open"] < DEFAULT_BUY_AMOUNT]
+
+    # 포트폴리오 보유 종목 제외
+    if exclude_codes:
+        snapshot = snapshot[~snapshot.index.isin(exclude_codes)]
+        logger.info(f"Excluded {len(exclude_codes)} portfolio stocks from snapshot. Remaining: {len(snapshot)}")
 
     prev_snapshot, prev_date = get_previous_snapshot(trade_date)
     logger.debug(f"Previous trading date: {prev_date}")
@@ -1206,6 +1246,11 @@ def run_batch(trigger_time: str = "morning", log_level: str = "INFO", output_fil
 
                     if "final_score" in stocks_df.columns:
                         stock_info["final_score"] = float(stocks_df.loc[ticker, "final_score"])
+
+                    if "is_fallback" in stocks_df.columns:
+                        stock_info["is_fallback"] = bool(stocks_df.loc[ticker, "is_fallback"])
+                    else:
+                        stock_info["is_fallback"] = False
 
                     output_data[trigger_type].append(stock_info)
 
