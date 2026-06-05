@@ -1054,6 +1054,9 @@ def _url_fetch(
     else:
         res = requests.get(url, headers=headers, params=params)
 
+    # API rate limit delay: 0.2s for real, 0.5s for demo
+    time.sleep(0.5 if isPaperTrading() else 0.2)
+
     if res.status_code == 200:
         ar = APIResp(res)
         if _DEBUG:
