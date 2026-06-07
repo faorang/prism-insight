@@ -874,6 +874,103 @@ class StockAnalysisOrchestrator:
         else:
             return "🔎"
 
+    async def check_api_credits(self) -> dict:
+        """
+        Check API keys for OpenAI and Perplexity by running minimal test requests.
+        Returns a dictionary with status of each API:
+        {"openai": {"ok": bool, "error": Optional[str]}, "perplexity": {"ok": bool, "error": Optional[str]}}
+        """
+        import yaml
+        import aiohttp
+
+        # 1. Load OpenAI API key
+        openai_key = os.environ.get("OPENAI_API_KEY")
+        if not openai_key:
+            secrets_path = Path("mcp_agent.secrets.yaml")
+            if secrets_path.exists():
+                try:
+                    with open(secrets_path, "r", encoding="utf-8") as f:
+                        secrets = yaml.safe_load(f)
+                        openai_key = secrets.get("openai", {}).get("api_key")
+                except Exception as e:
+                    logger.warning(f"Error loading mcp_agent.secrets.yaml: {e}")
+
+        # 2. Load Perplexity API key
+        perplexity_key = os.environ.get("PERPLEXITY_API_KEY")
+        if not perplexity_key:
+            config_path = Path("mcp_agent.config.yaml")
+            if config_path.exists():
+                try:
+                    with open(config_path, "r", encoding="utf-8") as f:
+                        config = yaml.safe_load(f)
+                        perplexity_key = config.get("mcp", {}).get("servers", {}).get("perplexity", {}).get("env", {}).get("PERPLEXITY_API_KEY")
+                except Exception as e:
+                    logger.warning(f"Error loading mcp_agent.config.yaml: {e}")
+
+        results = {}
+
+        # Test OpenAI Chat Completion
+        if openai_key:
+            try:
+                headers = {
+                    "Authorization": f"Bearer {openai_key}",
+                    "Content-Type": "application/json"
+                }
+                payload = {
+                    "model": "gpt-5-nano",
+                    "messages": [{"role": "user", "content": "test"}],
+                    "max_completion_tokens": 16,
+                    "service_tier": "flex"
+                }
+                async with aiohttp.ClientSession() as session:
+                    async with session.post("https://api.openai.com/v1/chat/completions", json=payload, headers=headers, timeout=15) as resp:
+                        if resp.status == 200:
+                            results["openai"] = {"ok": True, "error": None}
+                        else:
+                            try:
+                                resp_json = await resp.json()
+                                err_msg = resp_json.get("error", {}).get("message", f"HTTP {resp.status}")
+                            except Exception:
+                                err_msg = f"HTTP {resp.status}"
+                            results["openai"] = {"ok": False, "error": err_msg}
+            except Exception as e:
+                results["openai"] = {"ok": False, "error": str(e)}
+        else:
+            results["openai"] = {"ok": False, "error": "OpenAI API Key not found"}
+
+        # Test Perplexity Chat Completion
+        if perplexity_key:
+            if "example" in perplexity_key or "your_" in perplexity_key:
+                results["perplexity"] = {"ok": False, "error": "Perplexity API Key is a placeholder"}
+            else:
+                try:
+                    headers = {
+                        "Authorization": f"Bearer {perplexity_key}",
+                        "Content-Type": "application/json"
+                    }
+                    payload = {
+                        "model": "sonar",
+                        "messages": [{"role": "user", "content": "test"}],
+                        "max_tokens": 16
+                    }
+                    async with aiohttp.ClientSession() as session:
+                        async with session.post("https://api.perplexity.ai/chat/completions", json=payload, headers=headers, timeout=15) as resp:
+                            if resp.status == 200:
+                                results["perplexity"] = {"ok": True, "error": None}
+                            else:
+                                try:
+                                    resp_json = await resp.json()
+                                    err_msg = resp_json.get("error", {}).get("message", f"HTTP {resp.status}")
+                                except Exception:
+                                    err_msg = f"HTTP {resp.status}"
+                                results["perplexity"] = {"ok": False, "error": err_msg}
+                except Exception as e:
+                    results["perplexity"] = {"ok": False, "error": str(e)}
+        else:
+            results["perplexity"] = {"ok": False, "error": "Perplexity API Key not found"}
+
+        return results
+
     async def run_full_pipeline(self, mode, language: str = "ko"):
         """
         Execute full pipeline
@@ -885,6 +982,37 @@ class StockAnalysisOrchestrator:
         logger.info(f"Starting full pipeline - mode: {mode}")
 
         try:
+            # 0. API Credit / Key validity check
+            logger.info("Performing pre-flight API credit check for OpenAI and Perplexity...")
+            credit_check = await self.check_api_credits()
+            openai_ok = credit_check.get("openai", {}).get("ok", False)
+            perplexity_ok = credit_check.get("perplexity", {}).get("ok", False)
+            
+            if not openai_ok or not perplexity_ok:
+                alert_msg = "⚠️ [API Credit/Validity Alert]\n\n"
+                if not openai_ok:
+                    alert_msg += f"• **OpenAI API Key Error**: {credit_check['openai']['error']}\n"
+                if not perplexity_ok:
+                    alert_msg += f"• **Perplexity API Key Error**: {credit_check['perplexity']['error']}\n"
+                alert_msg += "\nPlease check your API keys and credit balances immediately."
+                
+                logger.error(alert_msg)
+                
+                # Send telegram message if enabled
+                if self.telegram_config.use_telegram:
+                    try:
+                        from telegram_bot_agent import TelegramBotAgent
+                        bot_agent = TelegramBotAgent()
+                        chat_id = self.telegram_config.channel_id
+                        if chat_id:
+                            await bot_agent.send_message(chat_id, alert_msg, parse_mode="Markdown")
+                            logger.info("Telegram credit warning message sent successfully.")
+                    except Exception as te:
+                        logger.error(f"Failed to send credit alert to Telegram: {te}")
+                
+                logger.error("API credit check failed. Aborting full pipeline execution.")
+                return
+
             is_portfolio_full = False
             try:
                 # 0. 현재 보유 중인 포트폴리오 종목 갯수 확인
