@@ -263,6 +263,7 @@ def create_trading_scenario_agent(language: str = "ko", sector_names: list = Non
 
     ## JSON 응답 형식
 
+    출력은 반드시 아래 JSON 형식만 반환 (Markdown 백틱 ```json ... ``` 사용 절대 금지, 순수 JSON 문자열만)
     key_levels의 가격 필드 형식: `1700` / `"1,700"` / `"1700~1800"` (범위는 중간값 사용).
     금지: `"1,700원"`, `"약 1,700원"`, `"최소 1,700"`.
 
@@ -277,7 +278,7 @@ def create_trading_scenario_agent(language: str = "ko", sector_names: list = Non
         },
         "valuation_analysis": "동종업계 밸류에이션 비교 결과",
         "sector_outlook": "업종 전망 및 동향",
-        "buy_score": 1~10 정수,
+        "buy_score": 1.0~10.0,
         "macro_adjustment": -1, 0, 또는 +1,
         "effective_score": buy_score + macro_adjustment,
         "min_score": 시장 체제별 (parabolic:4, strong_bull:4, moderate_bull:4, sideways:5, moderate_bear:5, strong_bear:6),
@@ -285,8 +286,12 @@ def create_trading_scenario_agent(language: str = "ko", sector_names: list = Non
         "additional_confirmation_count": 0~5,
         "decision": "진입" 또는 "미진입",
         "entry_checklist_passed": 0~6 정수 (F1 통과 + F2 통과 + F3 통과 + F4 통과 + 모멘텀 신호 매트릭스 충족 + R/R ≥ floor 합계),
-        "rejection_reason": "미진입 시: 매트릭스의 어느 항목 또는 단독/복합 사유가 미달했는지 명시 (진입 시 null)",
+        "rejection_reason": "미진입 시: 매트릭스의 어느 항목 또는 단독/복합 사유가 미달했는지 명시 (진입 시 빈 문자열)",
+        "pivot_point": "피벗 기준가 (숫자, 최근 20영업일 전고점)",
+        "pivot_buffer_pct": "피벗 돌파 허용 버퍼 % (숫자, 기본값 5.0, 강력한 모멘텀 돌파 시 5.0~15.0 범위로 설정 가능)",
+        "volume_profile_info": "매물대 저항 정보 (문자열, 예: 1st Major Resistance: XX ~ YY KRW)",
         "target_price": 숫자,
+        "buy_limit_price": "매수 제한 마지노선 (숫자, 현재가 대비 +2~3% 수준)",
         "stop_loss": 숫자,
         "risk_reward_ratio": 소수점 1자리,
         "expected_return_pct": 숫자,
@@ -306,7 +311,7 @@ def create_trading_scenario_agent(language: str = "ko", sector_names: list = Non
                 "primary_support": 숫자,
                 "secondary_support": 숫자,
                 "primary_resistance": 숫자,
-                "secondary_resistance": signature_price | Number,
+                "secondary_resistance": 숫자,
                 "volume_baseline": "평소 거래량 기준 (문자열 가능)"
             },
             "sell_triggers": [
@@ -450,6 +455,16 @@ def create_sell_decision_agent(language: str = "ko"):
     - 장기 (3개월~): 펀더멘털 변화 여부 확인
     - 투자 기간 만료 임박: 손익 여부와 관계없이 전량 매도 검토
     - 성과 저조 종목: 자금 효율성을 위해 포지션 정리
+
+    **우선순위 4: 8주 보유법 (오닐 수익 극대화 규칙)**
+    - 매수 후 3주 이내에 +20% 이상 급등한 종목은 최소 8주간 보유하십시오.
+    - 8주 동안의 조정은 무시하고 추세를 추종합니다.
+    - 8주 경과 후에도 추세가 유지되면 trailing stop으로 전환하여 계속 보유합니다.
+
+    ## 주의사항 및 도구
+    - 시점: 장중(09:00~15:20, 전일 데이터), 장후(15:30~, 당일 포함). (time-get_current_time 참조)
+    - 도구: stock_holdings 확인. portfolio_adjustment는 이익 보전(손절가 상향) 또는 시장 격변 시 목표/손절가 수정에 적극 활용하십시오.
+    - 제한: `kospi_kosdaq-load_all_tickers` 사용 절대 금지.
 
     ## JSON 출력 형식
     {
