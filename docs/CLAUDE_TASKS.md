@@ -111,24 +111,27 @@ python stock_analysis_orchestrator.py --broadcast-languages ko,en,your_lang
 
 def create_trading_scenario_agent(...):
     instruction = """
-    Trading Scenario Generation Instructions:
+    Trading Scenario Generation Instructions (William O'Neil CAN SLIM):
 
-    BUY SCORE CRITERIA (Modify these):
-    - Valuation (PER, PBR vs peers): 0-3 points
-    - Technical Momentum: 0-3 points
-    - News Catalyst: 0-2 points
-    - Market Environment: 0-2 points
-    - TOTAL: 10 points (buy threshold: 6+)
+    FUNDAMENTAL GATE (F1~F4):
+    - F1 Profitability: recent 2 quarters operating profit positive (or clear turnaround)
+    - F2 Balance Sheet: debt ratio < 200% or below industry average
+    - F3 Growth: ROE >= 5% or 2-year sales growth >= 10%
+    - F4 Business Clarity: clear business model and competitive advantages
 
-    RISK MANAGEMENT (Modify these):
-    - Stop Loss: -5% to -7% (change percentage)
-    - Target Price: +10% to +30% (change percentage)
-    - Risk/Reward Ratio: Min 2:1 (change ratio)
+    MARKET REGIME MATRIX:
+    - parabolic / strong_bull / moderate_bull: min_score 4, stop loss -7%
+    - sideways: min_score 5, stop loss -6%
+    - moderate_bear: min_score 5, stop loss -5%
+    - strong_bear: min_score 6, stop loss -5%
 
-    PORTFOLIO CONSTRAINTS (Modify these):
-    - Max positions: 10 (change number)
-    - Max same sector: 3 (change number)
-    - Sector concentration: 30% (change percentage)
+    RISK MANAGEMENT:
+    - Expected risk-reward ratio floor based on regime (e.g., strong_bull: 1.0, sideways: 1.3, strong_bear: 1.8)
+    - Trailing stop-loss: raised to protect gains (-8~10% in bull, -3~5% in bear)
+
+    PORTFOLIO CONSTRAINTS:
+    - Max slot usage: 6~10 slots based on market risk level
+    - Same industry sector cap: 2 positions (rationale required for more)
     """
     return Agent(instruction=instruction, ...)
 
