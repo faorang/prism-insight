@@ -331,7 +331,14 @@ class StockAnalysisOrchestrator:
                             rr_ratio = 0
                             if "Risk/Reward Ratio" in stocks_df.columns or "손익비" in stocks_df.columns:
                                 col_name = "Risk/Reward Ratio" if "Risk/Reward Ratio" in stocks_df.columns else "손익비"
-                                rr_ratio = float(stocks_df.loc[ticker, col_name])
+                                try:
+                                    val = stocks_df.loc[ticker, col_name]
+                                    if isinstance(val, str):
+                                        val = val.replace(',', '').replace(' ', '')
+                                    # NaN check and float conversion
+                                    rr_ratio = float(val) if not (isinstance(val, float) and val != val) else 0.0
+                                except Exception:
+                                    rr_ratio = 0.0
 
                             # Get volume_profile_info if available
                             volume_profile_info = ""
@@ -1059,6 +1066,7 @@ class StockAnalysisOrchestrator:
                 if len(tickers) < 3:
                     logger.info(f"Selected triggers returned only {len(tickers)} stocks. Running custom screener...")
                     try:
+                        import pandas as pd
                         import screener
                         from trigger_batch import score_candidates_by_agent_criteria, get_nearest_business_day_in_a_week
                         

@@ -1129,7 +1129,11 @@ class StockTrackingAgent:
                             "company_name": company_name,
                             "buy_price": stock.get('buy_price', 0),
                             "sell_price": current_price,
-                            "profit_rate": ((current_price - stock.get('buy_price', 0)) / stock.get('buy_price', 0) * 100),
+                            "profit_rate": (
+                                ((current_price - stock.get('buy_price', 0)) / stock.get('buy_price', 1) * 100)
+                                if stock.get('buy_price', 0) > 0
+                                else 0.0
+                            ),
                             "reason": sell_reason
                         })
                 else:

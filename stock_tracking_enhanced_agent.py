@@ -582,12 +582,14 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
         """
         try:
             # Calculate dynamically if target price/stop-loss is missing or 0 in scenario
-            if scenario.get('target_price', 0) <= 0:
+            target_price_val = self._parse_price_value(scenario.get('target_price', 0))
+            if target_price_val <= 0:
                 target_price = await self._dynamic_target_price(ticker, current_price)
                 scenario['target_price'] = target_price
                 logger.info(f"{ticker} Dynamic target price calculated: {target_price:,.0f} KRW")
 
-            if scenario.get('stop_loss', 0) <= 0:
+            stop_loss_val = self._parse_price_value(scenario.get('stop_loss', 0))
+            if stop_loss_val <= 0:
                 stop_loss = await self._dynamic_stop_loss(ticker, current_price)
                 scenario['stop_loss'] = stop_loss
                 logger.info(f"{ticker} Dynamic stop-loss calculated: {stop_loss:,.0f} KRW")
@@ -804,15 +806,25 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
             except Exception as hp_err:
                 logger.warning(f"{ticker} Failed to update highest_price: {hp_err}")
 
-            # Calculate profit rate
-            profit_rate = ((current_price - buy_price) / buy_price) * 100
+            # Calculate profit rate safely
+            if buy_price > 0:
+                profit_rate = ((current_price - buy_price) / buy_price) * 100
+            else:
+                profit_rate = 0.0
             
             # 최고가 대비 하락률 계산 (Trailing Stop 용)
-            drawdown_from_high = ((current_price - highest_price) / highest_price) * 100
+            if highest_price > 0:
+                drawdown_from_high = ((current_price - highest_price) / highest_price) * 100
+            else:
+                drawdown_from_high = 0.0
 
-            # Days elapsed from buy date
-            buy_datetime = datetime.strptime(buy_date, "%Y-%m-%d %H:%M:%S")
-            days_passed = (datetime.now() - buy_datetime).days
+            # Days elapsed from buy date safely
+            try:
+                buy_datetime = datetime.strptime(buy_date, "%Y-%m-%d %H:%M:%S")
+                days_passed = (datetime.now() - buy_datetime).days
+            except Exception as dt_err:
+                logger.warning(f"Failed to parse buy_date '{buy_date}': {dt_err}")
+                days_passed = 0
 
             # Extract scenario information
             scenario_str = stock_data.get('scenario', '{}')
@@ -954,12 +966,30 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
 
                 logger.info(f"Sell decision parse successful: {json.dumps(decision_json, ensure_ascii=False)[:500]}")
 
-                # Extract results - use existing single format
-                should_sell = decision_json.get("should_sell", False)
+                # Extract results - use existing single format and normalize types
+                should_sell_val = decision_json.get("should_sell", False)
+                if isinstance(should_sell_val, str):
+                    should_sell = should_sell_val.lower().strip() in ("true", "1", "yes", "y", "t")
+                else:
+                    should_sell = bool(should_sell_val)
+
                 sell_reason = decision_json.get("sell_reason", "AI analysis result")
-                confidence = decision_json.get("confidence", 5)
+
+                try:
+                    confidence = int(decision_json.get("confidence", 5))
+                except:
+                    confidence = 5
+
                 analysis_summary = decision_json.get("analysis_summary", {})
                 portfolio_adjustment = decision_json.get("portfolio_adjustment", {})
+                if not isinstance(portfolio_adjustment, dict):
+                    portfolio_adjustment = {}
+                else:
+                    needed_val = portfolio_adjustment.get("needed", False)
+                    if isinstance(needed_val, str):
+                        portfolio_adjustment["needed"] = needed_val.lower().strip() in ("true", "1", "yes", "y", "t")
+                    else:
+                        portfolio_adjustment["needed"] = bool(needed_val)
 
                 # ===== [안전장치 1] 트레일링 스탑 하드 룰 강제 적용 (수익권에서 고점 대비 -12% 하락 시 강제 매도) =====
                 if drawdown_from_high <= -12.0 and profit_rate >= 3.0:
@@ -977,9 +1007,6 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
 
                 # ===== [안전장치 3] 본전 보호(Break-even) 및 트레일링 스탑 손절가 상향 강제 적용 =====
                 if not should_sell:
-                    if not isinstance(portfolio_adjustment, dict):
-                        portfolio_adjustment = {}
-                        
                     calculated_stop_loss = stop_loss
                     
                     if profit_rate >= 10.0:
@@ -1067,13 +1094,24 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
             except Exception as hp_err:
                 logger.warning(f"{ticker} Fallback: Failed to fetch highest_price: {hp_err}")
 
-            # Calculate profit rate
-            profit_rate = ((current_price - buy_price) / buy_price) * 100
-            drawdown_from_high = ((current_price - highest_price) / highest_price) * 100
+            # Calculate profit rate safely
+            if buy_price > 0:
+                profit_rate = ((current_price - buy_price) / buy_price) * 100
+            else:
+                profit_rate = 0.0
 
-            # Days elapsed from buy date
-            buy_datetime = datetime.strptime(buy_date, "%Y-%m-%d %H:%M:%S")
-            days_passed = (datetime.now() - buy_datetime).days
+            if highest_price > 0:
+                drawdown_from_high = ((current_price - highest_price) / highest_price) * 100
+            else:
+                drawdown_from_high = 0.0
+
+            # Days elapsed from buy date safely
+            try:
+                buy_datetime = datetime.strptime(buy_date, "%Y-%m-%d %H:%M:%S")
+                days_passed = (datetime.now() - buy_datetime).days
+            except Exception as dt_err:
+                logger.warning(f"Failed to parse buy_date '{buy_date}': {dt_err}")
+                days_passed = 0
 
             # Extract scenario information
             scenario_str = stock_data.get('scenario', '{}')
@@ -1274,10 +1312,19 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
             decision_date = now.strftime("%Y-%m-%d")
             decision_time = now.strftime("%H:%M:%S")
 
-            # Extract data from JSON
-            should_sell = decision_json.get("should_sell", False)
+            # Extract data from JSON and normalize types
+            should_sell_val = decision_json.get("should_sell", False)
+            if isinstance(should_sell_val, str):
+                should_sell = should_sell_val.lower().strip() in ("true", "1", "yes", "y", "t")
+            else:
+                should_sell = bool(should_sell_val)
+
             sell_reason = decision_json.get("sell_reason", "")
-            confidence = decision_json.get("confidence", 0)
+            
+            try:
+                confidence = int(decision_json.get("confidence", 0))
+            except:
+                confidence = 0
 
             analysis_summary = decision_json.get("analysis_summary", {})
             technical_trend = analysis_summary.get("technical_trend", "")
@@ -1286,7 +1333,15 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
             time_factor = analysis_summary.get("time_factor", "")
 
             portfolio_adjustment = decision_json.get("portfolio_adjustment", {})
-            adjustment_needed = portfolio_adjustment.get("needed", False)
+            if not isinstance(portfolio_adjustment, dict):
+                portfolio_adjustment = {}
+                
+            adjustment_needed_val = portfolio_adjustment.get("needed", False)
+            if isinstance(adjustment_needed_val, str):
+                adjustment_needed = adjustment_needed_val.lower().strip() in ("true", "1", "yes", "y", "t")
+            else:
+                adjustment_needed = bool(adjustment_needed_val)
+
             adjustment_reason = portfolio_adjustment.get("reason", "")
             new_target_price = self._safe_number_conversion(portfolio_adjustment.get("new_target_price"))
             new_stop_loss = self._safe_number_conversion(portfolio_adjustment.get("new_stop_loss"))
