@@ -7,7 +7,6 @@ from mcp_agent.workflows.llm.augmented_llm_openai import OpenAIAugmentedLLM
 # Language name mapping for report generation
 LANGUAGE_NAMES = {
     "ko": "Korean",
-    "en": "English",
     "ja": "Japanese",
     "zh": "Chinese",
     "es": "Spanish",
@@ -71,7 +70,7 @@ async def generate_report(agent, section, company_name, company_code, reference_
 
 ##분석일: {reference_date}(YYYYMMDD 형식)
 """
-    else:  # English or other languages
+    else:  # Other languages
         message = f"""Please write an analysis report for {section} of {company_name}({company_code}).
 (Report language: {language_name})
 
@@ -164,7 +163,7 @@ async def generate_market_report(agent, section, reference_date, logger, languag
 
 ##분석일: {reference_date}(YYYYMMDD 형식)
 """
-    else:  # English or other languages
+    else:  # Other languages
         message = f"""Please write a market and macroeconomic analysis report.
 (Report language: {language_name})
 
@@ -268,7 +267,7 @@ async def generate_summary(section_reports, company_name, company_code, referenc
 종합 분석 보고서:
 {all_reports}
 """
-        else:  # English or other languages
+        else:  # Other languages
             instruction = f"""
 You are an investment expert who writes executive summaries of the {company_name} ({company_code}) company analysis report.
 Extract and concisely summarize the 3-5 most important key points from each section of the entire report.
@@ -447,7 +446,7 @@ async def generate_investment_strategy(section_reports, combined_reports, compan
 
 ## ⚠️ 글자수 제한: 반드시 3000자 이내로 작성하세요. 핵심만 간결하게!
 """
-        else:  # English or other languages
+        else:  # Other languages
             instruction = f"""You are an investment strategy expert. Synthesize the previously analyzed technical analysis, company information, financial analysis, news trends, and market analysis to present investment strategies and opinions.
 
 **Always translate company names to {language_name}.** (e.g., "삼성전자" → "Samsung Electronics")
@@ -594,7 +593,7 @@ def get_disclaimer(language="ko"):
 
 투자는 본인의 판단과 책임 하에 신중하게 이루어져야 하며,
 본 보고서를 참고하여 발생하는 투자 결과에 대한 책임은 투자자 본인에게 있습니다."""
-    else:  # English or other languages
+    else:  # Other languages
         return """## Investment Disclaimer
 
 This report is provided for informational purposes only and is not intended as investment advice.
