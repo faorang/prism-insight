@@ -1020,8 +1020,8 @@ class StockAnalysisOrchestrator:
                 from stock_tracking_agent import StockTrackingAgent
                 from trading.domestic_stock_trading import DEFAULT_BUY_AMOUNT
                 portfolio_count = await my_portfolio.get_portfolio_stock_count()
-                total_cash = await my_portfolio.get_account()
-                total_cash = total_cash.get('total_cash')
+                total_cash_data = await my_portfolio.get_account()
+                total_cash = total_cash_data.get('total_cash') if total_cash_data is not None else None
                 logger.info(f"현재 보유 중인 포트폴리오 종목 갯수: {portfolio_count}/{StockTrackingAgent.MAX_SLOTS}")
 
                 is_portfolio_full = portfolio_count >= StockTrackingAgent.MAX_SLOTS

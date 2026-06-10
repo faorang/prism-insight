@@ -418,14 +418,29 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
                 ticker = analysis_result.get("ticker")
                 company_name = analysis_result.get("company_name")
                 current_price = analysis_result.get("current_price", 0)
-                buy_limit_price = analysis_result.get("buy_limit_price", current_price)
                 scenario = analysis_result.get("scenario", {})
                 sector = analysis_result.get("sector", "Unknown")
                 sector_diverse = analysis_result.get("sector_diverse", True)
                 rank_change_percentage = analysis_result.get("rank_change_percentage", 0)
                 rank_change_msg = analysis_result.get("rank_change_msg", "")
 
-                # Check entry decision
+                # Normalize numeric fields in scenario to prevent TypeError
+                if isinstance(scenario, dict):
+                    scenario["pivot_point"] = self._parse_price_value(scenario.get("pivot_point", 0))
+                    scenario["pivot_buffer_pct"] = self._safe_number_conversion(scenario.get("pivot_buffer_pct", 5.0))
+                    
+                    buy_limit_price_val = scenario.get("buy_limit_price", current_price)
+                    scenario["buy_limit_price"] = self._parse_price_value(buy_limit_price_val)
+                    if scenario["buy_limit_price"] <= 0:
+                        scenario["buy_limit_price"] = current_price
+                        
+                    scenario["target_price"] = self._parse_price_value(scenario.get("target_price", 0))
+                    scenario["stop_loss"] = self._parse_price_value(scenario.get("stop_loss", 0))
+                    scenario["buy_score"] = self._safe_number_conversion(scenario.get("buy_score", 0))
+                    scenario["min_score"] = self._safe_number_conversion(scenario.get("min_score", 0))
+                    scenario["risk_reward_ratio"] = self._safe_number_conversion(scenario.get("risk_reward_ratio", 0))
+
+                buy_limit_price = scenario.get("buy_limit_price", current_price)
                 buy_score = scenario.get("buy_score", 0)
                 min_score = scenario.get("min_score", 0)
                 decision = analysis_result.get("decision")
