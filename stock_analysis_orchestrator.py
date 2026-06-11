@@ -1231,39 +1231,39 @@ class StockAnalysisOrchestrator:
 
                 if not tickers:
                     await self.send_telegram_message_only(f"금일 {mode} 매매에 해당하는 종목이 없습니다.")
-                    return
-
-                # 1-1. Send trigger results to telegram immediately
-                if os.path.exists(results_file):
-                    logger.info(f"Trigger results file confirmed: {results_file}")
-                    alert_sent = await self.send_trigger_alert(mode, results_file, language)
-                    if alert_sent:
-                        logger.info("Prism Signal alert transmission complete")
+                    is_portfolio_full = True
+                else:
+                    # 1-1. Send trigger results to telegram immediately
+                    if os.path.exists(results_file):
+                        logger.info(f"Trigger results file confirmed: {results_file}")
+                        alert_sent = await self.send_trigger_alert(mode, results_file, language)
+                        if alert_sent:
+                            logger.info("Prism Signal alert transmission complete")
+                        else:
+                            logger.warning("Prism Signal alert transmission failed")
                     else:
-                        logger.warning("Prism Signal alert transmission failed")
-                else:
-                    logger.warning(f"Trigger results file not found: {results_file}")
+                        logger.warning(f"Trigger results file not found: {results_file}")
 
-                # 2. Generate reports - important: await added here!
-                report_paths = await self.generate_reports(tickers, mode, timeout=600, language=language)
-                if not report_paths:
-                    logger.warning("No reports generated. Terminating process.")
-                    return
+                    # 2. Generate reports - important: await added here!
+                    report_paths = await self.generate_reports(tickers, mode, timeout=600, language=language)
+                    if not report_paths:
+                        logger.warning("No reports generated. Skipping buying steps but proceeding with tracking.")
+                        is_portfolio_full = True
+                    else:
+                        # 3. PDF conversion
+                        pdf_paths = await self.convert_to_pdf(report_paths)
 
-                # 3. PDF conversion
-                pdf_paths = await self.convert_to_pdf(report_paths)
+                        # 4-5. Generate and send telegram messages (only when telegram is enabled)
+                        if self.telegram_config.use_telegram:
+                            logger.info("Telegram enabled - proceeding with message generation and transmission steps")
 
-                # 4-5. Generate and send telegram messages (only when telegram is enabled)
-                if self.telegram_config.use_telegram:
-                    logger.info("Telegram enabled - proceeding with message generation and transmission steps")
+                            # 4. Generate telegram messages
+                            message_paths = await self.generate_telegram_messages(pdf_paths, language)
 
-                    # 4. Generate telegram messages
-                    message_paths = await self.generate_telegram_messages(pdf_paths, language)
-
-                    # 5. Send telegram messages and PDFs
-                    await self.send_telegram_messages(message_paths, pdf_paths, report_paths)
-                else:
-                    logger.info("Telegram disabled - skipping message generation and transmission steps")
+                            # 5. Send telegram messages and PDFs
+                            await self.send_telegram_messages(message_paths, pdf_paths, report_paths)
+                        else:
+                            logger.info("Telegram disabled - skipping message generation and transmission steps")
 
             # 6. Tracking system batch (runs concurrently with broadcast I/O tasks via async)
             if report_paths or is_portfolio_full:
