@@ -956,11 +956,12 @@ class StockTrackingAgent:
         sell_price: float,
         profit_rate: float,
         holding_days: int,
-        sell_reason: str
+        sell_reason: str,
+        trade_date: Optional[str] = None
     ) -> bool:
         """Create trading journal entry (delegates to tracking.journal.JournalManager)"""
         return await self.journal_manager.create_entry(
-            stock_data, sell_price, profit_rate, holding_days, sell_reason
+            stock_data, sell_price, profit_rate, holding_days, sell_reason, trade_date
         )
 
     def _extract_principles_from_lessons(

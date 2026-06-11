@@ -442,7 +442,7 @@ class StockAnalysisOrchestrator:
                 logger.error(f"Error during telegram message generation for {report_pdf_path}: {str(e)}")
 
         return message_paths
-    async def send_telegram_message_only(message: str):
+    async def send_telegram_message_only(self, message: str):
         from telegram_bot_agent import TelegramBotAgent
         import os
         from dotenv import load_dotenv
@@ -854,6 +854,10 @@ class StockAnalysisOrchestrator:
                     closing_strength = stock.get("closing_strength", 0) * 100
                     message += f"  마감 강도: {closing_strength:.2f}%\n"
 
+                elif "pullback_ratio" in stock and ("눌림목" in trigger_type or "Pullback" in trigger_type):
+                    pullback_ratio = stock.get("pullback_ratio", 0) * 100
+                    message += f"  눌림목 비율: {100 - pullback_ratio:.2f}% (20일 고점 대비)\n"
+
                 message += "\n"
 
         # Footer message
@@ -878,6 +882,8 @@ class StockAnalysisOrchestrator:
             return "🔨"
         elif "Sideways" in trigger_type or "횡보" in trigger_type:
             return "↔️"
+        elif "눌림목" in trigger_type or "Pullback" in trigger_type:
+            return "📉"
         else:
             return "🔎"
 
@@ -994,7 +1000,7 @@ class StockAnalysisOrchestrator:
             credit_check = await self.check_api_credits()
             openai_ok = credit_check.get("openai", {}).get("ok", False)
             perplexity_ok = credit_check.get("perplexity", {}).get("ok", False)
-            
+
             if not openai_ok or not perplexity_ok:
                 alert_msg = "⚠️ [API Credit/Validity Alert]\n\n"
                 if not openai_ok:
@@ -1002,9 +1008,9 @@ class StockAnalysisOrchestrator:
                 if not perplexity_ok:
                     alert_msg += f"• **Perplexity API Key Error**: {credit_check['perplexity']['error']}\n"
                 alert_msg += "\nPlease check your API keys and credit balances immediately."
-                
+
                 logger.error(alert_msg)
-                
+
                 # Send telegram message if enabled
                 if self.telegram_config.use_telegram:
                     try:
@@ -1016,7 +1022,7 @@ class StockAnalysisOrchestrator:
                             logger.info("Telegram credit warning message sent successfully.")
                     except Exception as te:
                         logger.error(f"Failed to send credit alert to Telegram: {te}")
-                
+
                 logger.error("API credit check failed. Aborting full pipeline execution.")
                 return
 
@@ -1062,54 +1068,54 @@ class StockAnalysisOrchestrator:
 
                 logger.info(f"Tickers returned from trigger batch: {tickers}")
 
-                # 2. If tickers count is less than 3, run custom screener to fill up
-                if len(tickers) < 3:
+                # 2. If tickers count is less than 4, run custom screener to fill up
+                if len(tickers) < 4:
                     logger.info(f"Selected triggers returned only {len(tickers)} stocks. Running custom screener...")
                     try:
                         import pandas as pd
                         import screener
                         from trigger_batch import score_candidates_by_agent_criteria, get_nearest_business_day_in_a_week
-                        
+
                         # Fetch candidates from both KOSPI and KOSDAQ
                         logger.info("Executing custom screener for KOSPI and KOSDAQ...")
                         cands = []
                         for market in ["KOSPI", "KOSDAQ"]:
                             try:
-                                # Query top_n = 3 in screener to have enough fallback pool
-                                df_cand = screener.get_candidates(market, 3)
+                                # Query top_n = 4 in screener to have enough fallback pool
+                                df_cand = screener.get_candidates(market, 4)
                                 if df_cand is not None and not df_cand.empty:
                                     cands.append(df_cand)
                             except Exception as se:
                                 logger.error(f"Screener failed for {market}: {str(se)}")
-                                
+
                         if cands:
                             raw_screen_df = pd.concat(cands, ignore_index=True)
                         else:
                             raw_screen_df = pd.DataFrame()
-                            
+
                         if not raw_screen_df.empty:
                             # Convert to index-based DataFrame for scoring, ensuring 'Code' is the index
                             raw_screen_df.set_index('Code', inplace=True, drop=False)
-                            
+
                             # Filter out portfolio stocks from custom screener candidates
                             if exclude_codes:
                                 raw_screen_df = raw_screen_df[~raw_screen_df['Code'].isin(exclude_codes)]
-                            
+
                             # Fetch trade date
                             today_str = datetime.now().strftime("%Y%m%d")
                             trade_date = get_nearest_business_day_in_a_week(today_str, prev=True)
-                            
+
                             logger.info(f"Scoring custom screener candidates using agent criteria (reference date: {trade_date})...")
                             scored_screener_df = score_candidates_by_agent_criteria(
                                 raw_screen_df, trade_date, lookback_days=10, trigger_type="default"
                             )
-                            
+
                             # Partition into valid and invalid (fallback) candidates
                             valid_screener_df = scored_screener_df[scored_screener_df["agent_fit_score"] > 0.0]
                             invalid_screener_df = scored_screener_df[scored_screener_df["agent_fit_score"] <= 0.0]
-                            
+
                             logger.info(f"Custom screen candidates - Valid: {len(valid_screener_df)}, Invalid: {len(invalid_screener_df)}")
-                            
+
                             # Select valid ones first
                             selected_screeners = []
                             if not valid_screener_df.empty:
@@ -1131,19 +1137,19 @@ class StockAnalysisOrchestrator:
                                         'agent_fit_score': float(row['agent_fit_score']) if 'agent_fit_score' in row else 0.0,
                                         'is_fallback': False
                                     })
-                                    
+
                             # Extend tickers list
                             existing_codes = {item['code'] for item in tickers}
                             filtered_screeners = [s for s in selected_screeners if s['code'] not in existing_codes]
                             for s in filtered_screeners:
                                 s['trigger_type'] = "My Custom Screen"
                                 s['trigger_mode'] = mode
-                                
+
                             tickers.extend(filtered_screeners)
                             existing_codes.update({s['code'] for s in filtered_screeners})
-                            
-                            # If tickers is STILL less than 3, perform final fallback with screener's invalid candidates
-                            if len(tickers) < 3 and not invalid_screener_df.empty:
+
+                            # If tickers is STILL less than 4, perform final fallback with screener's invalid candidates
+                            if len(tickers) < 4 and not invalid_screener_df.empty:
                                 # Sort invalid candidates by RS or ChangesRatio or Amount
                                 sort_col = None
                                 for col in ["RS", "ChangesRatio", "Amount", "Volume"]:
@@ -1152,9 +1158,9 @@ class StockAnalysisOrchestrator:
                                         break
                                 if sort_col:
                                     invalid_screener_df = invalid_screener_df.sort_values(sort_col, ascending=False)
-                                
+
                                 for ticker in invalid_screener_df.index:
-                                    if ticker not in existing_codes and len(tickers) < 3:
+                                    if ticker not in existing_codes and len(tickers) < 4:
                                         row = invalid_screener_df.loc[ticker]
                                         fallback_item = {
                                             'code': row['Code'],
@@ -1177,17 +1183,17 @@ class StockAnalysisOrchestrator:
                                         tickers.append(fallback_item)
                                         existing_codes.add(ticker)
                                         logger.info(f"Custom Screen Fallback selection: {ticker}")
-                                        
+
                             # Save all screener additions to results_file
                             all_additions = [t for t in tickers if t.get('trigger_type', '').startswith("My Custom Screen")]
                             if all_additions and os.path.exists(results_file):
                                 try:
                                     with open(results_file, 'r', encoding='utf-8') as f:
                                         res_data = json.load(f)
-                                    
+
                                     if "My Custom Screen" not in res_data:
                                         res_data["My Custom Screen"] = []
-                                        
+
                                     existing_res_codes = {x['code'] for x in res_data["My Custom Screen"]}
                                     for item in all_additions:
                                         if item['code'] not in existing_res_codes:
@@ -1207,7 +1213,7 @@ class StockAnalysisOrchestrator:
                                                 "agent_fit_score": item.get('agent_fit_score', 0.0),
                                                 "is_fallback": item.get('is_fallback', False)
                                             })
-                                            
+
                                     with open(results_file, 'w', encoding='utf-8') as f:
                                         json.dump(res_data, f, ensure_ascii=False, indent=2)
                                     logger.info(f"Successfully added custom screen tickers to {results_file}")
@@ -1215,11 +1221,11 @@ class StockAnalysisOrchestrator:
                                     logger.error(f"Error saving custom screen tickers to {results_file}: {str(e)}")
                     except Exception as e:
                         logger.error(f"Error in custom screener processing: {str(e)}")
-                
-                # 3. Always slice tickers to exactly 3 to ensure we don't exceed the target count
-                if len(tickers) > 3:
-                    logger.info(f"Slicing tickers from {len(tickers)} to exactly 3 stocks")
-                    tickers = tickers[:3]
+
+                # 3. Always slice tickers to exactly 4 to ensure we don't exceed the target count
+                if len(tickers) > 4:
+                    logger.info(f"Slicing tickers from {len(tickers)} to exactly 4 stocks")
+                    tickers = tickers[:4]
 
                 logger.info(f"Final tickers list: {tickers}")
 
@@ -1460,12 +1466,12 @@ if __name__ == "__main__":
     # Start timer thread and execute main function only on business days
     import threading
 
-    # Timer function to terminate process after 120 minutes
+    # Timer function to terminate process after 180 minutes
     def exit_after_timeout():
         import time
         import os
         import signal
-        time.sleep(10800)  # Wait 120 minutes
+        time.sleep(10800)  # Wait 180 minutes
         logger.warning("180-minute timeout reached: forcefully terminating process")
         os.kill(os.getpid(), signal.SIGTERM)
 

@@ -86,6 +86,7 @@ async def retry_journal_entry(db_path: str, trade_id: int = None, ticker: str = 
 
     # Create journal entry using StockTrackingAgent
     agent = StockTrackingAgent(db_path=db_path, enable_journal=True)
+    await agent.initialize()
 
     # Construct stock_data
     stock_data = {
@@ -124,7 +125,8 @@ async def retry_journal_entry(db_path: str, trade_id: int = None, ticker: str = 
             sell_price=trade_data['sell_price'],
             profit_rate=trade_data['profit_rate'],
             holding_days=trade_data['holding_days'],
-            sell_reason=sell_reason
+            sell_reason=sell_reason,
+            trade_date=trade_data['sell_date']
         )
 
         if result:
@@ -139,6 +141,9 @@ async def retry_journal_entry(db_path: str, trade_id: int = None, ticker: str = 
         import traceback
         traceback.print_exc()
         return False
+    finally:
+        if hasattr(agent, 'conn') and agent.conn:
+            agent.conn.close()
 
 
 async def retry_all_missing(db_path: str):

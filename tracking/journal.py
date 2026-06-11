@@ -40,7 +40,8 @@ class JournalManager:
         sell_price: float,
         profit_rate: float,
         holding_days: int,
-        sell_reason: str
+        sell_reason: str,
+        trade_date: Optional[str] = None
     ) -> bool:
         """
         Create trading journal entry with retrospective analysis.
@@ -93,10 +94,7 @@ class JournalManager:
 
                 response = await llm.generate_str(
                     message=prompt,
-                    request_params=RequestParams(model="gpt-5.2", maxTokens=16000,
-                metadata={
-                    "service_tier":"flex",
-                })
+                    request_params=RequestParams(model="gpt-5.4-mini", reasoning_effort="none", maxTokens=16000)
                 )
                 logger.info(f"Journal agent response received: {len(response)} chars")
 
@@ -105,7 +103,7 @@ class JournalManager:
             journal_id = self._save_to_database(
                 ticker, company_name, buy_price, buy_date, scenario_json,
                 scenario_data, sell_price, sell_reason, profit_rate,
-                holding_days, journal_data
+                holding_days, journal_data, trade_date
             )
 
             logger.info(f"Journal entry created for {ticker}: {journal_data.get('one_line_summary', '')}")
@@ -206,10 +204,12 @@ Please review the following completed trade:
     def _save_to_database(
         self, ticker: str, company_name: str, buy_price: float, buy_date: str,
         scenario_json: str, scenario_data: Dict, sell_price: float, sell_reason: str,
-        profit_rate: float, holding_days: int, journal_data: Dict
+        profit_rate: float, holding_days: int, journal_data: Dict,
+        trade_date: Optional[str] = None
     ) -> int:
         """Save journal entry to database."""
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        actual_trade_date = trade_date or now
         self.cursor.execute(
             """
             INSERT INTO trading_journal
@@ -221,7 +221,7 @@ Please review the following completed trade:
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                ticker, company_name, now, 'sell',
+                ticker, company_name, actual_trade_date, 'sell',
                 buy_price, buy_date, scenario_json,
                 json.dumps(scenario_data.get('market_condition', ''), ensure_ascii=False),
                 sell_price, sell_reason, profit_rate, holding_days,

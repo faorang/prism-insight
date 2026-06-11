@@ -67,7 +67,7 @@ async def run_compression(
     db_path: str = "stock_tracking_db.sqlite",
     layer1_age_days: int = 7,
     layer2_age_days: int = 30,
-    min_entries: int = 3,
+    min_entries: int = 5,
     dry_run: bool = False,
     force: bool = False,
     language: str = "ko",
@@ -318,8 +318,8 @@ Examples:
     parser.add_argument(
         "--min-entries",
         type=int,
-        default=3,
-        help="Minimum entries required to trigger compression (default: 3)"
+        default=5,
+        help="Minimum entries required to trigger compression (default: 5)"
     )
     parser.add_argument(
         "--dry-run",

@@ -83,6 +83,7 @@ def get_previous_snapshot(trade_date: str) -> (pd.DataFrame, str):
     return df, prev_date
 
 
+@lru_cache(maxsize=512)
 def get_multi_day_ohlcv(ticker: str, end_date: str, days: int = 10) -> pd.DataFrame:
     """
     Query N-day OHLCV data for specific stock.
@@ -115,7 +116,7 @@ def get_multi_day_ohlcv(ticker: str, end_date: str, days: int = 10) -> pd.DataFr
             if 'Amount' not in df.columns and 'Close' in df.columns and 'Volume' in df.columns:
                 df['Amount'] = df['Close'] * df['Volume']
             logger.debug(f"Successfully fetched {ticker} N-day data using FinanceDataReader")
-            return df.tail(days)
+            return df.tail(days).copy()
     except Exception as e:
         logger.debug(f"FinanceDataReader lookup failed for {ticker}: {e}")
 
@@ -134,7 +135,7 @@ def get_multi_day_ohlcv(ticker: str, end_date: str, days: int = 10) -> pd.DataFr
                 if 'Amount' not in df.columns and 'Close' in df.columns and 'Volume' in df.columns:
                     df['Amount'] = df['Close'] * df['Volume']
                 logger.debug(f"Successfully fetched {ticker} N-day data using yfinance ({yf_ticker})")
-                return df.tail(days)
+                return df.tail(days).copy()
     except Exception as e:
         logger.debug(f"yfinance lookup failed for {ticker}: {e}")
 
@@ -147,7 +148,7 @@ def get_multi_day_ohlcv(ticker: str, end_date: str, days: int = 10) -> pd.DataFr
             logger.warning(f"No {days}-day data for {ticker} using legacy client.")
             return pd.DataFrame()
         logger.debug(f"Successfully fetched {ticker} N-day data using legacy krx_data_client")
-        return df.tail(days)
+        return df.tail(days).copy()
     except Exception as e:
         logger.error(f"Legacy krx_data_client failed for {ticker}: {e}")
         return pd.DataFrame()
@@ -325,6 +326,7 @@ TRIGGER_CRITERIA = {
     "거래량 급증 상위주": {"rr_target": 1.2, "sl_max": 0.05},
     "갭 상승 모멘텀 상위주": {"rr_target": 1.2, "sl_max": 0.05},
     "시총 대비 집중 자금 유입 상위주": {"rr_target": 1.3, "sl_max": 0.05},
+    "20일 신고가 눌림목 첫 양봉": {"rr_target": 1.2, "sl_max": 0.05},
     "default": {"rr_target": 1.5, "sl_max": 0.07}
 }
 
@@ -441,9 +443,6 @@ def calculate_agent_fit_metrics(ticker: str, current_price: float, trade_date: s
     # Query 60 days of data for Volume Profile and Pivot Point calculations
     multi_day_df = get_multi_day_ohlcv(ticker, trade_date, 60)
     
-    pivot_point = 0.0
-    is_pivot_valid = False
-    
     # 1. Pivot Point & Moving Average calculation based on trigger type
     pivot_point = 0.0
     is_pivot_valid = False
@@ -459,6 +458,9 @@ def calculate_agent_fit_metrics(ticker: str, current_price: float, trade_date: s
     elif trigger_type in ["거래량 급증 상위주", "시총 대비 집중 자금 유입 상위주"]:
         lookback = 10
         use_close_for_pivot = False
+    elif trigger_type == "20일 신고가 눌림목 첫 양봉":
+        lookback = 20
+        use_close_for_pivot = False
     else:
         lookback = 20
         use_close_for_pivot = False
@@ -468,7 +470,12 @@ def calculate_agent_fit_metrics(ticker: str, current_price: float, trade_date: s
     if not pivot_df.empty and len(pivot_df) >= 2:
         high_col = "High" if "High" in pivot_df.columns else "고가"
         close_col = "Close" if "Close" in pivot_df.columns else "종가"
-        past_df = pivot_df.iloc[:-1]
+        
+        last_date_str = pivot_df.index[-1].strftime('%Y%m%d') if hasattr(pivot_df.index[-1], 'strftime') else str(pivot_df.index[-1]).replace("-", "")[:8]
+        if last_date_str == trade_date:
+            past_df = pivot_df.iloc[:-1]
+        else:
+            past_df = pivot_df
 
         if not past_df.empty:
             target_col = close_col if use_close_for_pivot else high_col
@@ -487,15 +494,24 @@ def calculate_agent_fit_metrics(ticker: str, current_price: float, trade_date: s
     pivot_multiplier = 1.0 + (pivot_buffer_pct / 100.0)
 
     if pivot_point and pivot_point > 0:
-        if pivot_point <= current_price <= pivot_point * pivot_multiplier:
-            is_pivot_valid = True
+        if trigger_type == "20일 신고가 눌림목 첫 양봉":
+            # 눌림목은 20일 최고점 대비 일정 범위 아래에 위치하므로 하방 버퍼를 12%까지 넓게 둠
+            if pivot_point * 0.88 <= current_price <= pivot_point * pivot_multiplier:
+                is_pivot_valid = True
+        else:
+            if pivot_point <= current_price <= pivot_point * pivot_multiplier:
+                is_pivot_valid = True
 
     # 2. Moving Average (MA) filter: 5-day SMA check (excluding today)
     ma_df = multi_day_df.tail(6) if not multi_day_df.empty else pd.DataFrame()
     if not ma_df.empty and len(ma_df) >= 2:
         close_col = "Close" if "Close" in ma_df.columns else "종가"
         if close_col in ma_df.columns:
-            past_ma_df = ma_df.iloc[:-1].tail(5)
+            last_date_str = ma_df.index[-1].strftime('%Y%m%d') if hasattr(ma_df.index[-1], 'strftime') else str(ma_df.index[-1]).replace("-", "")[:8]
+            if last_date_str == trade_date:
+                past_ma_df = ma_df.iloc[:-1].tail(5)
+            else:
+                past_ma_df = ma_df.tail(5)
             if not past_ma_df.empty:
                 ma_value = float(past_ma_df[close_col].mean())
                 if current_price >= ma_value:
@@ -507,7 +523,7 @@ def calculate_agent_fit_metrics(ticker: str, current_price: float, trade_date: s
     else:
         is_ma_valid = True
 
-    # 2. Absolute trading value filter (minimum 5 billion KRW)
+    # 3. Absolute trading value filter (minimum 5 billion KRW)
     is_value_valid = False
     trade_value = 0.0
     if not multi_day_df.empty:
@@ -970,6 +986,137 @@ def trigger_morning_value_to_cap_ratio(trade_date: str, snapshot: pd.DataFrame, 
         logger.debug(f"Detailed error:\n{traceback.format_exc()}")
         return pd.DataFrame()
 
+
+def trigger_morning_pullback_from_high(trade_date: str, snapshot: pd.DataFrame, prev_snapshot: pd.DataFrame, cap_df: pd.DataFrame = None, top_n: int = 10) -> pd.DataFrame:
+    """
+    [Morning Trigger 4] Top 20-day high pullback first bull candle stocks
+    - Market cap 500B KRW or more, minimum trade value 10B KRW
+    - Daily bull candle (Close > Open) and change rate <= 15.0%
+    - Pullback check: D-1 Close is -3% ~ -12% compared to past 20-day High (excluding today)
+    - Rebound check: Today's close (9:10) is higher than D-1 Close
+    - Composite score: normalized pullback_ratio (60%) + normalized Amount (40%)
+    """
+    logger.debug("trigger_morning_pullback_from_high started")
+    common = snapshot.index.intersection(prev_snapshot.index)
+    snap = snapshot.loc[common].copy()
+    prev = prev_snapshot.loc[common].copy()
+
+    # Filter market cap data (500B KRW or more)
+    if cap_df is not None and not cap_df.empty:
+        snap = snap.merge(cap_df[["시가총액"]], left_index=True, right_index=True, how="inner")
+        snap = snap[snap["시가총액"] >= 500000000000]
+        logger.debug(f"Stock count after market cap filtering: {len(snap)}")
+        if snap.empty:
+            return pd.DataFrame()
+
+    # Apply absolute filters (minimum 10B KRW trade value)
+    snap = apply_absolute_filters(snap, min_value=10000000000)
+    if snap.empty:
+        return pd.DataFrame()
+
+    # Calculate change rates
+    common_after_filter = snap.index.intersection(prev.index)
+    snap = snap.loc[common_after_filter]
+    prev = prev.loc[common_after_filter]
+    snap["intraday_change_rate"] = (snap["Close"] / snap["Open"] - 1) * 100
+    snap["prev_day_change_rate"] = ((snap["Close"] - prev["Close"]) / prev["Close"]) * 100
+
+    # Filter for:
+    # 1. Bull candle today (Close > Open)
+    # 2. Today's close > D-1 close (price rebound)
+    # 3. Prevent overheating (change rate <= 15.0%)
+    snap = snap[
+        (snap["Close"] > snap["Open"]) &
+        (snap["prev_day_change_rate"] <= 15.0) &
+        (snap["Close"] > prev["Close"])
+    ]
+    if snap.empty:
+        logger.debug("No stocks meeting initial candle/gain rules for pullback trigger.")
+        return pd.DataFrame()
+
+    # Query 20-day data for each remaining candidate in parallel to verify pullback
+    tickers = list(snap.index)
+    valid_tickers = []
+    pullback_ratios = {}
+
+    def check_pullback(ticker):
+        try:
+            # Prevent rate-limiting with random jitter
+            time.sleep(random.uniform(0.05, 0.15))
+            # Fetch 21 days of data (including today, tail(20) of historical will be D-1 to D-20)
+            hist = get_multi_day_ohlcv(ticker, trade_date, days=21)
+            if hist.empty or len(hist) < 3:
+                return ticker, False, 0.0
+
+            # Exclude today (the last row) only if historical data contains today
+            last_date_str = hist.index[-1].strftime('%Y%m%d') if hasattr(hist.index[-1], 'strftime') else str(hist.index[-1]).replace("-", "")[:8]
+            if last_date_str == trade_date:
+                past_hist = hist.iloc[:-1].tail(20).copy()
+            else:
+                past_hist = hist.tail(20).copy()
+                
+            if past_hist.empty or len(past_hist) < 2:
+                return ticker, False, 0.0
+
+            high_col = "High" if "High" in past_hist.columns else "고가"
+            close_col = "Close" if "Close" in past_hist.columns else "종가"
+
+            high_20 = float(past_hist[high_col].max())
+            close_prev = float(past_hist[close_col].iloc[-1])
+
+            if high_20 <= 0 or close_prev <= 0:
+                return ticker, False, 0.0
+
+            # Calculate ratio of D-1 Close / 20-day High
+            ratio = close_prev / high_20
+            # Pullback range: -3% to -12% from high (i.e. ratio is 0.88 to 0.97)
+            if 0.88 <= ratio <= 0.97:
+                return ticker, True, ratio
+            return ticker, False, 0.0
+        except Exception as e:
+            logger.warning(f"Error checking pullback for {ticker}: {e}")
+            return ticker, False, 0.0
+
+    # Execute checks in parallel (max 5 threads for conservative API use)
+    with ThreadPoolExecutor(max_workers=min(len(tickers), 5)) as executor:
+        results = list(executor.map(check_pullback, tickers))
+
+    for ticker, is_valid, ratio in results:
+        if is_valid:
+            valid_tickers.append(ticker)
+            pullback_ratios[ticker] = ratio
+
+    if not valid_tickers:
+        logger.debug("No stocks met the 20-day high pullback criteria.")
+        return pd.DataFrame()
+
+    snap = snap.loc[valid_tickers].copy()
+    snap["pullback_ratio"] = snap.index.map(pullback_ratios)
+
+    # Normalize pullback_ratio (closer to 1.0 is better - shallower pullback) and Amount
+    col_max = snap["pullback_ratio"].max()
+    col_min = snap["pullback_ratio"].min()
+    col_range = col_max - col_min if col_max > col_min else 1
+    snap["pullback_ratio_norm"] = (snap["pullback_ratio"] - col_min) / col_range
+
+    amount_max = snap["Amount"].max()
+    amount_min = snap["Amount"].min()
+    amount_range = amount_max - amount_min if amount_max > amount_min else 1
+    snap["Amount_norm"] = (snap["Amount"] - amount_min) / amount_range
+
+    # Composite score
+    snap["composite_score"] = snap["pullback_ratio_norm"] * 0.6 + snap["Amount_norm"] * 0.4
+
+    scored_candidates = snap.sort_values("composite_score", ascending=False)
+
+    # Apply overheating filter (RSI)
+    filtered_result = apply_overheating_filter(scored_candidates, trade_date, snap, limit=10)
+
+    if filtered_result.empty:
+        return pd.DataFrame()
+
+    return enhance_dataframe(filtered_result)
+
 # --- Comprehensive selection function ---
 def select_final_tickers(triggers: dict, trade_date: str = None, use_hybrid: bool = True, lookback_days: int = 10) -> dict:
     """
@@ -1066,7 +1213,7 @@ def select_final_tickers(triggers: dict, trade_date: str = None, use_hybrid: boo
 
     # Select top 1 stock from each trigger
     for name, df in trigger_candidates.items():
-        if not df.empty and len(selected_tickers) < 3:
+        if not df.empty and len(selected_tickers) < 4:
             # Check sort column
             if score_column in df.columns:
                 sorted_df = df.sort_values(score_column, ascending=False)
@@ -1085,8 +1232,8 @@ def select_final_tickers(triggers: dict, trade_date: str = None, use_hybrid: boo
                     logger.info(f"[{name}] Final selection: {ticker}")
                     break
 
-    # 4. Add more by overall score if less than 3 (only for candidates meeting the criteria)
-    if len(selected_tickers) < 3:
+    # 4. Add more by overall score if less than 4 (only for candidates meeting the criteria)
+    if len(selected_tickers) < 4:
         # Sort all candidates by score
         all_candidates = []
         for name, df in trigger_candidates.items():
@@ -1104,7 +1251,7 @@ def select_final_tickers(triggers: dict, trade_date: str = None, use_hybrid: boo
         all_candidates.sort(key=lambda x: x[2], reverse=True)
 
         for trigger_name, ticker, _, ticker_df in all_candidates:
-            if ticker not in selected_tickers and len(selected_tickers) < 3:
+            if ticker not in selected_tickers and len(selected_tickers) < 4:
                 if trigger_name in final_result:
                     final_result[trigger_name] = pd.concat([final_result[trigger_name], ticker_df])
                 else:
@@ -1112,9 +1259,9 @@ def select_final_tickers(triggers: dict, trade_date: str = None, use_hybrid: boo
                 selected_tickers.add(ticker)
                 logger.info(f"[{trigger_name}] Additional selection: {ticker}")
 
-    # 5. Fallback selection using discarded candidates if less than 3
-    if len(selected_tickers) < 3 and discarded_candidates:
-        logger.info(f"Selected only {len(selected_tickers)} stocks. Performing fallback selection to reach target of 3...")
+    # 5. Fallback selection using discarded candidates if less than 4
+    if len(selected_tickers) < 4 and discarded_candidates:
+        logger.info(f"Selected only {len(selected_tickers)} stocks. Performing fallback selection to reach target of 4...")
         fallback_candidates = []
         for name, df in discarded_candidates:
             for ticker in df.index:
@@ -1125,7 +1272,7 @@ def select_final_tickers(triggers: dict, trade_date: str = None, use_hybrid: boo
         fallback_candidates.sort(key=lambda x: x[2], reverse=True)
 
         for trigger_name, ticker, _, ticker_df in fallback_candidates:
-            if ticker not in selected_tickers and len(selected_tickers) < 3:
+            if ticker not in selected_tickers and len(selected_tickers) < 4:
                 ticker_df = ticker_df.copy()
                 ticker_df["is_fallback"] = True
                 if trigger_name in final_result:
@@ -1184,7 +1331,13 @@ def run_batch(trigger_time: str = "morning", log_level: str = "INFO", output_fil
     res1 = trigger_morning_volume_surge(trade_date, snapshot, prev_snapshot, cap_df)
     res2 = trigger_morning_gap_up_momentum(trade_date, snapshot, prev_snapshot, cap_df)
     res3 = trigger_morning_value_to_cap_ratio(trade_date, snapshot, prev_snapshot, cap_df)
-    triggers = {"거래량 급증 상위주": res1, "갭 상승 모멘텀 상위주": res2, "시총 대비 집중 자금 유입 상위주": res3}
+    res4 = trigger_morning_pullback_from_high(trade_date, snapshot, prev_snapshot, cap_df)
+    triggers = {
+        "거래량 급증 상위주": res1,
+        "갭 상승 모멘텀 상위주": res2,
+        "시총 대비 집중 자금 유입 상위주": res3,
+        "20일 신고가 눌림목 첫 양봉": res4
+    }
 
     # Log results by trigger
     for name, df in triggers.items():
@@ -1228,11 +1381,13 @@ def run_batch(trigger_time: str = "morning", log_level: str = "INFO", output_fil
                     # Add trigger type specific data
                     if "volume_increase_rate" in stocks_df.columns and trigger_type == "거래량 급증 상위주":
                         stock_info["volume_increase"] = float(stocks_df.loc[ticker, "volume_increase_rate"])
-                    elif "gap_up_rate" in stocks_df.columns:
+                    elif "gap_up_rate" in stocks_df.columns and trigger_type == "갭 상승 모멘텀 상위주":
                         stock_info["gap_rate"] = float(stocks_df.loc[ticker, "gap_up_rate"])
-                    elif "trade_value_ratio" in stocks_df.columns:
+                    elif "trade_value_ratio" in stocks_df.columns and trigger_type == "시총 대비 집중 자금 유입 상위주":
                         stock_info["trade_value_ratio"] = float(stocks_df.loc[ticker, "trade_value_ratio"])
                         stock_info["market_cap"] = float(stocks_df.loc[ticker, "시가총액"])
+                    elif "pullback_ratio" in stocks_df.columns and trigger_type == "20일 신고가 눌림목 첫 양봉":
+                        stock_info["pullback_ratio"] = float(stocks_df.loc[ticker, "pullback_ratio"])
 
                     # Add agent score information (hybrid mode)
                     if "agent_fit_score" in stocks_df.columns:
