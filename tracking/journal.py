@@ -121,6 +121,208 @@ class JournalManager:
             logger.error(traceback.format_exc())
             return False
 
+    async def create_skip_entry(
+        self,
+        stock_data: Dict[str, Any],
+        tracking_data: Dict[str, Any],
+        trade_date: Optional[str] = None
+    ) -> bool:
+        """
+        Create trading journal entry for skipped stocks with retrospective analysis.
+
+        Args:
+            stock_data: Original stock analysis data including buy score, min score, etc.
+            tracking_data: Tracked price and yield information (7d, 14d, 30d)
+            trade_date: Optional specific trade date
+
+        Returns:
+            bool: True if journal entry was created successfully
+        """
+        if not self.enable_journal:
+            logger.debug("Trading journal is disabled")
+            return False
+
+        try:
+            from cores.agents.trading_journal_agent import create_trading_journal_agent
+            from mcp_agent.workflows.llm.augmented_llm import RequestParams
+            from mcp_agent.workflows.llm.augmented_llm_openai import OpenAIAugmentedLLM
+
+            ticker = stock_data.get('ticker', '')
+            company_name = stock_data.get('company_name', '')
+            buy_price = stock_data.get('buy_price') or stock_data.get('analyzed_price', 0)
+            buy_date = stock_data.get('buy_date') or stock_data.get('analyzed_date', '')
+            target_price = stock_data.get('target_price') or 0
+            stop_loss = stock_data.get('stop_loss') or 0
+            scenario_json = stock_data.get('scenario', '{}')
+
+            # Strict validation: Do not journal without valid original analysis context, target price, or stop loss
+            if not scenario_json or scenario_json == '{}' or scenario_json == 'None':
+                logger.warning(f"[{ticker}] Skipped stock journaling aborted: Missing original scenario JSON.")
+                return False
+            
+            if target_price <= 0 or stop_loss <= 0:
+                logger.warning(f"[{ticker}] Skipped stock journaling aborted: Invalid target_price ({target_price}) or stop_loss ({stop_loss}).")
+                return False
+
+            # Prevent duplicate skipped stock journals to avoid redundant LLM calls and DB records
+            self.cursor.execute(
+                "SELECT id FROM trading_journal WHERE ticker = ? AND buy_date = ? AND trade_type = 'skip'",
+                (ticker, buy_date)
+            )
+            if self.cursor.fetchone():
+                logger.info(f"Journal entry for skipped stock {ticker}({company_name}) on {buy_date} already exists. Skipping duplicate.")
+                return True
+
+            # Parse scenario if string
+            scenario_data = {}
+            if isinstance(scenario_json, str):
+                try:
+                    scenario_data = json.loads(scenario_json)
+                except:
+                    scenario_data = {}
+            elif isinstance(scenario_json, dict):
+                scenario_data = scenario_json
+                scenario_json = json.dumps(scenario_json, ensure_ascii=False)
+
+            logger.info(f"Creating skipped journal entry for {ticker}({company_name})")
+
+            # Create journal agent
+            journal_agent = create_trading_journal_agent(self.language)
+
+            async with journal_agent:
+                llm = await journal_agent.attach_llm(OpenAIAugmentedLLM)
+
+                prompt = self._build_skip_analysis_prompt(
+                    company_name, ticker, buy_price, buy_date,
+                    scenario_data, tracking_data, stock_data
+                )
+
+                response = await llm.generate_str(
+                    message=prompt,
+                    request_params=RequestParams(model="gpt-5.4-mini", reasoning_effort="none", maxTokens=16000)
+                )
+                logger.info(f"Journal agent response received for skipped stock: {len(response)} chars")
+
+            # Parse and save
+            journal_data = self._parse_response(response)
+            
+            # Use 30d tracking yield (represented in percent, e.g. 0.15 -> 15.0%)
+            profit_rate = tracking_data.get('tracked_30d_return', 0.0) * 100.0
+            sell_price = tracking_data.get('tracked_30d_price', 0.0)
+            skip_reason = stock_data.get('skip_reason', '') or stock_data.get('decision_reason', 'Low Score')
+
+            journal_id = self._save_to_database(
+                ticker=ticker,
+                company_name=company_name,
+                buy_price=buy_price,
+                buy_date=buy_date,
+                scenario_json=scenario_json,
+                scenario_data=scenario_data,
+                sell_price=sell_price,
+                sell_reason=skip_reason,
+                profit_rate=profit_rate,
+                holding_days=30,
+                journal_data=journal_data,
+                trade_date=trade_date,
+                trade_type='skip'
+            )
+
+            logger.info(f"Skipped journal entry created for {ticker}: {journal_data.get('one_line_summary', '')}")
+
+            # Extract principles
+            lessons = journal_data.get('lessons', [])
+            if lessons and journal_id > 0:
+                extracted_count = self.extract_principles(lessons, journal_id)
+                logger.info(f"Extracted {extracted_count} principles from skipped journal {journal_id}")
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Error creating skipped journal entry: {str(e)}")
+            logger.error(traceback.format_exc())
+            return False
+
+    def _build_skip_analysis_prompt(
+        self, company_name: str, ticker: str, buy_price: float, buy_date: str,
+        scenario_data: Dict, tracking_data: Dict, stock_data: Dict
+    ) -> str:
+        """Build prompt for retrospective analysis of skipped stock."""
+        buy_score = stock_data.get('buy_score', scenario_data.get('buy_score', 'N/A'))
+        min_score = stock_data.get('min_score', scenario_data.get('min_score', 'N/A'))
+        skip_reason = stock_data.get('skip_reason', '') or stock_data.get('decision_reason', 'Low Score')
+        target_price = stock_data.get('target_price') or scenario_data.get('target_price', 'N/A')
+        stop_loss = stock_data.get('stop_loss') or scenario_data.get('stop_loss', 'N/A')
+
+        r7 = tracking_data.get('tracked_7d_return', 0.0) * 100.0
+        r14 = tracking_data.get('tracked_14d_return', 0.0) * 100.0
+        r30 = tracking_data.get('tracked_30d_return', 0.0) * 100.0
+        p30 = tracking_data.get('tracked_30d_price', 0.0)
+
+        if self.language == "ko":
+            return f"""
+Please review the following skipped trade opportunity (this stock was analyzed but not purchased):
+
+## Analysis (Skipped) Information
+- Stock: {company_name}({ticker})
+- Analysis Price (Base): {buy_price:,.0f} KRW
+- Analysis Date: {buy_date}
+- Skip Reason: {skip_reason}
+- Scenario & Criteria:
+  - Buy Score: {buy_score}
+  - Min Required Score: {min_score}
+  - Target Price: {target_price} KRW
+  - Stop Loss: {stop_loss} KRW
+  - Rationale: {scenario_data.get('rationale', 'N/A')}
+  - Sector: {scenario_data.get('sector', 'N/A')}
+  - Market Condition: {scenario_data.get('market_condition', 'N/A')}
+
+## Post-Tracking Performance (30 Days)
+- Tracked 7d Return: {r7:+.2f}%
+- Tracked 14d Return: {r14:+.2f}%
+- Tracked 30d Return: {r30:+.2f}%
+- Final Tracked Price (30d): {p30:,.0f} KRW
+
+## Analysis Request
+1. Compare the analysis-time context with the subsequent 30-day price trend.
+2. Evaluate the decision to skip this purchase:
+   - If it went up (Missed Opportunity): Why did we skip it? Was the scoring algorithm too conservative? Did we fail to weigh key positive indicators?
+   - If it went down (Avoided Loss): Did our filters/criteria work correctly? What specific warning signals did we identify that saved us from losses?
+3. Extract lessons and actionable guidelines for future buy decision scoring.
+4. Assign pattern tags (e.g., "missed_rally", "correct_avoidance", "underpriced").
+"""
+        else:
+            return f"""
+Please review the following skipped trade opportunity (this stock was analyzed but not purchased):
+
+## Analysis (Skipped) Information
+- Stock: {company_name}({ticker})
+- Analysis Price (Base): {buy_price:,.0f} KRW
+- Analysis Date: {buy_date}
+- Skip Reason: {skip_reason}
+- Scenario & Criteria:
+  - Buy Score: {buy_score}
+  - Min Required Score: {min_score}
+  - Target Price: {target_price} KRW
+  - Stop Loss: {stop_loss} KRW
+  - Rationale: {scenario_data.get('rationale', 'N/A')}
+  - Sector: {scenario_data.get('sector', 'N/A')}
+  - Market Condition: {scenario_data.get('market_condition', 'N/A')}
+
+## Post-Tracking Performance (30 Days)
+- Tracked 7d Return: {r7:+.2f}%
+- Tracked 14d Return: {r14:+.2f}%
+- Tracked 30d Return: {r30:+.2f}%
+- Final Tracked Price (30d): {p30:,.0f} KRW
+
+## Analysis Request
+1. Compare the analysis-time context with the subsequent 30-day price trend.
+2. Evaluate the decision to skip this purchase:
+   - If it went up (Missed Opportunity): Why did we skip it? Was the scoring algorithm too conservative? Did we fail to weigh key positive indicators?
+   - If it went down (Avoided Loss): Did our filters/criteria work correctly? What specific warning signals did we identify that saved us from losses?
+3. Extract lessons and actionable guidelines for future buy decision scoring.
+4. Assign pattern tags (e.g., "missed_rally", "correct_avoidance", "underpriced").
+"""
+
     def _build_analysis_prompt(
         self, company_name: str, ticker: str, buy_price: float, buy_date: str,
         scenario_data: Dict, sell_price: float, profit_rate: float,
@@ -205,7 +407,7 @@ Please review the following completed trade:
         self, ticker: str, company_name: str, buy_price: float, buy_date: str,
         scenario_json: str, scenario_data: Dict, sell_price: float, sell_reason: str,
         profit_rate: float, holding_days: int, journal_data: Dict,
-        trade_date: Optional[str] = None
+        trade_date: Optional[str] = None, trade_type: str = 'sell'
     ) -> int:
         """Save journal entry to database."""
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -221,7 +423,7 @@ Please review the following completed trade:
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                ticker, company_name, actual_trade_date, 'sell',
+                ticker, company_name, actual_trade_date, trade_type,
                 buy_price, buy_date, scenario_json,
                 json.dumps(scenario_data.get('market_condition', ''), ensure_ascii=False),
                 sell_price, sell_reason, profit_rate, holding_days,

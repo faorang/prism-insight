@@ -55,14 +55,16 @@ class PerformanceTrackerBatch:
     # Tracking day thresholds
     TRACK_DAYS = [7, 14, 30]
 
-    def __init__(self, db_path: str = None, dry_run: bool = False):
+    def __init__(self, db_path: str = None, dry_run: bool = False, no_journal: bool = False):
         """
         Args:
             db_path: SQLite DB path
             dry_run: If True, test only without actual DB updates
+            no_journal: If True, disable skipped stocks journaling
         """
         self.db_path = db_path or str(DB_PATH)
         self.dry_run = dry_run
+        self.no_journal = no_journal
         self.today = datetime.now().strftime("%Y-%m-%d")
         self.today_yyyymmdd = datetime.now().strftime("%Y%m%d")
 
@@ -167,6 +169,67 @@ class PerformanceTrackerBatch:
             logger.error(f"[{ticker}] Price query failed: {e}")
             return None
 
+    def get_historical_price(self, ticker: str, target_date: str) -> Optional[float]:
+        """Query historical close price for a specific date
+        
+        Args:
+            ticker: Stock code
+            target_date: Target date string (YYYY-MM-DD)
+            
+        Returns:
+            Close price on target_date or nearest business day, or None
+        """
+        try:
+            import FinanceDataReader as fdr
+            # Query window around target_date to handle weekends/holidays
+            target = datetime.strptime(target_date, "%Y-%m-%d")
+            start_date = (target - timedelta(days=5)).strftime("%Y-%m-%d")
+            end_date = (target + timedelta(days=5)).strftime("%Y-%m-%d")
+            
+            df = fdr.DataReader(ticker, start_date, end_date)
+            if df is not None and not df.empty:
+                # Find nearest date to target
+                df.index = df.index.strftime("%Y-%m-%d")
+                
+                # Check if exact date exists
+                if target_date in df.index:
+                    return float(df.loc[target_date]['Close'])
+                
+                # If target date does not exist (holiday/weekend), get the closest preceding business day
+                preceding = [d for d in df.index if d <= target_date]
+                if preceding:
+                    closest_date = preceding[-1]
+                    return float(df.loc[closest_date]['Close'])
+                
+                # Fallback to the first available date
+                return float(df['Close'].iloc[0])
+        except Exception as e:
+            logger.debug(f"[{ticker}] FinanceDataReader historical query failed for {target_date}: {e}")
+
+        # Fallback to krx_data_client
+        if not KRX_AVAILABLE:
+            return None
+
+        try:
+            target = datetime.strptime(target_date, "%Y-%m-%d")
+            start_str = (target - timedelta(days=5)).strftime("%Y%m%d")
+            end_str = (target + timedelta(days=5)).strftime("%Y%m%d")
+            
+            df = get_market_ohlcv_by_date(start_str, end_str, ticker)
+            if df is not None and not df.empty:
+                close_col = 'Close' if 'Close' in df.columns else '종가'
+                # Find closest preceding date
+                df.index = df.index.strftime("%Y-%m-%d")
+                preceding = [d for d in df.index if d <= target_date]
+                if preceding:
+                    closest_date = preceding[-1]
+                    return float(df.loc[closest_date][close_col])
+                return float(df[close_col].iloc[0])
+        except Exception as e:
+            logger.error(f"[{ticker}] Historical price query failed for {target_date}: {e}")
+            
+        return None
+
     def calculate_days_elapsed(self, analyzed_date: str) -> int:
         """Calculate days elapsed since analysis date
 
@@ -219,26 +282,54 @@ class PerformanceTrackerBatch:
             Fields and values to update
         """
         updates = {}
-        return_rate = self.calculate_return(analyzed_price, current_price)
+        analyzed_date = record.get('analyzed_date')
+        ticker = record.get('ticker', '')
+        
+        if not analyzed_date:
+            logger.warning(f"[{ticker}] missing analyzed_date, skipping update")
+            return updates
+            
+        # Calculate target dates
+        date_only = analyzed_date.split(' ')[0] if ' ' in analyzed_date else analyzed_date
+        analyzed_dt = datetime.strptime(date_only, "%Y-%m-%d")
 
         # 7-day update (if not yet recorded and 7+ days elapsed)
         if days_elapsed >= 7 and record.get('tracked_7d_return') is None:
-            updates['tracked_7d_date'] = self.today
-            updates['tracked_7d_price'] = current_price
-            updates['tracked_7d_return'] = return_rate
+            target_date = (analyzed_dt + timedelta(days=7)).strftime("%Y-%m-%d")
+            price = self.get_historical_price(ticker, target_date)
+            # Fallback to current_price as a last resort if it is very close to the 7-day mark
+            if price is None and days_elapsed < 10:
+                price = current_price
+                
+            if price is not None:
+                updates['tracked_7d_date'] = target_date
+                updates['tracked_7d_price'] = price
+                updates['tracked_7d_return'] = self.calculate_return(analyzed_price, price)
 
         # 14-day update (if not yet recorded and 14+ days elapsed)
         if days_elapsed >= 14 and record.get('tracked_14d_return') is None:
-            updates['tracked_14d_date'] = self.today
-            updates['tracked_14d_price'] = current_price
-            updates['tracked_14d_return'] = return_rate
+            target_date = (analyzed_dt + timedelta(days=14)).strftime("%Y-%m-%d")
+            price = self.get_historical_price(ticker, target_date)
+            if price is None and days_elapsed < 17:
+                price = current_price
+                
+            if price is not None:
+                updates['tracked_14d_date'] = target_date
+                updates['tracked_14d_price'] = price
+                updates['tracked_14d_return'] = self.calculate_return(analyzed_price, price)
 
         # 30-day update (if not yet recorded and 30+ days elapsed)
         if days_elapsed >= 30 and record.get('tracked_30d_return') is None:
-            updates['tracked_30d_date'] = self.today
-            updates['tracked_30d_price'] = current_price
-            updates['tracked_30d_return'] = return_rate
-            updates['tracking_status'] = 'completed'
+            target_date = (analyzed_dt + timedelta(days=30)).strftime("%Y-%m-%d")
+            price = self.get_historical_price(ticker, target_date)
+            if price is None:
+                price = current_price
+                
+            if price is not None:
+                updates['tracked_30d_date'] = target_date
+                updates['tracked_30d_price'] = price
+                updates['tracked_30d_return'] = self.calculate_return(analyzed_price, price)
+                updates['tracking_status'] = 'completed'
         elif days_elapsed >= 7 and record.get('tracking_status') == 'pending':
             updates['tracking_status'] = 'in_progress'
 
@@ -313,6 +404,9 @@ class PerformanceTrackerBatch:
             logger.info("No stocks to track.")
             return stats
 
+        # Collect pending journals to process at the end
+        pending_skip_journals = []
+
         # Process each stock
         for record in targets:
             ticker = record['ticker']
@@ -379,6 +473,55 @@ class PerformanceTrackerBatch:
                 # Count completed
                 if updates.get('tracking_status') == 'completed':
                     stats['completed'] += 1
+                    
+                    # If this was a skipped stock, check smart filters for journaling
+                    if not was_traded:
+                        buy_score = record.get('buy_score') or 0
+                        min_score = record.get('min_score') or 0
+                        target_price = record.get('target_price') or 0
+                        skip_reason = record.get('skip_reason') or ''
+                        
+                        ret_7d = updates.get('tracked_7d_return') if 'tracked_7d_return' in updates else record['tracked_7d_return']
+                        ret_14d = updates.get('tracked_14d_return') if 'tracked_14d_return' in updates else record['tracked_14d_return']
+                        ret_30d = updates.get('tracked_30d_return') if 'tracked_30d_return' in updates else record['tracked_30d_return']
+                        p_30d = updates.get('tracked_30d_price') if 'tracked_30d_price' in updates else record['tracked_30d_price']
+                        
+                        ret_7d = ret_7d if ret_7d is not None else 0.0
+                        ret_14d = ret_14d if ret_14d is not None else 0.0
+                        ret_30d = ret_30d if ret_30d is not None else 0.0
+                        
+                        # Max tracked price check
+                        max_tracked_price = max(
+                            record['analyzed_price'] or 0,
+                            updates.get('tracked_7d_price') or record['tracked_7d_price'] or 0,
+                            updates.get('tracked_14d_price') or record['tracked_14d_price'] or 0,
+                            p_30d or 0
+                        )
+                        
+                        matched_conditions = []
+                        
+                        # 1. Missed Trend: 7d, 14d, 30d all positive and max reached >= target_price
+                        if ret_7d > 0 and ret_14d > 0 and ret_30d > 0 and (target_price > 0 and max_tracked_price >= target_price):
+                            matched_conditions.append("Missed Trend")
+                            
+                        # 2. Near-Miss: buy_score >= min_score * 0.9 and 30d return >= 15%
+                        if min_score > 0 and buy_score >= min_score * 0.9 and ret_30d >= 0.15:
+                            matched_conditions.append("Near-Miss")
+                            
+                        # 3. No-Slot Omission: skip_reason is slot limit and 30d return >= 10%
+                        is_slot_reason = any(k in skip_reason.lower() for k in ['maximum', 'slot', 'full', '슬롯'])
+                        if is_slot_reason and ret_30d >= 0.10:
+                            matched_conditions.append("No-Slot Omission")
+                            
+                        if matched_conditions:
+                            logger.info(f"[{ticker}] {company_name} matched skipped journaling filters: {matched_conditions}")
+                            pending_skip_journals.append((record, {
+                                'tracked_7d_return': ret_7d,
+                                'tracked_14d_return': ret_14d,
+                                'tracked_30d_return': ret_30d,
+                                'tracked_30d_price': p_30d,
+                                'matched_conditions': matched_conditions
+                            }))
             else:
                 stats['errors'] += 1
 
@@ -391,7 +534,104 @@ class PerformanceTrackerBatch:
                    f"Watched: {stats['by_decision']['watched']}")
         logger.info("="*60)
 
+        # Process pending journals asynchronously
+        if pending_skip_journals and not self.dry_run and not self.no_journal:
+            import asyncio
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    loop.create_task(self.process_skip_journals(pending_skip_journals))
+                else:
+                    loop.run_until_complete(self.process_skip_journals(pending_skip_journals))
+            except RuntimeError:
+                asyncio.run(self.process_skip_journals(pending_skip_journals))
+
         return stats
+
+    async def process_skip_journals(self, pending_journals: List[Tuple[Dict[str, Any], Dict[str, Any]]]):
+        """Create skip journals asynchronously"""
+        if not pending_journals:
+            return
+            
+        logger.info(f"Processing {len(pending_journals)} skipped stock journals asynchronously...")
+        
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        try:
+            sys.path.append(str(PROJECT_ROOT))
+            from tracking.journal import JournalManager
+            
+            enable_journal = os.getenv("ENABLE_JOURNAL", "True").lower() == "true"
+            language = os.getenv("LANGUAGE", "ko")
+            
+            journal_manager = JournalManager(
+                cursor=cursor,
+                conn=conn,
+                language=language,
+                enable_journal=enable_journal
+            )
+            
+            import asyncio
+            tasks = []
+            for record, tracking_data in pending_journals:
+                ticker = record['ticker']
+                target_price = record.get('target_price') or 0
+                stop_loss = record.get('stop_loss') or 0
+                
+                # Pre-check prices
+                if target_price <= 0 or stop_loss <= 0:
+                    logger.warning(f"[{ticker}] Skipping retrospective journal: Missing or invalid target_price ({target_price}) or stop_loss ({stop_loss})")
+                    continue
+
+                scenario_json = '{}'
+                try:
+                    wl_row = conn.execute(
+                        "SELECT scenario FROM watchlist_history WHERE ticker = ? ORDER BY analyzed_date DESC LIMIT 1",
+                        (ticker,)
+                    ).fetchone()
+                    if wl_row and wl_row['scenario']:
+                        scenario_json = wl_row['scenario']
+                except Exception as db_err:
+                    logger.debug(f"Failed to fetch scenario from watchlist_history for {ticker}: {db_err}")
+                
+                # Pre-check scenario JSON presence
+                if not scenario_json or scenario_json == '{}' or scenario_json == 'None':
+                    logger.warning(f"[{ticker}] Skipping retrospective journal: Missing original scenario JSON in watchlist_history")
+                    continue
+
+                stock_data = {
+                    'ticker': ticker,
+                    'company_name': record['company_name'],
+                    'buy_price': record['analyzed_price'],
+                    'buy_date': record['analyzed_date'],
+                    'scenario': scenario_json,
+                    'buy_score': record['buy_score'],
+                    'min_score': record['min_score'],
+                    'skip_reason': record['skip_reason'],
+                    'target_price': target_price,
+                    'stop_loss': stop_loss
+                }
+                
+                tasks.append(journal_manager.create_skip_entry(
+                    stock_data=stock_data,
+                    tracking_data=tracking_data,
+                    trade_date=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                ))
+                
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for i, result in enumerate(results):
+                ticker = pending_journals[i][0]['ticker']
+                if isinstance(result, Exception):
+                    logger.error(f"Error processing journal for {ticker}: {result}")
+                elif result:
+                    logger.info(f"Journal successfully processed for {ticker}")
+                else:
+                    logger.warning(f"Journal failed or disabled for {ticker}")
+                    
+        finally:
+            conn.close()
 
     def generate_report(self) -> str:
         """Generate tracking status report
@@ -560,7 +800,8 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-    python performance_tracker_batch.py              # Update all tracking
+    python performance_tracker_batch.py              # Update all tracking (with journaling)
+    python performance_tracker_batch.py --no-journal  # Update all tracking (without journaling)
     python performance_tracker_batch.py --dry-run    # Test mode
     python performance_tracker_batch.py --report     # Print status report only
         """
@@ -576,6 +817,11 @@ Examples:
         help="Print current tracking status report"
     )
     parser.add_argument(
+        "--no-journal",
+        action="store_true",
+        help="Disable skipped stocks retrospective journaling"
+    )
+    parser.add_argument(
         "--db",
         type=str,
         default=None,
@@ -584,7 +830,7 @@ Examples:
 
     args = parser.parse_args()
 
-    tracker = PerformanceTrackerBatch(db_path=args.db, dry_run=args.dry_run)
+    tracker = PerformanceTrackerBatch(db_path=args.db, dry_run=args.dry_run, no_journal=args.no_journal)
 
     if args.report:
         # Print report only

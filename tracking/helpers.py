@@ -59,6 +59,25 @@ async def get_current_stock_price(cursor, ticker: str) -> float:
     Returns:
         float: Current stock price
     """
+    # Try FinanceDataReader first to fetch adjusted prices and handle corporate actions (splits/mergers)
+    try:
+        import FinanceDataReader as fdr
+        import datetime
+        
+        today_dt = datetime.datetime.now()
+        start_date = (today_dt - datetime.timedelta(days=10)).strftime("%Y-%m-%d")
+        end_date = today_dt.strftime("%Y-%m-%d")
+        
+        # Explicitly prefix with 'NAVER:' to avoid FinanceDataReader falls back to Yahoo for 6-digit Korean stock tickers
+        df = fdr.DataReader(f"NAVER:{ticker}", start_date, end_date)
+        if df is not None and not df.empty:
+            current_price = float(df['Close'].iloc[-1])
+            logger.info(f"[{ticker}] Current price fetched via FinanceDataReader (NAVER): {current_price:,.0f} KRW")
+            return current_price
+    except Exception as e:
+        logger.debug(f"[{ticker}] FinanceDataReader query failed in helpers: {e}")
+
+    # Fallback to krx_data_client
     try:
         from krx_data_client import get_nearest_business_day_in_a_week, get_market_ohlcv_by_ticker
         import datetime
