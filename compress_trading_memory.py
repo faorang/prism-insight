@@ -63,6 +63,73 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def _log_journal_influence_stats(cursor, table: str = "trading_history", days: int = 90) -> None:
+    """Measure whether journal-influenced buys outperformed non-influenced ones (#280).
+
+    Reads completed trades, inspects the persisted buy-scenario JSON for
+    ``journal_reflection.referenced`` / ``score_adjustment``, and logs comparative
+    outcomes. Purely observational — never mutates data. A trade counts as
+    "influenced" when the buy decision recorded that journal context materially
+    informed it (referenced=true) or an experience-based score adjustment was applied.
+    """
+    try:
+        cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+        cursor.execute(
+            f"SELECT scenario, profit_rate FROM {table} WHERE sell_date >= ?",
+            (cutoff,),
+        )
+        rows = cursor.fetchall()
+    except Exception as e:
+        logger.warning(f"Journal influence stats query failed ({table}): {e}")
+        return
+
+    influenced, non_influenced = [], []
+    for row in rows:
+        try:
+            # Robust extraction of columns supporting both sqlite3.Row and tuple
+            if hasattr(row, 'keys'):
+                profit = float(row["profit_rate"])
+                scenario_raw = row["scenario"]
+            else:
+                scenario_raw = row[0]
+                profit = float(row[1])
+        except (TypeError, ValueError, KeyError, IndexError):
+            continue
+
+        is_influenced = False
+        if scenario_raw:
+            try:
+                sc = json.loads(scenario_raw) if isinstance(scenario_raw, str) else scenario_raw
+                if isinstance(sc, dict):
+                    jr = sc.get("journal_reflection") or {}
+                    sadj = sc.get("score_adjustment") or {}
+                    if (isinstance(jr, dict) and jr.get("referenced")) or \
+                       (isinstance(sadj, dict) and sadj.get("value")):
+                        is_influenced = True
+            except Exception:
+                pass
+        (influenced if is_influenced else non_influenced).append(profit)
+
+    def _avg(xs):
+        return sum(xs) / len(xs) if xs else 0.0
+
+    def _winrate(xs):
+        return (sum(1 for x in xs if x > 0) / len(xs) * 100) if xs else 0.0
+
+    logger.info(f"\n📒 Journal Influence on Outcomes (last {days} days, {table}):")
+    logger.info(
+        f"  Influenced buys : {len(influenced):3d} | avg {_avg(influenced):+.2f}% | win {_winrate(influenced):.0f}%"
+    )
+    logger.info(
+        f"  Non-influenced  : {len(non_influenced):3d} | avg {_avg(non_influenced):+.2f}% | win {_winrate(non_influenced):.0f}%"
+    )
+    if not influenced:
+        logger.info(
+            "  (journal_reflection is recorded only on trades opened after this feature shipped — "
+            "the influenced bucket fills in as new trades close)"
+        )
+
+
 async def run_compression(
     db_path: str = "stock_tracking_db.sqlite",
     layer1_age_days: int = 7,
@@ -174,6 +241,15 @@ async def run_compression(
                 }
             }
 
+        # 누적 코퍼스 기반 직관 재추출(#intuition-stall): 압축 skip 여부와 무관하게 항상 실행.
+        # (압축은 신규 항목이 없으면 skip 되지만, 직관은 최근 누적 저널에서 매 실행 갱신돼야 함)
+        try:
+            refresh = await agent.compression_manager.refresh_intuitions()
+            logger.info(f"💡 Intuitions Refreshed (corpus): generated={refresh.get('intuitions_generated', 0)} "
+                        f"corpus={refresh.get('corpus', 0)} extracted={refresh.get('extracted', 0)}")
+        except Exception as _re:
+            logger.warning(f"Intuition refresh skipped: {_re}")
+
         # Check minimum entries requirement
         effective_min = 1 if force else min_entries
         if layer1_count < effective_min and layer2_count < effective_min:
@@ -265,6 +341,9 @@ async def run_compression(
             logger.info(f"  Active Intuitions: {active_intuitions}")
         else:
             logger.info("\n⏭️  Cleanup skipped (--skip-cleanup)")
+
+        # Observability: did journal-grounded decisions actually lead to better outcomes?
+        _log_journal_influence_stats(agent.cursor, table="trading_history")
 
         agent.conn.close()
 

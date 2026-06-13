@@ -471,9 +471,14 @@ class TestCompression:
         count = agent.cursor.fetchone()[0]
         assert count == 1
 
-        agent.cursor.execute("SELECT supporting_trades FROM trading_intuitions")
+        agent.cursor.execute("SELECT supporting_trades, source_journal_ids FROM trading_intuitions")
         updated = agent.cursor.fetchone()
         assert updated['supporting_trades'] > 3  # Should be increased
+        
+        # Verify source journal IDs are merged (1, 2, and 3 are present)
+        import json
+        saved_source_ids = json.loads(updated['source_journal_ids'])
+        assert set(saved_source_ids) == {1, 2, 3}
 
         agent.conn.close()
 
@@ -566,6 +571,33 @@ class TestCompression:
         assert result['compressed_entries'][0]['compressed_summary'] == "테스트 압축 요약"
         assert len(result['new_intuitions']) == 1
         assert result['new_intuitions'][0]['confidence'] == 0.8
+
+        agent.conn.close()
+
+    @pytest.mark.asyncio
+    async def test_refresh_intuitions_insufficient_corpus(self):
+        """Test refresh_intuitions returns insufficient_corpus when there are not enough entries"""
+        agent = StockTrackingAgent(db_path=self.db_path, enable_journal=True)
+        agent.trading_agent = MagicMock()
+        await agent.initialize(language="ko")
+
+        # Insert only 2 entries (less than min_entries=5)
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        for i in range(2):
+            agent.cursor.execute("""
+                INSERT INTO trading_journal
+                (ticker, company_name, trade_date, trade_type,
+                 profit_rate, one_line_summary, compression_layer, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                f"00593{i}", f"Test Stock{i}", now, "sell",
+                5.0, f"Test summary {i}", 1, now
+            ))
+        agent.conn.commit()
+
+        results = await agent.compression_manager.refresh_intuitions(min_entries=5)
+        assert results.get("reason") == "insufficient_corpus"
+        assert results.get("corpus") == 2
 
         agent.conn.close()
 

@@ -226,6 +226,79 @@ class CompressionManager:
             logger.error(f"Error in Layer 3 compression: {e}")
             return {"processed": len(entries), "compressed": 0, "intuitions_generated": 0, "errors": [str(e)]}
 
+    async def refresh_intuitions(self, window_days: int = 90, limit: int = 40,
+                                 min_entries: int = 5) -> Dict[str, Any]:
+        """누적 코퍼스 기반 직관 재추출.
+
+        기존 layer2→3 압축은 '30일 지난 소량 배치'만 LLM에 먹여 '2회 이상 반복 패턴'
+        조건이 거의 안 맞아 직관 생성이 멈추는 문제를 해결하기 위해, 최근 window_days
+        저널을 한 번에 LLM에 주입하여 직관을 생성/갱신한다.
+        """
+        results = {"intuitions_generated": 0, "corpus": 0, "extracted": 0, "errors": []}
+        if not self.enable_journal:
+            results["skipped"] = True
+            return results
+        try:
+            from cores.agents.memory_compressor_agent import create_memory_compressor_agent
+            from mcp_agent.workflows.llm.augmented_llm import RequestParams
+            from mcp_agent.workflows.llm.augmented_llm_openai import OpenAIAugmentedLLM
+
+            cutoff = (datetime.now() - timedelta(days=window_days)).strftime("%Y-%m-%d")
+            self.cursor.execute("""
+                SELECT id, ticker, company_name, trade_date, profit_rate,
+                       COALESCE(compressed_summary, one_line_summary) AS compressed_summary,
+                       pattern_tags, buy_scenario
+                FROM trading_journal
+                WHERE trade_date >= ?
+                ORDER BY trade_date DESC
+                LIMIT ?
+            """, (cutoff, limit))
+            
+            raw_entries = self.cursor.fetchall()
+            entries = []
+            for row in raw_entries:
+                if hasattr(row, 'keys'):
+                    entries.append(dict(row))
+                else:
+                    entries.append(dict(zip([d[0] for d in self.cursor.description], row)))
+            
+            results["corpus"] = len(entries)
+            if len(entries) < min_entries:
+                results["reason"] = "insufficient_corpus"
+                return results
+
+            compressor_agent = create_memory_compressor_agent(self.language)
+            async with compressor_agent:
+                llm = await compressor_agent.attach_llm(OpenAIAugmentedLLM)
+                entries_text = self._format_entries_for_intuition(entries)
+                prompt = self._build_layer3_prompt(entries_text, len(entries))
+                response = await llm.generate_str(
+                    message=prompt,
+                    request_params=RequestParams(
+                        model="gpt-5.2", 
+                        maxTokens=8000,
+                        metadata={
+                            "service_tier": "flex",
+                        }
+                    )
+                )
+            data = self._parse_response(response)
+            new_intuitions = data.get('new_intuitions', [])
+            logger.info(f"[refresh_intuitions] extracted {len(new_intuitions)} intuitions "
+                        f"(keys={list(data.keys())})")
+            results["extracted"] = len(new_intuitions)
+            source_ids = [e['id'] for e in entries]
+            for intuition in new_intuitions:
+                if self._save_intuition(intuition, source_ids):
+                    results["intuitions_generated"] += 1
+            self.conn.commit()
+            return results
+        except Exception as e:
+            logger.error(f"Error in intuition refresh: {e}")
+            logger.error(traceback.format_exc())
+            results["errors"].append(str(e))
+            return results
+
     def _fetch_hindsight_prices(self, entries: List[Dict[str, Any]]) -> Dict[str, float]:
         """Fetch current prices for tickers to add hindsight context during compression.
 
@@ -413,12 +486,25 @@ Respond in JSON.
             now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
             self.cursor.execute("""
-                SELECT id FROM trading_intuitions
+                SELECT id, source_journal_ids FROM trading_intuitions
                 WHERE condition = ? AND insight = ?
             """, (intuition.get('condition', ''), intuition.get('insight', '')))
 
             existing = self.cursor.fetchone()
             if existing:
+                existing_id = existing[0]
+                existing_source_ids_raw = existing[1]
+
+                # Merge source journal IDs robustly
+                merged_ids_set = set(source_ids)
+                if existing_source_ids_raw:
+                    try:
+                        existing_source_ids = json.loads(existing_source_ids_raw)
+                        if isinstance(existing_source_ids, list):
+                            merged_ids_set.update(int(x) for x in existing_source_ids if str(x).isdigit())
+                    except Exception:
+                        pass
+
                 self.cursor.execute("""
                     UPDATE trading_intuitions
                     SET supporting_trades = supporting_trades + ?,
@@ -431,8 +517,8 @@ Respond in JSON.
                     intuition.get('supporting_trades', 1),
                     intuition.get('confidence', 0.5),
                     intuition.get('success_rate', 0.5),
-                    json.dumps(source_ids),
-                    now, existing[0]
+                    json.dumps(sorted(list(merged_ids_set))),
+                    now, existing_id
                 ))
             else:
                 self.cursor.execute("""

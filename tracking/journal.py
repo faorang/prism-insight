@@ -683,13 +683,20 @@ Please review the following completed trade:
                 ORDER BY trade_date DESC LIMIT 3
             """, (ticker,))
 
-            for entry in self.cursor.fetchall():
+            for raw_entry in self.cursor.fetchall():
+                # Safe type conversion to dict (works for sqlite3.Row/dict, falls back to zip for tuples)
+                if hasattr(raw_entry, 'keys'):
+                    entry = dict(raw_entry)
+                else:
+                    entry = dict(zip([d[0] for d in self.cursor.description], raw_entry))
+
                 if not context_parts or context_parts[-1] != "#### Same Stock Trade History":
                     context_parts.append("#### Same Stock Trade History")
 
                 lessons_str = ""
                 try:
-                    lessons = json.loads(entry[5]) if entry[5] else []
+                    lessons_json = entry.get('lessons')
+                    lessons = json.loads(lessons_json) if lessons_json else []
                     if lessons:
                         lessons_str = " / Lessons: " + ", ".join(
                             [l.get('action', '') for l in lessons[:2] if isinstance(l, dict)]
@@ -697,19 +704,33 @@ Please review the following completed trade:
                 except:
                     pass
 
-                profit_emoji = "✅" if entry[2] > 0 else "❌"
+                profit_emoji = "✅" if entry.get('profit_rate', 0.0) > 0 else "❌"
+                recency_tag = ""
+                try:
+                    trade_date_str = entry.get('trade_date')
+                    if trade_date_str:
+                        exit_date = datetime.strptime(trade_date_str[:10], "%Y-%m-%d")
+                        days_since = (datetime.now() - exit_date).days
+                        if days_since <= 7:
+                            recency_tag = f" ⚠️ {days_since}일 전 매도 — 추격 재진입 신중 검토"
+                        else:
+                            recency_tag = f" ({days_since}일 전)"
+                except Exception:
+                    pass
+
                 context_parts.append(
-                    f"- [{entry[7][:10]}] {profit_emoji} Return {entry[2]:.1f}% "
-                    f"(held {entry[3]} days) - {entry[4]}{lessons_str}"
+                    f"- [{entry.get('trade_date', '')[:10]}] {profit_emoji} Return {entry.get('profit_rate', 0.0):.1f}% "
+                    f"(held {entry.get('holding_days', 0)} days) - {entry.get('one_line_summary', '')}{lessons_str}{recency_tag}"
                 )
 
                 # Enrich with sell context so the buy LLM understands WHY the stock was exited
-                sell_reason = entry[8] or ""
+                sell_reason = entry.get('sell_reason') or ""
                 if sell_reason:
                     context_parts.append(f"  - 매도 사유: {sell_reason}")
 
                 try:
-                    situation = json.loads(entry[9]) if entry[9] else {}
+                    sit_analysis_json = entry.get('situation_analysis')
+                    situation = json.loads(sit_analysis_json) if sit_analysis_json else {}
                     sell_ctx = situation.get("sell_context_summary", "")
                     if sell_ctx:
                         context_parts.append(f"  - 매도 시 상황: {sell_ctx}")
@@ -721,7 +742,8 @@ Please review the following completed trade:
                     pass
 
                 try:
-                    judgment = json.loads(entry[10]) if entry[10] else {}
+                    judg_eval_json = entry.get('judgment_evaluation')
+                    judgment = json.loads(judg_eval_json) if judg_eval_json else {}
                     sell_quality_reason = judgment.get("sell_quality_reason", "")
                     if sell_quality_reason:
                         context_parts.append(f"  - 매도 판단: {sell_quality_reason}")
