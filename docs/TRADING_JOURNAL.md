@@ -362,22 +362,13 @@ stats = journal_manager._get_performance_tracker_stats(trigger_type="intraday_su
 context = journal_manager.get_context_for_ticker(ticker, sector, trigger_type)
 # → "This trigger (intraday_surge): Win rate 72% (n=15), 30d avg return +3.2%"
 
-# 3. Score 조정 제안 계산
+# 3. Score 보정 계산 (Python-side)
 adjustment, reasons = journal_manager.get_score_adjustment(ticker, sector, trigger_type)
-# → (2, ["trigger win rate 72% above 65% threshold"])
+# → (-1.0, ["동일 종목 과거 평균 손실 우려 (-10.0%)"])
 
-# 4. _extract_trading_scenario에서 LLM 프롬프트에 주입
-prompt = f"""
-### Current Portfolio Status:
-{portfolio_info}
-### Trading Value Analysis:
-{rank_change_msg}
-{score_adjustment_info}    ← Score 조정 제안
-{journal_context}          ← 트리거 승률 + 과거 경험
-
-### Report Content:
-{report_content}
-"""
+# 4. 파이썬 단에서 최종 점수 산출 및 의사결정 오버라이드
+final_score = max(1.0, min(10.0, base_score + adjustment))
+# 만약 final_score < min_score 이면 decision = "Skip"으로 파이썬 단에서 강제 전환하여 연산 신뢰성 보장
 ```
 
 ### 기억 계층과 프롬프트 주입의 관계
@@ -389,7 +380,7 @@ Layer 1 (상세 복기)  ──압축──→  Layer 2 (요약) ──압축─
        │                              │                          │
        ▼                              ▼                          ▼
   Same Stock History          Universal Principles        Trading Intuitions
-  (동일 종목 과거 거래)       (보편적 매매 원칙)         (축적된 직관)
+  (동일 종목 또는 섹터 Fallback) (보편적 매매 원칙)         (축적된 직관 필터링)
        │                              │                          │
        └──────────────────────────────┼──────────────────────────┘
                                       ▼
@@ -399,24 +390,24 @@ Layer 1 (상세 복기)  ──압축──→  Layer 2 (요약) ──압축─
                          로 LLM 프롬프트에 주입
 ```
 
-- **Same Stock History**: Layer 1에서 직접 조회 — 동일 종목의 최근 3건 거래(수익률, 보유일, 교훈)
+- **Same Stock History**: Layer 1에서 직접 조회 — 동일 종목의 최근 3건 거래(수익률, 보유일, 교훈). 동일 종목의 이력이 **0건일 경우, 동일 섹터 내 손익 극단값 1건을 Fallback으로 주입**하여 데이터 기아 예방.
 - **Universal Principles**: Layer 2→3 압축 과정에서 추출된 보편 원칙 (scope='universal')
-- **Trading Intuitions**: Layer 3에서 축적된 패턴 인식 (카테고리별 조건→인사이트)
+- **Trading Intuitions**: Layer 3에서 축적된 패턴 인식. 프롬프트 오염을 막기 위해 **현재 섹터/트리거 매치 직관 + 보편 직관을 합산하여 총 3개**만 제한 주입.
 
 이들은 Performance Tracker 통계(트리거 승률, 순위)와 함께 하나의 context 문자열로 합쳐져 `_extract_trading_scenario`의 LLM 프롬프트에 주입됩니다.
 
-### LLM에 주입되는 정보 (v2.3.0)
+### LLM에 주입되는 정보 (하이브리드 점수제)
 
 | 항목 | 기억 출처 | 내용 | 매수 결정 영향 |
 |------|----------|------|---------------|
 | **Trigger Win Rate** | Performance Tracker | 현재 트리거 유형의 과거 승률 (n>=3) | 높으면 장려, 낮으면 억제 |
 | **Trigger Ranking** | Performance Tracker | 전체 트리거 유형 성과 순위 (상위 5개) | 상대적 위치 참고 |
-| **Score Adjustment** | Performance Tracker + Journal | 경험 기반 점수 조정 제안 (-3 ~ +3) | LLM 참고 (강제 아님) |
-| **Same Stock History** | Layer 1 (단기기억) | 동일 종목 최근 3건 거래 결과 및 교훈 | 실수 반복 방지 |
+| **Score Adjustment** | Performance Tracker + Journal | 경험 기반 점수 조정 (-1.5 ~ +1.0) | **파이썬 단에서 하이브리드로 합산 및 강제 적용** (Clamping [1.0, 10.0]) |
+| **Same Stock History / Fallback** | Layer 1 (단기기억) | 동일 종목 최근 3건(혹은 동일 섹터 1건) 거래 결과 및 교훈 | 실수 반복 방지 및 지식 전이 |
 | **Universal Principles** | Layer 2→3 (중기→장기기억) | 전체 매매에서 추출된 보편적 원칙 (supporting_trades>=2, 상위 5개) | 일반적 의사결정 보조 |
-| **Trading Intuitions** | Layer 3 (장기기억) | 축적된 패턴 인식 (조건→인사이트) | 경험적 직관 참고 |
+| **Trading Intuitions** | Layer 3 (장기기억) | 축적된 패턴 인식 (도메인 맞춤형 + 범용 합산 3개 제한) | 경험적 직관 참고 |
 
-> **v2.3.0 변경사항**: `missed_opportunities`(놓친 기회)와 `traded_vs_watched`(매수 vs 관망 비교)는 개별 매수 판단에 무관한 시스템 메트릭으로, FOMO 유발 및 판단 편향 위험이 있어 제거되었습니다. Universal Principles는 `supporting_trades >= 2` 필터로 검증된 원칙만 주입하며, 상위 5개로 제한됩니다.
+> **하이브리드 개선사항**: 기존 LLM 프롬프트 내에 점수 조정 가이드를 텍스트로 밀어 넣던 방식을 폐지하고, 파이썬 코드단에서 정량 통계에 기반하여 직접 가감산을 수행하고 최종 `min_score` 게이트 판단을 오버라이드하도록 아키텍처가 개선되었습니다. 이로 인해 LLM 연산 불안정성이 완벽히 해소되었습니다.
 
 ### 예상 시나리오별 효과
 

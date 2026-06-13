@@ -261,7 +261,8 @@ class StockTrackingAgent:
 
             # Get trading journal context for informed decisions
             journal_context = ""
-            score_adjustment_info = ""
+            adjustment = 0.0
+            reasons = []
             if ticker:
                 journal_context = self._get_relevant_journal_context(
                     ticker=ticker,
@@ -269,23 +270,8 @@ class StockTrackingAgent:
                     market_condition=None,
                     trigger_type=trigger_type
                 )
-                # Get score adjustment suggestion
+                # Get score adjustment for Python-side decision logic
                 adjustment, reasons = self._get_score_adjustment_from_context(ticker, sector, trigger_type)
-                if adjustment != 0 or reasons:
-                    if self.language == "ko":
-                        score_adjustment_info = f"""
-                ### 📊 Score Adjustment Suggestion (Experience-Based)
-                - Recommended Adjustment: {'+' if adjustment > 0 else ''}{adjustment} points
-                - Reason: {', '.join(reasons) if reasons else 'N/A'}
-                - ⚠️ This adjustment is a reference based on past experience.
-                """
-                    else:
-                        score_adjustment_info = f"""
-                ### 📊 Score Adjustment Suggestion (Experience-Based)
-                - Recommended Adjustment: {'+' if adjustment > 0 else ''}{adjustment} points
-                - Reason: {', '.join(reasons) if reasons else 'N/A'}
-                - ⚠️ This adjustment is a reference based on past experience.
-                """
 
             # LLM call to generate trading scenario
             llm = await self.trading_agent.attach_llm(OpenAIAugmentedLLM)
@@ -311,12 +297,14 @@ class StockTrackingAgent:
                 prompt_message = f"""
                 This is an AI analysis report for a stock. Please generate a trading scenario based on this report.
 
+                [중요 지침]
+                - 출력 스키마의 'buy_score' 및 'effective_score'는 과거 매매 기록 통계 보정이 배제된 순수한 현재 보고서 및 모멘텀 분석 기준의 기본 점수(Base Score, 1.0~10.0)로만 산출하십시오. 과거 통계에 의한 최종 보정 연산은 파이썬 시스템 단에서 사후 처리되므로, AI가 임의로 미리 보정하지 않아야 합니다.
+
                 ### Current Portfolio Status:
                 {portfolio_info}
                 {trigger_info_section}
                 ### Trading Value Analysis:
                 {rank_change_msg}
-                {score_adjustment_info}
                 {journal_context}
 
                 ### Report Content:
@@ -326,12 +314,14 @@ class StockTrackingAgent:
                 prompt_message = f"""
                 This is an AI analysis report for a stock. Please generate a trading scenario based on this report.
 
+                [Important Directive]
+                - The 'buy_score' (and 'effective_score') in your output must reflect a pure qualitative Base Score (1.0 to 10.0 scale) based solely on current analysis and momentum, without incorporating any past performance stats or adjustments. Final statistical scaling will be mathematically processed on the Python code side.
+
                 ### Current Portfolio Status:
                 {portfolio_info}
                 {trigger_info_section}
                 ### Trading Value Analysis:
                 {rank_change_msg}
-                {score_adjustment_info}
                 {journal_context}
 
                 ### Report Content:
@@ -353,6 +343,31 @@ class StockTrackingAgent:
             # TODO: Create model and call generate_structured function to improve code maintainability
             scenario_json = parse_llm_json(response, context='trading scenario')
             if scenario_json is not None:
+                # Apply hybrid scoring calculation and decision override in Python
+                try:
+                    base_score = float(scenario_json.get("effective_score") or scenario_json.get("buy_score") or 0.0)
+                    min_score = float(scenario_json.get("min_score") or 5.0)
+                    
+                    # Compute final score and clamp to 10-point scale limits [1.0, 10.0]
+                    final_score = round(max(1.0, min(10.0, base_score + adjustment)), 2)
+                    
+                    # Store score details inside the scenario JSON
+                    scenario_json["buy_score_original"] = scenario_json.get("buy_score", 0.0)
+                    scenario_json["effective_score_original"] = scenario_json.get("effective_score", 0.0)
+                    scenario_json["buy_score"] = final_score
+                    scenario_json["effective_score"] = final_score
+                    scenario_json["score_adjustment"] = adjustment
+                    scenario_json["score_adjustment_reasons"] = reasons
+                    
+                    # Overrule decision if the resulting score doesn't reach the required minimum threshold
+                    decision = self._normalize_decision(scenario_json.get("decision", "No entry"))
+                    if decision == "Enter" and final_score < min_score:
+                        scenario_json["decision"] = "Skip"
+                        scenario_json["rejection_reason"] = f"Insufficient final score ({final_score} < {min_score}) [Base: {base_score}, Adj: {adjustment:+.2f}]"
+                        logger.info(f"[{ticker}] Python Hybrid Scoring overridden decision from Enter to Skip. Final Score: {final_score} < Min Score: {min_score}")
+                except Exception as ex:
+                    logger.warning(f"Hybrid scoring calculation failed: {ex}")
+
                 logger.info(f"Scenario parsed: {json.dumps(scenario_json, ensure_ascii=False)}")
                 return scenario_json
 

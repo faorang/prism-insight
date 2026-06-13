@@ -654,120 +654,196 @@ Please review the following completed trade:
         return parts
 
     def get_context_for_ticker(self, ticker: str, sector: str = None, trigger_type: str = None) -> str:
-        """Retrieve relevant trading journal context for buy decisions."""
+        """Retrieve relevant trading journal context for buy decisions.
+        
+        Optimized to load lightweight columns, fetch identical ticker records first,
+        and fallback to 1 extreme profit/loss record from the same sector if empty.
+        Additionally, dynamically filters and injects matched intuitions up to 3.
+        """
         if not self.enable_journal:
             return ""
 
         try:
             context_parts = []
 
-            # Performance tracker stats (ground truth data, no LLM cost)
+            # 1. Performance tracker stats (ground truth data, no LLM cost)
             perf_stats = self.get_performance_tracker_stats(trigger_type)
             perf_context = self._format_performance_context(perf_stats)
             if perf_context:
                 context_parts.extend(perf_context)
 
-            # Universal principles
+            # 2. Universal principles (top 5 verified ones)
             principles = self.get_universal_principles()
             if principles:
                 context_parts.append("#### 🎯 Core Trading Principles (Applied to All Trades)")
                 context_parts.extend(principles)
                 context_parts.append("")
 
-            # Same stock history
+            # 3. Same stock history & Sector fallback
+            retrieved_entries = []
+
+            # 1순위: 동일 종목 이력 조회 (최신 3건)
             self.cursor.execute("""
                 SELECT ticker, company_name, profit_rate, holding_days,
                        one_line_summary, lessons, pattern_tags, trade_date,
-                       sell_reason, situation_analysis, judgment_evaluation
+                       sell_reason, situation_analysis, judgment_evaluation, trade_type
                 FROM trading_journal WHERE ticker = ?
                 ORDER BY trade_date DESC LIMIT 3
             """, (ticker,))
 
             for raw_entry in self.cursor.fetchall():
-                # Safe type conversion to dict (works for sqlite3.Row/dict, falls back to zip for tuples)
                 if hasattr(raw_entry, 'keys'):
                     entry = dict(raw_entry)
                 else:
                     entry = dict(zip([d[0] for d in self.cursor.description], raw_entry))
+                entry['is_fallback'] = False
+                retrieved_entries.append(entry)
 
-                if not context_parts or context_parts[-1] != "#### Same Stock Trade History":
-                    context_parts.append("#### Same Stock Trade History")
+            # 2순위: 동일 종목 이력이 전혀 없을 때(0건)만 동일 섹터 타 종목 극단값 1건 로드
+            if not retrieved_entries and sector and sector != "Unknown":
+                self.cursor.execute("""
+                    SELECT ticker, company_name, profit_rate, holding_days,
+                           one_line_summary, lessons, pattern_tags, trade_date,
+                           sell_reason, situation_analysis, judgment_evaluation, trade_type
+                    FROM trading_journal 
+                    WHERE ticker != ? AND buy_scenario LIKE ?
+                    ORDER BY ABS(profit_rate) DESC LIMIT 1
+                """, (ticker, f'%"{sector}"%'))
+                
+                for raw_entry in self.cursor.fetchall():
+                    if hasattr(raw_entry, 'keys'):
+                        entry = dict(raw_entry)
+                    else:
+                        entry = dict(zip([d[0] for d in self.cursor.description], raw_entry))
+                    entry['is_fallback'] = True
+                    retrieved_entries.append(entry)
 
-                lessons_str = ""
-                try:
-                    lessons_json = entry.get('lessons')
-                    lessons = json.loads(lessons_json) if lessons_json else []
-                    if lessons:
-                        lessons_str = " / Lessons: " + ", ".join(
-                            [l.get('action', '') for l in lessons[:2] if isinstance(l, dict)]
+            # 이력 마크다운 빌드
+            if retrieved_entries:
+                context_parts.append("#### 📜 Past Trading History References")
+                for entry in retrieved_entries:
+                    if entry.get('is_fallback'):
+                        # Fallback 전용 상세 규격 포맷팅
+                        trade_date_str = entry.get('trade_date', '')[:10]
+                        sell_reason = entry.get('sell_reason') or "N/A"
+                        
+                        judgment_evaluation_str = "N/A"
+                        if entry.get('judgment_evaluation'):
+                            try:
+                                je = json.loads(entry['judgment_evaluation']) if isinstance(entry['judgment_evaluation'], str) else entry['judgment_evaluation']
+                                if isinstance(je, dict):
+                                    sell_quality = je.get("sell_quality_reason") or je.get("sell_quality") or ""
+                                    missed = je.get("missed_signals", [])
+                                    missed_str = f" / 놓친 신호: {', '.join(missed)}" if missed else ""
+                                    if sell_quality or missed_str:
+                                        judgment_evaluation_str = f"{sell_quality}{missed_str}"
+                            except:
+                                pass
+
+                        context_parts.append(
+                            f"[주의: 아래 기록은 현재 분석 종목의 데이터가 아닌, '동일 섹터 타 종목'의 과거 매매 참고 데이터입니다.]\n"
+                            f"- 원천 종목: {entry.get('company_name', 'Unknown')} ({entry.get('ticker', 'N/A')})\n"
+                            f"- 매매 일자: {trade_date_str}\n"
+                            f"- 당시 결과: {entry.get('profit_rate', 0.0):+.1f}% (매도/제외사유: {sell_reason})\n"
+                            f"- 복기 내용: {judgment_evaluation_str}"
                         )
-                except:
-                    pass
+                    else:
+                        # 동일 종목 이력 기본 포맷팅
+                        prefix = "[동일 종목 이력]"
+                        profit_emoji = "✅" if entry.get('profit_rate', 0.0) > 0 else "❌"
+                        
+                        lessons_str = ""
+                        try:
+                            lessons_json = entry.get('lessons')
+                            lessons = json.loads(lessons_json) if lessons_json else []
+                            if lessons:
+                                lessons_str = " / Lessons: " + ", ".join(
+                                    [l.get('action', '') for l in lessons[:2] if isinstance(l, dict)]
+                                )
+                        except:
+                            pass
 
-                profit_emoji = "✅" if entry.get('profit_rate', 0.0) > 0 else "❌"
-                recency_tag = ""
-                try:
-                    trade_date_str = entry.get('trade_date')
-                    if trade_date_str:
-                        exit_date = datetime.strptime(trade_date_str[:10], "%Y-%m-%d")
-                        days_since = (datetime.now() - exit_date).days
-                        if days_since <= 7:
-                            recency_tag = f" ⚠️ {days_since}일 전 매도 — 추격 재진입 신중 검토"
-                        else:
-                            recency_tag = f" ({days_since}일 전)"
-                except Exception:
-                    pass
+                        recency_tag = ""
+                        try:
+                            trade_date_str = entry.get('trade_date')
+                            if trade_date_str:
+                                exit_date = datetime.strptime(trade_date_str[:10], "%Y-%m-%d")
+                                days_since = (datetime.now() - exit_date).days
+                                if days_since <= 7:
+                                    recency_tag = f" ⚠️ {days_since}일 전 매도 — 추격 재진입 신중 검토"
+                                else:
+                                    recency_tag = f" ({days_since}일 전)"
+                        except Exception:
+                            pass
 
-                context_parts.append(
-                    f"- [{entry.get('trade_date', '')[:10]}] {profit_emoji} Return {entry.get('profit_rate', 0.0):.1f}% "
-                    f"(held {entry.get('holding_days', 0)} days) - {entry.get('one_line_summary', '')}{lessons_str}{recency_tag}"
-                )
+                        context_parts.append(
+                            f"- {prefix} {profit_emoji} Return {entry.get('profit_rate', 0.0):.1f}% "
+                            f"(held {entry.get('holding_days', 0)} days) - {entry.get('one_line_summary', '')}{lessons_str}{recency_tag}"
+                        )
 
-                # Enrich with sell context so the buy LLM understands WHY the stock was exited
-                sell_reason = entry.get('sell_reason') or ""
-                if sell_reason:
-                    context_parts.append(f"  - 매도 사유: {sell_reason}")
+                        sell_reason = entry.get('sell_reason') or ""
+                        if sell_reason:
+                            context_parts.append(f"  - 매도/제외 사유: {sell_reason}")
 
-                try:
-                    sit_analysis_json = entry.get('situation_analysis')
-                    situation = json.loads(sit_analysis_json) if sit_analysis_json else {}
-                    sell_ctx = situation.get("sell_context_summary", "")
-                    if sell_ctx:
-                        context_parts.append(f"  - 매도 시 상황: {sell_ctx}")
-                    key_changes = situation.get("key_changes", [])
-                    if key_changes:
-                        changes_str = " / ".join(str(c) for c in key_changes[:3])
-                        context_parts.append(f"  - 핵심 변화: {changes_str}")
-                except Exception:
-                    pass
+                        try:
+                            sit_analysis_json = entry.get('situation_analysis')
+                            situation = json.loads(sit_analysis_json) if sit_analysis_json else {}
+                            sell_ctx = situation.get("sell_context_summary", "")
+                            if sell_ctx:
+                                context_parts.append(f"  - 매도 시 상황: {sell_ctx}")
+                            key_changes = situation.get("key_changes", [])
+                            if key_changes:
+                                changes_str = " / ".join(str(c) for c in key_changes[:3])
+                                context_parts.append(f"  - 핵심 변화: {changes_str}")
+                        except Exception:
+                            pass
 
-                try:
-                    judg_eval_json = entry.get('judgment_evaluation')
-                    judgment = json.loads(judg_eval_json) if judg_eval_json else {}
-                    sell_quality_reason = judgment.get("sell_quality_reason", "")
-                    if sell_quality_reason:
-                        context_parts.append(f"  - 매도 판단: {sell_quality_reason}")
-                    missed = judgment.get("missed_signals", [])
-                    if missed:
-                        missed_str = " / ".join(str(m) for m in missed[:2])
-                        context_parts.append(f"  - 놓친 신호: {missed_str}")
-                except Exception:
-                    pass
+                        try:
+                            judg_eval_json = entry.get('judgment_evaluation')
+                            judgment = json.loads(judg_eval_json) if judg_eval_json else {}
+                            sell_quality_reason = judgment.get("sell_quality_reason", "")
+                            if sell_quality_reason:
+                                context_parts.append(f"  - 매도 판단: {sell_quality_reason}")
+                            missed = judgment.get("missed_signals", [])
+                            if missed:
+                                missed_str = " / ".join(str(m) for m in missed[:2])
+                                context_parts.append(f"  - 놓친 신호: {missed_str}")
+                        except Exception:
+                            pass
 
-            if context_parts and context_parts[-1].startswith("-"):
                 context_parts.append("")
 
-            # Intuitions
-            self.cursor.execute("""
-                SELECT category, condition, insight, confidence
-                FROM trading_intuitions WHERE is_active = 1
-                ORDER BY confidence DESC LIMIT 10
-            """)
+            # 4. 장기 직관 필터링 (최대 3개 조합: 매칭 2개 + 범용 1~2개)
+            matched_intuitions = []
+            
+            # 1단계: 카테고리 매칭 직관 조회 (섹터 또는 트리거 타입)
+            if sector or trigger_type:
+                self.cursor.execute("""
+                    SELECT category, condition, insight, confidence
+                    FROM trading_intuitions 
+                    WHERE is_active = 1 AND (category = ? OR category = ?)
+                    ORDER BY confidence DESC LIMIT 3
+                """, (sector or "", trigger_type or ""))
+                
+                for row in self.cursor.fetchall():
+                    matched_intuitions.append(row)
 
-            intuitions = self.cursor.fetchall()
-            if intuitions:
+            # 2단계: 부족분을 범용 직관으로 보완하여 합산 3개 유지
+            needed = 3 - len(matched_intuitions)
+            if needed > 0:
+                self.cursor.execute("""
+                    SELECT category, condition, insight, confidence
+                    FROM trading_intuitions 
+                    WHERE is_active = 1 AND category NOT IN (?, ?)
+                    ORDER BY confidence DESC LIMIT ?
+                """, (sector or "", trigger_type or "", needed))
+                
+                for row in self.cursor.fetchall():
+                    matched_intuitions.append(row)
+
+            if matched_intuitions:
                 context_parts.append("#### Accumulated Trading Intuitions")
-                for i in intuitions:
+                for i in matched_intuitions:
                     confidence_bar = "●" * int(i[3] * 5) + "○" * (5 - int(i[3] * 5))
                     context_parts.append(
                         f"- [{i[0]}] {i[1]} → {i[2]} (Confidence: {confidence_bar})"
@@ -815,13 +891,16 @@ Please review the following completed trade:
             logger.warning(f"Failed to get universal principles: {e}")
             return []
 
-    def get_score_adjustment(self, ticker: str, sector: str = None, trigger_type: str = None) -> Tuple[int, List[str]]:
-        """Calculate score adjustment based on past experiences and performance tracker data."""
+    def get_score_adjustment(self, ticker: str, sector: str = None, trigger_type: str = None) -> Tuple[float, List[str]]:
+        """Calculate deterministic score adjustment based on past experiences.
+        
+        Controls Python-side scoring weight limits between -1.5 and +1.0 points (10-point scale).
+        """
         try:
-            adjustment = 0
+            adjustment = 0.0
             reasons = []
 
-            # Same stock history (from journal)
+            # 1. Same stock history (from journal)
             self.cursor.execute("""
                 SELECT profit_rate FROM trading_journal
                 WHERE ticker = ? ORDER BY trade_date DESC LIMIT 3
@@ -829,15 +908,16 @@ Please review the following completed trade:
 
             same_stock = self.cursor.fetchall()
             if same_stock:
-                avg_profit = sum(s[0] for s in same_stock) / len(same_stock)
-                if avg_profit < -5:
-                    adjustment -= 1
-                    reasons.append(f"Same stock historical avg loss {avg_profit:.1f}%")
-                elif avg_profit > 10:
-                    adjustment += 1
-                    reasons.append(f"Same stock historical avg profit {avg_profit:.1f}%")
+                rates = [s[0] for s in same_stock]
+                avg_profit = sum(rates) / len(rates)
+                if avg_profit < -5.0:
+                    adjustment -= 1.0
+                    reasons.append(f"동일 종목 과거 평균 손실 우려 ({avg_profit:.1f}%)")
+                elif avg_profit > 10.0:
+                    adjustment += 0.5
+                    reasons.append(f"동일 종목 과거 평균 수익 호조 ({avg_profit:.1f}%)")
 
-            # Sector performance (from journal)
+            # 2. Sector performance (from journal)
             if sector and sector != "Unknown":
                 self.cursor.execute("""
                     SELECT AVG(profit_rate), COUNT(*)
@@ -846,33 +926,33 @@ Please review the following completed trade:
 
                 sector_stats = self.cursor.fetchone()
                 if sector_stats and sector_stats[1] >= 3:
-                    if sector_stats[0] < -3:
-                        adjustment -= 1
-                        reasons.append(f"{sector} sector avg loss {sector_stats[0]:.1f}%")
-                    elif sector_stats[0] > 5:
-                        adjustment += 1
-                        reasons.append(f"{sector} sector avg profit {sector_stats[0]:.1f}%")
+                    avg_sec = sector_stats[0]
+                    if avg_sec < -3.0:
+                        adjustment -= 0.5
+                        reasons.append(f"{sector} 섹터 평균 손실 ({avg_sec:.1f}%)")
+                    elif avg_sec > 5.0:
+                        adjustment += 0.3
+                        reasons.append(f"{sector} 섹터 평균 수익 ({avg_sec:.1f}%)")
 
-            # Trigger type performance (from performance_tracker - ground truth)
+            # 3. Trigger type performance (from performance_tracker - ground truth)
             if trigger_type:
                 perf_stats = self.get_performance_tracker_stats(trigger_type)
                 if 'current_trigger' in perf_stats:
                     t = perf_stats['current_trigger']
                     if t['total'] >= 5:  # Require minimum sample size
                         if t['win_rate'] < 0.35:
-                            adjustment -= 1
+                            adjustment -= 1.0
                             reasons.append(
-                                f"Trigger '{trigger_type}' low win rate "
-                                f"{t['win_rate']*100:.0f}% (n={t['total']}, actual 30d data)"
+                                f"트리거 '{trigger_type}' 승률 저조 {t['win_rate']*100:.0f}% (n={t['total']})"
                             )
                         elif t['win_rate'] > 0.65:
-                            adjustment += 1
+                            adjustment += 0.5
                             reasons.append(
-                                f"Trigger '{trigger_type}' high win rate "
-                                f"{t['win_rate']*100:.0f}% (n={t['total']}, actual 30d data)"
+                                f"트리거 '{trigger_type}' 승률 우수 {t['win_rate']*100:.0f}% (n={t['total']})"
                             )
 
-            return max(-3, min(3, adjustment)), reasons
+            # 보정 한계치 제어 [-1.5, +1.0] (10점 만점 척도 기준)
+            return round(max(-1.5, min(1.0, adjustment)), 2), reasons
 
         except Exception as e:
             logger.warning(f"Failed to calculate score adjustment: {e}")

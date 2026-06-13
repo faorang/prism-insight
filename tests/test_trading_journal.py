@@ -181,7 +181,89 @@ class TestJournalContext:
         # Context format: includes profit rate, holding days, and summary
         assert "profit" in context.lower() or "7.1" in context, "Context should contain profit info"
         assert "surge" in context.lower() or "partial" in context.lower(), "Context should contain summary"
-        assert "same stock" in context.lower() or "동일 종목" in context, "Context should have same stock section"
+        assert "same stock" in context.lower() or "동일 종목" in context or "past trading" in context.lower(), "Context should have same stock section"
+
+        agent.conn.close()
+
+    @pytest.mark.asyncio
+    async def test_context_sector_fallback(self):
+        """Test context retrieval fallback to sector extreme case when ticker is not found"""
+        agent = StockTrackingAgent(db_path=self.db_path, enable_journal=True)
+        agent.trading_agent = MagicMock()
+        await agent.initialize(language="ko")
+
+        # Insert Kakao (other ticker) in the "IT" sector
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        agent.cursor.execute("""
+            INSERT INTO trading_journal
+            (ticker, company_name, trade_date, trade_type,
+             buy_price, buy_date, buy_scenario, sell_price,
+             sell_reason, profit_rate, holding_days,
+             situation_analysis, judgment_evaluation, lessons, pattern_tags,
+             one_line_summary, confidence_score, compression_layer, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            "035720", "Kakao", now, "sell",
+            50000, now, '{"sector": "IT", "buy_score": 7}', 40000,
+            "Stop loss", -20.0, 15,
+            '{}', '{}', '[]', '[]',
+            "IT sector failure case",
+            0.5, 1, now
+        ))
+        agent.conn.commit()
+
+        # Get context for Naver ("035420") which has no history, but in "IT" sector
+        context = agent._get_relevant_journal_context(
+            ticker="035420",
+            sector="IT"
+        )
+
+        assert "Kakao" in context or "카카오" in context, "Should fallback to Kakao's record"
+        assert "-20.0" in context, "Should output the fallback profit rate"
+        assert "sector" in context.lower() or "섹터" in context, "Should denote it is a sector fallback"
+
+        agent.conn.close()
+
+    @pytest.mark.asyncio
+    async def test_context_intuition_hybrid_filtering(self):
+        """Test intuition hybrid filtering loading maximum of 3 matched & universal intuitions"""
+        agent = StockTrackingAgent(db_path=self.db_path, enable_journal=True)
+        agent.trading_agent = MagicMock()
+        await agent.initialize(language="ko")
+
+        # Insert 2 domain-matched intuitions (IT) and 2 universal intuitions
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # IT intuitions
+        for idx in range(2):
+            agent.cursor.execute("""
+                INSERT INTO trading_intuitions
+                (category, condition, insight, confidence, created_at, is_active)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, ("IT", f"IT조건{idx}", f"IT인사이트{idx}", 0.8 - idx * 0.1, now, 1))
+            
+        # Universal (other) intuitions
+        for idx in range(2):
+            agent.cursor.execute("""
+                INSERT INTO trading_intuitions
+                (category, condition, insight, confidence, created_at, is_active)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, ("Universal", f"범용조건{idx}", f"범용인사이트{idx}", 0.7 - idx * 0.1, now, 1))
+            
+        agent.conn.commit()
+
+        # Get context for Naver in "IT" sector
+        context = agent._get_relevant_journal_context(
+            ticker="035420",
+            sector="IT"
+        )
+
+        # Matched intuitions (IT) should be present
+        assert "IT조건0" in context
+        assert "IT인사이트0" in context
+        # Check that total loaded is 3 (2 IT + 1 Universal fallback)
+        assert "범용조건0" in context
+        assert "범용조건1" not in context, "Only 3 intuitions total should be loaded"
 
         agent.conn.close()
 
@@ -280,6 +362,54 @@ class TestScoreAdjustment:
 
         assert adjustment > 0, "Should have positive adjustment for gains"
         assert len(reasons) > 0, "Should have reasons for adjustment"
+
+        agent.conn.close()
+
+    @pytest.mark.asyncio
+    async def test_deterministic_score_adjustment_scaling(self):
+        """Test deterministic score adjustment scaling within [-1.5, +1.0] float bounds"""
+        agent = StockTrackingAgent(db_path=self.db_path)
+        agent.trading_agent = MagicMock()
+        await agent.initialize(language="ko")
+
+        # 1. Negative adjustment checks (Losses)
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        for i in range(3):
+            agent.cursor.execute("""
+                INSERT INTO trading_journal
+                (ticker, company_name, trade_date, trade_type,
+                 profit_rate, one_line_summary, compression_layer, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, ("005930", "Samsung Electronics", now, "sell", -10.0, "Loss case", 1, now))
+        agent.conn.commit()
+
+        adjustment, reasons = agent._get_score_adjustment_from_context(
+            ticker="005930",
+            sector="Semiconductor"
+        )
+        
+        # Under new 10-point scale: same stock loss = -1.0
+        assert adjustment == -1.0
+        assert "동일 종목" in reasons[0]
+
+        # 2. Add bad sector average: profit_rate = -5.0
+        for i in range(3):
+            agent.cursor.execute("""
+                INSERT INTO trading_journal
+                (ticker, company_name, trade_date, trade_type, buy_scenario,
+                 profit_rate, one_line_summary, compression_layer, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, ("000660", "Hynix", now, "sell", '{"sector": "Semiconductor"}', -5.0, "Loss case", 1, now))
+        agent.conn.commit()
+
+        adjustment, reasons = agent._get_score_adjustment_from_context(
+            ticker="005930",
+            sector="Semiconductor"
+        )
+        
+        # same stock (-1.0) + sector (-0.5) = -1.5 (max limit clamp check)
+        assert adjustment == -1.5
+        assert len(reasons) == 2
 
         agent.conn.close()
 
