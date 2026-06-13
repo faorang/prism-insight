@@ -372,7 +372,7 @@ class PerformanceTrackerBatch:
         finally:
             conn.close()
 
-    def run(self) -> Dict[str, Any]:
+    async def run(self) -> Dict[str, Any]:
         """Execute batch
 
         Returns:
@@ -536,15 +536,7 @@ class PerformanceTrackerBatch:
 
         # Process pending journals asynchronously
         if pending_skip_journals and not self.dry_run and not self.no_journal:
-            import asyncio
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    loop.create_task(self.process_skip_journals(pending_skip_journals))
-                else:
-                    loop.run_until_complete(self.process_skip_journals(pending_skip_journals))
-            except RuntimeError:
-                asyncio.run(self.process_skip_journals(pending_skip_journals))
+            await self.process_skip_journals(pending_skip_journals)
 
         return stats
 
@@ -838,7 +830,8 @@ Examples:
         print(report)
     else:
         # Execute batch
-        stats = tracker.run()
+        import asyncio
+        stats = asyncio.run(tracker.run())
 
         # Also print result report
         print("\n")

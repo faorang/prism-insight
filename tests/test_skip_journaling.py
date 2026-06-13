@@ -298,7 +298,7 @@ class TestSmartFilterMatching:
         batch.get_current_price = MagicMock(side_effect=side_effect_price)
 
         # Run the batch
-        batch.run()
+        await batch.run()
         
         # Verify that process_skip_journals was called with the correct targets
         assert batch.process_skip_journals.call_count == 1

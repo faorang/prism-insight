@@ -78,7 +78,7 @@ class JournalManager:
             if isinstance(scenario_json, str):
                 try:
                     scenario_data = json.loads(scenario_json)
-                except:
+                except (json.JSONDecodeError, TypeError):
                     scenario_data = {}
 
             # Create journal agent
@@ -178,7 +178,7 @@ class JournalManager:
             if isinstance(scenario_json, str):
                 try:
                     scenario_data = json.loads(scenario_json)
-                except:
+                except (json.JSONDecodeError, TypeError):
                     scenario_data = {}
             elif isinstance(scenario_json, dict):
                 scenario_data = scenario_json
@@ -258,40 +258,8 @@ class JournalManager:
         r30 = tracking_data.get('tracked_30d_return', 0.0) * 100.0
         p30 = tracking_data.get('tracked_30d_price', 0.0)
 
-        if self.language == "ko":
-            return f"""
-Please review the following skipped trade opportunity (this stock was analyzed but not purchased):
-
-## Analysis (Skipped) Information
-- Stock: {company_name}({ticker})
-- Analysis Price (Base): {buy_price:,.0f} KRW
-- Analysis Date: {buy_date}
-- Skip Reason: {skip_reason}
-- Scenario & Criteria:
-  - Buy Score: {buy_score}
-  - Min Required Score: {min_score}
-  - Target Price: {target_price} KRW
-  - Stop Loss: {stop_loss} KRW
-  - Rationale: {scenario_data.get('rationale', 'N/A')}
-  - Sector: {scenario_data.get('sector', 'N/A')}
-  - Market Condition: {scenario_data.get('market_condition', 'N/A')}
-
-## Post-Tracking Performance (30 Days)
-- Tracked 7d Return: {r7:+.2f}%
-- Tracked 14d Return: {r14:+.2f}%
-- Tracked 30d Return: {r30:+.2f}%
-- Final Tracked Price (30d): {p30:,.0f} KRW
-
-## Analysis Request
-1. Compare the analysis-time context with the subsequent 30-day price trend.
-2. Evaluate the decision to skip this purchase:
-   - If it went up (Missed Opportunity): Why did we skip it? Was the scoring algorithm too conservative? Did we fail to weigh key positive indicators?
-   - If it went down (Avoided Loss): Did our filters/criteria work correctly? What specific warning signals did we identify that saved us from losses?
-3. Extract lessons and actionable guidelines for future buy decision scoring.
-4. Assign pattern tags (e.g., "missed_rally", "correct_avoidance", "underpriced").
-"""
-        else:
-            return f"""
+        # Note: We use English templates for LLM prompt consistency, regardless of target language.
+        return f"""
 Please review the following skipped trade opportunity (this stock was analyzed but not purchased):
 
 ## Analysis (Skipped) Information
@@ -737,7 +705,7 @@ Please review the following completed trade:
                                     missed_str = f" / 놓친 신호: {', '.join(missed)}" if missed else ""
                                     if sell_quality or missed_str:
                                         judgment_evaluation_str = f"{sell_quality}{missed_str}"
-                            except:
+                            except Exception:
                                 pass
 
                         context_parts.append(
@@ -760,7 +728,7 @@ Please review the following completed trade:
                                 lessons_str = " / Lessons: " + ", ".join(
                                     [l.get('action', '') for l in lessons[:2] if isinstance(l, dict)]
                                 )
-                        except:
+                        except Exception:
                             pass
 
                         recency_tag = ""
@@ -956,4 +924,4 @@ Please review the following completed trade:
 
         except Exception as e:
             logger.warning(f"Failed to calculate score adjustment: {e}")
-            return 0, []
+            return 0.0, []

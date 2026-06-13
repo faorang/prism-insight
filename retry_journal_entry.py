@@ -142,7 +142,9 @@ async def retry_journal_entry(db_path: str, trade_id: int = None, ticker: str = 
         traceback.print_exc()
         return False
     finally:
-        if hasattr(agent, 'conn') and agent.conn:
+        if hasattr(agent, 'close'):
+            agent.close()
+        elif hasattr(agent, 'conn') and agent.conn:
             agent.conn.close()
 
 

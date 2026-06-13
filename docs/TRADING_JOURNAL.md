@@ -156,7 +156,7 @@ python compress_trading_memory.py --force
 | `--db-path` | `stock_tracking_db.sqlite` | 데이터베이스 경로 |
 | `--layer1-age` | 7 | Layer 1 → 2 압축 기준 일수 |
 | `--layer2-age` | 30 | Layer 2 → 3 압축 기준 일수 |
-| `--min-entries` | 3 | 압축 실행 최소 항목 수 |
+| `--min-entries` | 5 | 압축 실행 최소 항목 수 |
 | `--dry-run` | - | 변경 없이 확인만 |
 | `--force` | - | 최소 항목 수 무시 |
 | `--language` | ko | 에이전트 언어 (ko/en) |

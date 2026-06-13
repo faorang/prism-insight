@@ -163,6 +163,15 @@ class StockTrackingAgent:
         logger.info("Tracking agent initialization complete")
         return True
 
+    def close(self):
+        """Close database connection and release resources"""
+        if hasattr(self, 'conn') and self.conn:
+            try:
+                self.conn.close()
+                logger.info("StockTrackingAgent database connection closed successfully")
+            except Exception as e:
+                logger.warning(f"Failed to close StockTrackingAgent database connection: {e}")
+
     async def _create_tables(self):
         """Create necessary database tables (delegates to tracking.db_schema)"""
         create_all_tables(self.cursor, self.conn)
@@ -1002,7 +1011,7 @@ class StockTrackingAgent:
 
     def _get_score_adjustment_from_context(
         self, ticker: str, sector: str = None, trigger_type: str = None
-    ) -> Tuple[int, List[str]]:
+    ) -> Tuple[float, List[str]]:
         """Calculate score adjustment (delegates to tracking.journal.JournalManager)"""
         return self.journal_manager.get_score_adjustment(ticker, sector, trigger_type)
 

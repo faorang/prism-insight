@@ -72,6 +72,11 @@ def _log_journal_influence_stats(cursor, table: str = "trading_history", days: i
     "influenced" when the buy decision recorded that journal context materially
     informed it (referenced=true) or an experience-based score adjustment was applied.
     """
+    # Whitelist table parameter to prevent potential SQL injection
+    if table not in ("trading_history", "trading_journal"):
+        logger.warning(f"Invalid table name for influence stats: {table}")
+        return
+
     try:
         cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
         cursor.execute(
