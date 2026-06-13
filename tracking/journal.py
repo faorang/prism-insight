@@ -868,10 +868,10 @@ Please review the following completed trade:
             adjustment = 0.0
             reasons = []
 
-            # 1. Same stock history (from journal)
+            # 1. Same stock history (from journal - excluding skipped stocks)
             self.cursor.execute("""
                 SELECT profit_rate FROM trading_journal
-                WHERE ticker = ? ORDER BY trade_date DESC LIMIT 3
+                WHERE ticker = ? AND trade_type != 'skip' ORDER BY trade_date DESC LIMIT 3
             """, (ticker,))
 
             same_stock = self.cursor.fetchall()
@@ -885,11 +885,11 @@ Please review the following completed trade:
                     adjustment += 0.5
                     reasons.append(f"동일 종목 과거 평균 수익 호조 ({avg_profit:.1f}%)")
 
-            # 2. Sector performance (from journal)
+            # 2. Sector performance (from journal - excluding skipped stocks)
             if sector and sector != "Unknown":
                 self.cursor.execute("""
                     SELECT AVG(profit_rate), COUNT(*)
-                    FROM trading_journal WHERE buy_scenario LIKE ?
+                    FROM trading_journal WHERE buy_scenario LIKE ? AND trade_type != 'skip'
                 """, (f'%"{sector}"%',))
 
                 sector_stats = self.cursor.fetchone()
