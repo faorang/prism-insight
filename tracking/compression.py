@@ -77,7 +77,7 @@ class CompressionManager:
             self.cursor.execute("""
                 SELECT id, ticker, company_name, trade_date, profit_rate,
                        situation_analysis, judgment_evaluation, lessons,
-                       pattern_tags, one_line_summary, buy_scenario, sell_price
+                       pattern_tags, one_line_summary, buy_scenario, sell_price, trade_type
                 FROM trading_journal
                 WHERE compression_layer = 1 AND trade_date < ?
                 ORDER BY trade_date ASC
@@ -93,7 +93,7 @@ class CompressionManager:
             # Layer 2 -> Layer 3
             self.cursor.execute("""
                 SELECT id, ticker, company_name, trade_date, profit_rate,
-                       compressed_summary, pattern_tags, buy_scenario
+                       compressed_summary, pattern_tags, buy_scenario, trade_type
                 FROM trading_journal
                 WHERE compression_layer = 2 AND trade_date < ?
                 ORDER BY trade_date ASC
@@ -247,7 +247,7 @@ class CompressionManager:
             self.cursor.execute("""
                 SELECT id, ticker, company_name, trade_date, profit_rate,
                        COALESCE(compressed_summary, one_line_summary) AS compressed_summary,
-                       pattern_tags, buy_scenario
+                       pattern_tags, buy_scenario, trade_type
                 FROM trading_journal
                 WHERE trade_date >= ?
                 ORDER BY trade_date DESC
@@ -341,8 +341,9 @@ class CompressionManager:
                 tags_str = ""
 
             profit_emoji = "✅" if entry.get('profit_rate', 0) > 0 else "❌"
+            trade_type_tag = "[SKIP]" if entry.get('trade_type') == 'skip' else "[TRADE]"
             line = (
-                f"[ID:{entry['id']}] {entry.get('company_name', '')}({entry.get('ticker', '')}) "
+                f"[ID:{entry['id']}] {trade_type_tag} {entry.get('company_name', '')}({entry.get('ticker', '')}) "
                 f"{profit_emoji} {entry.get('profit_rate', 0):.1f}% | "
                 f"Summary: {entry.get('one_line_summary', 'N/A')} | Lessons: {lessons_str} | Tags: {tags_str}"
             )
@@ -382,8 +383,9 @@ class CompressionManager:
                 tags_str = ""
 
             profit_emoji = "✅" if entry.get('profit_rate', 0) > 0 else "❌"
+            trade_type_tag = "[SKIP]" if entry.get('trade_type') == 'skip' else "[TRADE]"
             formatted.append(
-                f"[ID:{entry['id']}] {entry.get('company_name', '')} | Sector: {sector} | "
+                f"[ID:{entry['id']}] {trade_type_tag} {entry.get('company_name', '')} | Sector: {sector} | "
                 f"{profit_emoji} {entry.get('profit_rate', 0):.1f}% | "
                 f"Summary: {entry.get('compressed_summary', 'N/A')} | Tags: {tags_str}"
             )

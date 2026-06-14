@@ -582,6 +582,27 @@ Please review the following completed trade:
             if trigger_ranking:
                 stats['trigger_ranking'] = trigger_ranking
 
+            # 5. Skip accuracy by trigger type (how often our skips were correct)
+            self.cursor.execute("""
+                SELECT trigger_type,
+                       COUNT(*) as total_skipped,
+                       SUM(CASE WHEN tracked_30d_return < 0 THEN 1 ELSE 0 END) as correct_skips
+                FROM analysis_performance_tracker
+                WHERE was_traded = 0 AND tracking_status = 'completed'
+                    AND tracked_30d_return IS NOT NULL AND trigger_type IS NOT NULL
+                GROUP BY trigger_type
+                HAVING total_skipped >= 3
+            """)
+            skip_accuracy = []
+            for row in self.cursor.fetchall():
+                skip_accuracy.append({
+                    'trigger_type': row[0],
+                    'total_skipped': row[1],
+                    'correct_skip_rate': row[2] / row[1] if row[1] > 0 else 0,
+                })
+            if skip_accuracy:
+                stats['skip_accuracy_by_trigger'] = skip_accuracy
+
         except Exception as e:
             logger.warning(f"Failed to get performance tracker stats: {e}")
 
@@ -616,6 +637,41 @@ Please review the following completed trade:
                 parts.append(
                     f"  {rank}. {t['trigger_type']}: "
                     f"{avg_30d_str} avg, {win_pct:.0f}% win (n={t['total']})"
+                )
+
+        # Missed opportunities (D): skipped stocks that gained >5%
+        if 'missed_opportunities' in stats:
+            m = stats['missed_opportunities']
+            if m['missed_gains_count'] and m['missed_gains_count'] > 0:
+                avg_str = f"{m['avg_missed_gain'] * 100:+.1f}%" if m['avg_missed_gain'] is not None else "N/A"
+                parts.append(
+                    f"- ⚠️ **Missed Opportunities**: {m['missed_gains_count']} skipped stocks "
+                    f"gained >5% in 30d (avg {avg_str}) out of {m['total_skipped']} total skips"
+                )
+
+        # Traded vs Watched comparison (E): are our filters selecting well?
+        if 'traded_vs_watched' in stats:
+            tw = stats['traded_vs_watched']
+            traded = tw.get('traded', {})
+            watched = tw.get('watched', {})
+            if traded and watched:
+                t_avg = f"{traded['avg_30d'] * 100:+.1f}%" if traded.get('avg_30d') is not None else "N/A"
+                w_avg = f"{watched['avg_30d'] * 100:+.1f}%" if watched.get('avg_30d') is not None else "N/A"
+                parts.append(
+                    f"- **Traded vs Skipped 30d avg**: "
+                    f"Traded {t_avg} (n={traded.get('count', 0)}) vs "
+                    f"Skipped {w_avg} (n={watched.get('count', 0)})"
+                )
+
+        # Skip accuracy by trigger (F): how often skips were correct
+        if 'skip_accuracy_by_trigger' in stats:
+            parts.append("- **Skip Accuracy by Trigger (% of skips that actually declined, n>=3):**")
+            for sa in stats['skip_accuracy_by_trigger']:
+                accuracy_pct = sa['correct_skip_rate'] * 100
+                emoji = "✅" if accuracy_pct >= 60 else "⚠️" if accuracy_pct >= 40 else "❌"
+                parts.append(
+                    f"  {emoji} {sa['trigger_type']}: "
+                    f"{accuracy_pct:.0f}% correct skips (n={sa['total_skipped']})"
                 )
 
         parts.append("")
@@ -686,10 +742,14 @@ Please review the following completed trade:
                     entry['is_fallback'] = True
                     retrieved_entries.append(entry)
 
-            # 이력 마크다운 빌드
-            if retrieved_entries:
+            # 이력을 sell과 skip으로 분리
+            sell_entries = [e for e in retrieved_entries if e.get('trade_type') != 'skip']
+            skip_entries = [e for e in retrieved_entries if e.get('trade_type') == 'skip']
+
+            # 매매 이력 마크다운 빌드 (sell + fallback만)
+            if sell_entries:
                 context_parts.append("#### 📜 Past Trading History References")
-                for entry in retrieved_entries:
+                for entry in sell_entries:
                     if entry.get('is_fallback'):
                         # Fallback 전용 상세 규격 포맷팅
                         trade_date_str = entry.get('trade_date', '')[:10]
@@ -778,6 +838,49 @@ Please review the following completed trade:
                                 context_parts.append(f"  - 놓친 신호: {missed_str}")
                         except Exception:
                             pass
+
+                context_parts.append("")
+
+            # 놓친 기회 이력 마크다운 빌드 (skip 전용, 최대 2건)
+            if skip_entries:
+                context_parts.append("#### 🔸 Missed Opportunity References (Previously Skipped)")
+                context_parts.append("[NOTE: These are stocks that were analyzed but NOT purchased. "
+                                     "The returns below are hypothetical — what would have happened if bought.]")
+                for entry in skip_entries[:2]:
+                    profit_rate = entry.get('profit_rate', 0.0)
+                    profit_emoji = "📈" if profit_rate > 0 else "📉"
+
+                    skip_reason = entry.get('sell_reason') or "N/A"
+
+                    recency_tag = ""
+                    try:
+                        trade_date_str = entry.get('trade_date')
+                        if trade_date_str:
+                            skip_date = datetime.strptime(trade_date_str[:10], "%Y-%m-%d")
+                            days_since = (datetime.now() - skip_date).days
+                            recency_tag = f" ({days_since}일 전)"
+                    except Exception:
+                        pass
+
+                    context_parts.append(
+                        f"- [놓친 기회] {profit_emoji} Hypothetical return {profit_rate:+.1f}% (30d tracking){recency_tag}"
+                    )
+                    context_parts.append(f"  - 스킵 사유: {skip_reason}")
+
+                    # 교훈 추출
+                    try:
+                        lessons_json = entry.get('lessons')
+                        lessons_list = json.loads(lessons_json) if lessons_json else []
+                        if lessons_list:
+                            for lesson in lessons_list[:2]:
+                                if isinstance(lesson, dict):
+                                    action = lesson.get('action', '')
+                                    if action:
+                                        context_parts.append(f"  - 교훈: {action}")
+                    except Exception:
+                        pass
+
+                    context_parts.append("  - ⚠️ 유사한 상황이 아닌지 재검토 필요")
 
                 context_parts.append("")
 
