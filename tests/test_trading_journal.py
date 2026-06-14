@@ -1290,6 +1290,173 @@ class TestCleanupStaleData:
 
         agent.conn.close()
 
+class TestMissedOpportunityFeedback:
+    """Test newly added Missed Opportunity Feedback Loop features"""
+
+    def setup_method(self):
+        """Set up temporary database and schema"""
+        self.temp_db = tempfile.NamedTemporaryFile(suffix='.sqlite', delete=False)
+        self.db_path = self.temp_db.name
+        self.temp_db.close()
+
+    def teardown_method(self):
+        """Clean up database"""
+        try:
+            os.unlink(self.db_path)
+        except:
+            pass
+
+    @pytest.mark.asyncio
+    async def test_performance_tracker_skip_accuracy_query(self):
+        """Test F: get_performance_tracker_stats() collects skip accuracy by trigger type"""
+        agent = StockTrackingAgent(db_path=self.db_path, enable_journal=True)
+        agent.trading_agent = MagicMock()
+        await agent.initialize(language="ko")
+
+        # Create analysis_performance_tracker table
+        agent.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS analysis_performance_tracker (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticker TEXT,
+                company_name TEXT,
+                trigger_type TEXT,
+                was_traded INTEGER,
+                tracked_30d_return REAL,
+                tracking_status TEXT
+            )
+        """)
+
+        # Insert test data for skip accuracy (was_traded=0, status=completed)
+        # We need at least 3 skipped entries per trigger type because of HAVING total_skipped >= 3
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        test_data = [
+            ("005930", "삼성전자", "breakout", 0, -0.05, "completed"),
+            ("000660", "SK하이닉스", "breakout", 0, -0.10, "completed"),
+            ("005490", "POSCO", "breakout", 0, 0.05, "completed"), # correct skips = 2 (negative return) out of 3 total
+            ("035720", "카카오", "swing", 0, -0.02, "completed"),
+            ("035420", "네이버", "swing", 0, 0.08, "completed"), # only 2 entries for swing -> should be ignored because total < 3
+        ]
+        for row in test_data:
+            agent.cursor.execute("""
+                INSERT INTO analysis_performance_tracker 
+                (ticker, company_name, trigger_type, was_traded, tracked_30d_return, tracking_status)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, row)
+        agent.conn.commit()
+
+        # Call the stats function
+        stats = agent.journal_manager.get_performance_tracker_stats()
+
+        assert "skip_accuracy_by_trigger" in stats
+        skip_acc = stats["skip_accuracy_by_trigger"]
+        assert len(skip_acc) == 1
+        assert skip_acc[0]["trigger_type"] == "breakout"
+        assert skip_acc[0]["total_skipped"] == 3
+        assert pytest.approx(skip_acc[0]["correct_skip_rate"]) == 2 / 3
+
+        agent.conn.close()
+
+    @pytest.mark.asyncio
+    async def test_get_context_for_ticker_separates_skip_history(self):
+        """Test A: get_context_for_ticker splits sell entries and skip entries"""
+        agent = StockTrackingAgent(db_path=self.db_path, enable_journal=True)
+        agent.trading_agent = MagicMock()
+        await agent.initialize(language="ko")
+
+        # Insert test journal entries (one sell, one skip)
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        agent.cursor.execute("""
+            INSERT INTO trading_journal
+            (ticker, company_name, trade_date, trade_type, profit_rate, holding_days,
+             situation_analysis, judgment_evaluation, lessons, pattern_tags,
+             one_line_summary, confidence_score, compression_layer, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            "005930", "삼성전자", now, "sell", 10.0, 5,
+            '{}', '{}', '[{"action": "수익교훈"}]', '[]',
+            "매도성공", 0.9, 1, now
+        ))
+        
+        agent.cursor.execute("""
+            INSERT INTO trading_journal
+            (ticker, company_name, trade_date, trade_type, profit_rate, holding_days,
+             sell_price, sell_reason, situation_analysis, judgment_evaluation, lessons, pattern_tags,
+             one_line_summary, confidence_score, compression_layer, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            "005930", "삼성전자", now, "skip", 15.0, 30,
+            80000.0, "Low Score", '{}', '{}', '[{"action": "스킵교훈"}]', '[]',
+            "스킵후상승", 0.95, 1, now
+        ))
+        agent.conn.commit()
+
+        # Get context
+        context = agent._get_relevant_journal_context("005930", "반도체")
+
+        # Verify both sections exist and contain correct content
+        assert "Past Trading History References" in context
+        assert "수익교훈" in context
+        assert "Missed Opportunity References" in context
+        assert "스킵교훈" in context
+        assert "Hypothetical return +15.0%" in context
+        assert "스킵 사유: Low Score" in context
+
+        agent.conn.close()
+
+    @pytest.mark.asyncio
+    async def test_compression_formatting_tags(self):
+        """Test C: _format_entries_for_compression and _format_entries_for_intuition include [SKIP] / [TRADE] tags"""
+        agent = StockTrackingAgent(db_path=self.db_path, enable_journal=True)
+        agent.trading_agent = MagicMock()
+        await agent.initialize(language="ko")
+
+        # Mock entries
+        entries = [
+            {
+                "id": 1,
+                "ticker": "005930",
+                "company_name": "삼성전자",
+                "trade_type": "sell",
+                "profit_rate": 5.0,
+                "one_line_summary": "수익실현",
+                "lessons": '[{"action": "익절교훈"}]',
+                "pattern_tags": '["패턴1"]',
+                "compressed_summary": "요약1",
+                "buy_scenario": '{"sector": "반도체"}'
+            },
+            {
+                "id": 2,
+                "ticker": "000660",
+                "company_name": "SK하이닉스",
+                "trade_type": "skip",
+                "profit_rate": 10.0,
+                "one_line_summary": "기회비용",
+                "lessons": '[{"action": "스킵교훈"}]',
+                "pattern_tags": '["패턴2"]',
+                "compressed_summary": "요약2",
+                "buy_scenario": '{"sector": "반도체"}'
+            }
+        ]
+
+        # Call formatting functions using the CompressionManager
+        comp_manager = agent.compression_manager
+
+        # Test _format_entries_for_compression
+        text_for_compression = comp_manager._format_entries_for_compression(entries)
+        assert "[TRADE]" in text_for_compression
+        assert "[SKIP]" in text_for_compression
+        assert "[TRADE] 삼성전자" in text_for_compression
+        assert "[SKIP] SK하이닉스" in text_for_compression
+
+        # Test _format_entries_for_intuition
+        text_for_intuition = comp_manager._format_entries_for_intuition(entries)
+        assert "[TRADE]" in text_for_intuition
+        assert "[SKIP]" in text_for_intuition
+        assert "[TRADE] 삼성전자" in text_for_intuition
+        assert "[SKIP] SK하이닉스" in text_for_intuition
+
+        agent.conn.close()
+
 
 if __name__ == "__main__":
     # Run quick test when executed directly
