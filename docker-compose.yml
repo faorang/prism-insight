@@ -6,6 +6,13 @@ services:
     container_name: prism-insight-container
     image: prism-insight:latest
 
+  crawl4ai:
+    image: unclecode/crawl4ai:latest
+    container_name: crawl4ai
+    ports:
+      - "11235:11235"
+    restart: unless-stopped
+
     # 환경 변수
     environment:
       - TZ=Asia/Seoul
