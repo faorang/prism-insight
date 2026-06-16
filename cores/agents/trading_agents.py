@@ -92,12 +92,12 @@ def create_trading_scenario_agent(language: str = "ko", sector_names: list = Non
 
     | 시장 체제 | min_score | 손익비 floor | 최대 손절폭 | 모멘텀 신호 | 추가 확인 |
     |----------|-----------|------------|----------|----------|--------|
-    | parabolic     | 4 | 0.7 | -7% | 1개+ | 0 |
-    | strong_bull   | 4 | 1.0 | -7% | 1개+ | 0 |
-    | moderate_bull | 4 | 1.2 | -7% | 1개+ | 0 |
-    | sideways      | 5 | 1.3 | -6% | 1개+ | 0 |
-    | moderate_bear | 5 | 1.5 | -5% | 2개+ | 1 |
-    | strong_bear   | 6 | 1.8 | -5% | 2개+ | 1 |
+    | parabolic     | 6 | 0.7 | -7% | 1개+ | 0 |
+    | strong_bull   | 6 | 1.0 | -7% | 1개+ | 0 |
+    | moderate_bull | 6 | 1.2 | -7% | 1개+ | 0 |
+    | sideways      | 7 | 1.3 | -6% | 1개+ | 0 |
+    | moderate_bear | 7 | 1.5 | -5% | 2개+ | 1 |
+    | strong_bear   | 8 | 1.8 | -5% | 2개+ | 1 |
 
     결정 규칙:
     - effective_score ≥ min_score AND 손익비 ≥ floor AND |손절폭| ≤ 최대 손절폭
@@ -281,7 +281,7 @@ def create_trading_scenario_agent(language: str = "ko", sector_names: list = Non
         "buy_score": 1.0~10.0,
         "macro_adjustment": -1, 0, 또는 +1,
         "effective_score": buy_score + macro_adjustment,
-        "min_score": 시장 체제별 (parabolic:4, strong_bull:4, moderate_bull:4, sideways:5, moderate_bear:5, strong_bear:6),
+        "min_score": 시장 체제별 (parabolic:6, strong_bull:6, moderate_bull:6, sideways:7, moderate_bear:7, strong_bear:8),
         "momentum_signal_count": 0~5,
         "additional_confirmation_count": 0~5,
         "decision": "진입" 또는 "미진입",

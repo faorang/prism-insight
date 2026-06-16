@@ -120,10 +120,10 @@ def create_trading_scenario_agent(...):
     - F4 Business Clarity: clear business model and competitive advantages
 
     MARKET REGIME MATRIX:
-    - parabolic / strong_bull / moderate_bull: min_score 4, stop loss -7%
-    - sideways: min_score 5, stop loss -6%
-    - moderate_bear: min_score 5, stop loss -5%
-    - strong_bear: min_score 6, stop loss -5%
+    - parabolic / strong_bull / moderate_bull: min_score 6, stop loss -7%
+    - sideways: min_score 7, stop loss -6%
+    - moderate_bear: min_score 7, stop loss -5%
+    - strong_bear: min_score 8, stop loss -5%
 
     RISK MANAGEMENT:
     - Expected risk-reward ratio floor based on regime (e.g., strong_bull: 1.0, sideways: 1.3, strong_bear: 1.8)

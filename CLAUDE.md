@@ -89,6 +89,16 @@ MAX_SLOTS = 10              # Max stocks to hold
 MAX_SAME_SECTOR = 3         # Max per sector
 DEFAULT_MODE = "demo"       # Always default to demo
 
+# Entry Score (Market Regime-based)
+MIN_SCORE_CRITERIA = {
+    "parabolic": 6,
+    "strong_bull": 6,
+    "moderate_bull": 6,
+    "sideways": 7,
+    "moderate_bear": 7,
+    "strong_bear": 8
+}
+
 # Stop Loss (Trigger-based)
 TRIGGER_CRITERIA = {
     "intraday_surge": {"sl_max": 0.05},  # -5%
