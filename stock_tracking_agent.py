@@ -667,10 +667,24 @@ class StockTrackingAgent:
             min_score = scenario.get("min_score", 0)
             pivot_point = scenario.get("pivot_point", 0)
 
+            # Extract score adjustments
+            buy_score_orig = scenario.get("buy_score_original", buy_score)
+            score_adj = scenario.get("score_adjustment", 0.0)
+            adj_reasons = scenario.get("score_adjustment_reasons", [])
+
             # Add purchase message
-            message = f"📈 신규 매수: {company_name}({ticker})\n" \
-                      f"점수: {buy_score} (최소 요구 점수: {min_score})\n" \
-                      f"매수가: {current_price:,.0f}원\n"
+            message = f"📈 신규 매수: {company_name}({ticker})\n"
+            
+            sign = "+" if score_adj > 0 else ""
+            adj_str = f" [기본: {buy_score_orig}, 보정: {sign}{score_adj}]" if score_adj != 0.0 else ""
+            message += f"점수: {buy_score} (최소 요구 점수: {min_score}){adj_str}\n"
+            
+            if score_adj != 0.0 and adj_reasons:
+                message += "보정 사유:\n"
+                for r in adj_reasons:
+                    message += f"  • {r}\n"
+                    
+            message += f"매수가: {current_price:,.0f}원\n"
             if pivot_point and pivot_point > 0:
                 message += f"피벗 기준가: {pivot_point:,.0f}원\n"
                 

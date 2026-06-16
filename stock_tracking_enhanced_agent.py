@@ -467,6 +467,14 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
                     market_condition_text = scenario.get("market_condition")
                     pivot_point = scenario.get("pivot_point", 0)
 
+                    # Extract score adjustments
+                    buy_score_orig = scenario.get("buy_score_original", buy_score)
+                    score_adj = scenario.get("score_adjustment", 0.0)
+                    adj_reasons = scenario.get("score_adjustment_reasons", [])
+
+                    sign = "+" if score_adj > 0 else ""
+                    adj_str = f" [기본: {buy_score_orig}, 보정: {sign}{score_adj}]" if score_adj != 0.0 else ""
+
                     # Generate skip message
                     skip_message = f"⚠️ 매수 보류: {company_name}({ticker})\n" \
                                    f"현재가: {current_price:,.0f}원\n"
@@ -481,8 +489,14 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
                     if rr_ratio:
                         skip_message += f"기대 손익비: {float(rr_ratio):.1f}배\n"
 
-                    skip_message += f"매수 Score: {buy_score}/10\n" \
-                                    f"결정: {decision}\n" \
+                    skip_message += f"매수 Score: {buy_score}/10{adj_str}\n"
+                    
+                    if score_adj != 0.0 and adj_reasons:
+                        skip_message += "보정 사유:\n"
+                        for r in adj_reasons:
+                            skip_message += f"  • {r}\n"
+
+                    skip_message += f"결정: {decision}\n" \
                                     f"시장 상황: {market_condition_text}\n" \
                                     f"산업군: {scenario.get('sector', '알 수 없음')}\n" \
                                     f"보류 사유: {reason}\n" \
