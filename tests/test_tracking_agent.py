@@ -24,8 +24,8 @@ async def test_agent():
     ]
 
     async with app.run():
-        # Initialize agent
-        agent = StockTrackingAgent()
+        # Initialize agent with test database
+        agent = StockTrackingAgent(db_path="test_stock_tracking_db.sqlite")
         await agent.initialize()
 
         logger.info("===== Individual report analysis test =====")

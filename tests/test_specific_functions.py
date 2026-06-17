@@ -20,12 +20,18 @@ async def test_specific_functions():
     """Specific function test"""
 
     async with app.run():
-        # Initialize agent
-        agent = StockTrackingAgent()
+        # Initialize agent with test database
+        agent = StockTrackingAgent(db_path="test_stock_tracking_db.sqlite")
         await agent.initialize()
 
         # Report file to test
-        report_path = "../reports/013700_까뮤이앤씨_20250311_morning_gpt4o.md"
+        import glob
+        import os
+        report_dir = os.path.join(os.path.dirname(__file__), "../reports")
+        reports = glob.glob(os.path.join(report_dir, "*.md"))
+        if not reports:
+            raise FileNotFoundError(f"No markdown reports found in {report_dir}")
+        report_path = reports[0]
 
         # 1. Ticker info extraction test
         ticker, company_name = await agent._extract_ticker_info(report_path)
