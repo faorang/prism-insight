@@ -41,8 +41,10 @@ async def test_portfolio_reporter():
     print(f"TELEGRAM_CHANNEL_ID: {'✅ Set' if chat_id else '❌ Not set'}")
     print()
 
-    print("YAML configuration check:")
-    print(f"Default trading mode: {_cfg['default_mode']}")
+    print("Configuration check:")
+    print(f"TRADING_MODE (env): {os.getenv('TRADING_MODE', 'NOT SET')}")
+    print(f"Default trading mode: {os.getenv('TRADING_MODE', 'demo')}")
+    print(f"YAML default mode: {_cfg['default_mode']}")
     print(f"Auto trading: {_cfg['auto_trading']}")
     print(f"Config file path: {CONFIG_FILE}")
     print()

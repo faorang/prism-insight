@@ -43,6 +43,13 @@ CONFIG_FILE = os.path.join(config_root, "kis_devlp.yaml")
 with open(CONFIG_FILE, encoding="UTF-8") as f:
     _cfg = yaml.load(f, Loader=yaml.FullLoader)
 
+# 환경변수 TRADING_MODE 우선, 없으면 안전 기본값 'demo'
+_RESOLVED_MODE = os.getenv("TRADING_MODE", "demo")
+if _RESOLVED_MODE not in ("demo", "real"):
+    logger.warning(f"Invalid TRADING_MODE='{_RESOLVED_MODE}', falling back to 'demo'")
+    _RESOLVED_MODE = "demo"
+logger.info(f"Trading mode resolved: {_RESOLVED_MODE} (env: {os.getenv('TRADING_MODE', 'NOT SET')}, yaml: {_cfg['default_mode']})")
+
 DEFAULT_BUY_AMOUNT = _cfg["default_unit_amount"]
 
 class DomesticStockTrading:
@@ -53,7 +60,7 @@ class DomesticStockTrading:
     # Auto trading enabled flag
     AUTO_TRADING = _cfg["auto_trading"]
     # Default trading environment
-    DEFAULT_MODE = _cfg["default_mode"]
+    DEFAULT_MODE = _RESOLVED_MODE
 
     def __init__(self, mode: str = DEFAULT_MODE, buy_amount: int = None, auto_trading:bool = AUTO_TRADING):
         """
@@ -1292,7 +1299,11 @@ class DomesticStockTrading:
                             logger.warning(f"[Async Sell API] {stock_code} holding quantity 0")
                             return result
 
-                        logger.info(f"[Async Sell API] {stock_code} holding confirmed: {target_stock['quantity']} shares")
+                        holding_quantity = target_stock['quantity']
+                        logger.info(f"[Async Sell API] {stock_code} holding confirmed: {holding_quantity} shares")
+
+                        # Prevent rate limit between API calls
+                        await asyncio.sleep(0.5)
 
                         # Get current price (for estimated sell amount calculation)
                         current_price_info = await asyncio.to_thread(
@@ -1303,15 +1314,8 @@ class DomesticStockTrading:
                             result['current_price'] = current_price_info['current_price']
                             logger.info(f"[Async Sell API] {stock_code} current price: {current_price_info['current_price']:,} KRW")
 
-                        # Defensive logic 2: Check holding quantity once more before selling
-                        holding_quantity = await asyncio.to_thread(
-                            self.get_holding_quantity, stock_code
-                        )
-
-                        if holding_quantity <= 0:
-                            result['message'] = f'{stock_code} holding quantity is 0 at final check'
-                            logger.warning(f"[Async Sell API] {stock_code} holding quantity 0 at final check")
-                            return result
+                        # Prevent rate limit before sell order
+                        await asyncio.sleep(0.5)
 
                         # Execute sell all
                         # Use current_price as limit_price fallback for reserved orders (outside market hours)
@@ -1355,7 +1359,7 @@ class DomesticStockTrading:
                         logger.error(f"[Async Sell API] {stock_code} error: {str(e)}")
 
                     # Delay to prevent API overload
-                    await asyncio.sleep(0.1)
+                    await asyncio.sleep(0.5)
 
         return result
 
@@ -1539,7 +1543,7 @@ class AsyncTradingContext:
     # Auto trading operation status
     AUTO_TRADING = _cfg["auto_trading"]
     # Default trading environment
-    DEFAULT_MODE = _cfg["default_mode"]
+    DEFAULT_MODE = _RESOLVED_MODE
 
     def __init__(self, mode: str = DEFAULT_MODE, buy_amount: int = None, auto_trading: bool = AUTO_TRADING):
         self.mode = mode

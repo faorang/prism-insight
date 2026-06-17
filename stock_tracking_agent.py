@@ -354,26 +354,31 @@ class StockTrackingAgent:
             if scenario_json is not None:
                 # Apply hybrid scoring calculation and decision override in Python
                 try:
-                    base_score = float(scenario_json.get("effective_score") or scenario_json.get("buy_score") or 0.0)
+                    original_buy_score = float(scenario_json.get("buy_score") or 0.0)
+                    macro_adj = float(scenario_json.get("macro_adjustment") or 0.0)
                     min_score = float(scenario_json.get("min_score") or 5.0)
                     
-                    # Compute final score and clamp to 10-point scale limits [1.0, 10.0]
-                    final_score = round(max(1.0, min(10.0, base_score + adjustment)), 2)
+                    if original_buy_score == 0.0 and scenario_json.get("effective_score"):
+                        original_buy_score = float(scenario_json.get("effective_score")) - macro_adj
+
+                    # Compute final scores (buy_score gets adjustment, effective_score gets both adjustment and macro_adjustment)
+                    final_buy_score = round(max(1.0, min(10.0, original_buy_score + adjustment)), 2)
+                    final_effective_score = round(max(1.0, min(10.0, final_buy_score + macro_adj)), 2)
                     
                     # Store score details inside the scenario JSON
                     scenario_json["buy_score_original"] = scenario_json.get("buy_score", 0.0)
                     scenario_json["effective_score_original"] = scenario_json.get("effective_score", 0.0)
-                    scenario_json["buy_score"] = final_score
-                    scenario_json["effective_score"] = final_score
+                    scenario_json["buy_score"] = final_buy_score
+                    scenario_json["effective_score"] = final_effective_score
                     scenario_json["score_adjustment"] = adjustment
                     scenario_json["score_adjustment_reasons"] = reasons
                     
                     # Overrule decision if the resulting score doesn't reach the required minimum threshold
                     decision = self._normalize_decision(scenario_json.get("decision", "No entry"))
-                    if decision == "Enter" and final_score < min_score:
+                    if decision == "Enter" and final_effective_score < min_score:
                         scenario_json["decision"] = "Skip"
-                        scenario_json["rejection_reason"] = f"Insufficient final score ({final_score} < {min_score}) [Base: {base_score}, Adj: {adjustment:+.2f}]"
-                        logger.info(f"[{ticker}] Python Hybrid Scoring overridden decision from Enter to Skip. Final Score: {final_score} < Min Score: {min_score}")
+                        scenario_json["rejection_reason"] = f"Insufficient final score ({final_effective_score} < {min_score}) [Base: {original_buy_score}, Macro: {macro_adj:+.1f}, Adj: {adjustment:+.2f}]"
+                        logger.info(f"[{ticker}] Python Hybrid Scoring overridden decision from Enter to Skip. Final Score: {final_effective_score} < Min Score: {min_score}")
                 except Exception as ex:
                     logger.warning(f"Hybrid scoring calculation failed: {ex}")
 
@@ -664,20 +669,28 @@ class StockTrackingAgent:
             self.conn.commit()
 
             buy_score = scenario.get("buy_score", 0)
+            effective_score = scenario.get("effective_score", buy_score)
             min_score = scenario.get("min_score", 0)
             pivot_point = scenario.get("pivot_point", 0)
 
             # Extract score adjustments
             buy_score_orig = scenario.get("buy_score_original", buy_score)
+            macro_adj = scenario.get("macro_adjustment", 0.0)
             score_adj = scenario.get("score_adjustment", 0.0)
             adj_reasons = scenario.get("score_adjustment_reasons", [])
 
             # Add purchase message
             message = f"📈 신규 매수: {company_name}({ticker})\n"
             
-            sign = "+" if score_adj > 0 else ""
-            adj_str = f" [기본: {buy_score_orig}, 보정: {sign}{score_adj}]" if score_adj != 0.0 else ""
-            message += f"점수: {buy_score} (최소 요구 점수: {min_score}){adj_str}\n"
+            # Format breakdown string
+            adj_parts = [f"기본: {buy_score_orig}"]
+            if macro_adj != 0.0:
+                adj_parts.append(f"거시: {macro_adj:+.1f}")
+            if score_adj != 0.0:
+                adj_parts.append(f"이력: {score_adj:+.1f}")
+            
+            adj_str = f" [{', '.join(adj_parts)}]"
+            message += f"점수: {effective_score} (최소 요구 점수: {min_score}){adj_str}\n"
             
             if score_adj != 0.0 and adj_reasons:
                 message += "보정 사유:\n"
@@ -1408,8 +1421,9 @@ class StockTrackingAgent:
 
                 # Process buy if entry decision
                 buy_score = scenario.get("buy_score", 0)
+                effective_score = scenario.get("effective_score", buy_score)
                 min_score = scenario.get("min_score", 0)
-                logger.info(f"Buy score check: {company_name}({ticker}) - Score: {buy_score}")
+                logger.info(f"Buy score check: {company_name}({ticker}) - Buy Score: {buy_score}, Effective Score: {effective_score}")
                 if analysis_result.get("decision") == "Enter":
                     # Process buy
                     buy_success = await self.buy_stock(ticker, company_name, current_price, scenario, rank_change_msg)
@@ -1463,8 +1477,8 @@ class StockTrackingAgent:
                         logger.warning(f"Purchase failed: {company_name}({ticker})")
                 else:
                     reason = ""
-                    if buy_score < min_score:
-                        reason = f"Buy score insufficient ({buy_score} < {min_score})"
+                    if effective_score < min_score:
+                        reason = f"Effective score insufficient ({effective_score} < {min_score})"
                     elif analysis_result.get("decision") != "Enter":
                         reason = f"Not an entry decision (Decision: {analysis_result.get('decision')})"
 

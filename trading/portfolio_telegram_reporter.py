@@ -85,12 +85,12 @@ class PortfolioTelegramReporter:
         # Load broadcast channel IDs
         self._load_broadcast_channels()
 
-        # Trading configuration - use yaml default_mode as default value
-        self.trading_mode = trading_mode if trading_mode is not None else _cfg["default_mode"]
+        # Trading configuration - use env TRADING_MODE or fallback to 'demo'
+        self.trading_mode = trading_mode if trading_mode is not None else os.getenv("TRADING_MODE", "demo")
         self.telegram_bot = TelegramBotAgent(token=self.telegram_token)
 
         logger.info(f"PortfolioTelegramReporter initialized")
-        logger.info(f"Trading mode: {self.trading_mode} (yaml config: {_cfg['default_mode']})")
+        logger.info(f"Trading mode: {self.trading_mode} (env: {os.getenv('TRADING_MODE', 'NOT SET')}, yaml config: {_cfg['default_mode']})")
 
     def _load_broadcast_channels(self):
         """
@@ -141,39 +141,39 @@ class PortfolioTelegramReporter:
 
             with sqlite3.connect(db_path) as conn:
                 cur = conn.cursor()
-                
+
                 # Fetch start values (closest on or after start_date)
                 cur.execute(
                     "SELECT date, kospi_index, kosdaq_index FROM market_condition WHERE date >= ? ORDER BY date ASC LIMIT 1",
                     (start_date,)
                 )
                 start_row = cur.fetchone()
-                
+
                 # Fetch latest values
                 cur.execute(
                     "SELECT date, kospi_index, kosdaq_index FROM market_condition ORDER BY date DESC LIMIT 1"
                 )
                 end_row = cur.fetchone()
-                
+
                 if start_row and end_row:
                     result['kospi_start'] = start_row[1]
                     result['kosdaq_start'] = start_row[2]
                     result['kospi_latest'] = end_row[1]
                     result['kosdaq_latest'] = end_row[2]
-                    
+
                     if start_row[1] > 0:
                         result['kospi_return'] = ((end_row[1] - start_row[1]) / start_row[1]) * 100.0
                     else:
                         result['kospi_return'] = 0.0
-                        
+
                     if start_row[2] > 0:
                         result['kosdaq_return'] = ((end_row[2] - start_row[2]) / start_row[2]) * 100.0
                     else:
                         result['kosdaq_return'] = 0.0
-                        
+
         except Exception as e:
             logger.error(f"Error fetching index performance: {e}")
-            
+
         return result
 
     def get_trading_history_stats(self, start_date: str) -> Dict[str, Any]:
@@ -189,21 +189,21 @@ class PortfolioTelegramReporter:
 
             with sqlite3.connect(db_path) as conn:
                 cur = conn.cursor()
-                
+
                 # Check if trading_history table exists first
                 cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='trading_history'")
                 if not cur.fetchone():
                     return result
-                
+
                 # Query closed trades summary
                 cur.execute(
                     """
-                    SELECT 
-                        COUNT(*), 
-                        SUM(CASE WHEN profit_rate > 0 THEN 1 ELSE 0 END), 
+                    SELECT
+                        COUNT(*),
+                        SUM(CASE WHEN profit_rate > 0 THEN 1 ELSE 0 END),
                         AVG(profit_rate),
                         AVG(holding_days)
-                    FROM trading_history 
+                    FROM trading_history
                     WHERE buy_date >= ?
                     """,
                     (start_date,)
@@ -216,10 +216,10 @@ class PortfolioTelegramReporter:
                     result['win_rate'] = (result['win_trades'] / row[0]) * 100.0
                     result['avg_return'] = row[2] or 0.0
                     result['avg_holding_days'] = row[3] or 0.0
-                    
+
         except Exception as e:
             logger.error(f"Error fetching trading history stats: {e}")
-            
+
         return result
 
     def create_portfolio_message(
@@ -290,7 +290,7 @@ class PortfolioTelegramReporter:
             message += f"💰 총 자산: `{self.format_currency(total_assets)}`\n"
             message += f"{season_profit_emoji} 시즌 수익: `{self.format_currency_with_sign(season_profit)}` "
             message += f"({self.format_percentage(season_profit_rate)})\n"
-            
+
             # 1. Annualized return (CAGR)
             if days_elapsed > 0:
                 cagr_emoji = "🔥" if cagr >= 0 else "❄️"
@@ -318,7 +318,7 @@ class PortfolioTelegramReporter:
                 sorted_portfolio = sorted(kr_portfolio, key=lambda x: x.get('profit_rate', 0))
                 worst_stock = sorted_portfolio[0]
                 best_stock = sorted_portfolio[-1]
-                
+
                 message += f"🏆 *보유 종목 현황*\n"
                 message += f" ▫️ 최고 수익: `{best_stock.get('stock_name')}` ({self.format_percentage(best_stock.get('profit_rate', 0))})\n"
                 message += f" ▫️ 최저 수익: `{worst_stock.get('stock_name')}` ({self.format_percentage(worst_stock.get('profit_rate', 0))})\n\n"
@@ -553,7 +553,7 @@ async def main():
 
     parser = argparse.ArgumentParser(description="Portfolio Telegram Reporter")
     parser.add_argument("--mode", choices=["demo", "real"],
-                       help=f"Trading mode (demo: paper trading, real: live trading, default: {_cfg['default_mode']})")
+                       help=f"Trading mode (demo: paper trading, real: live trading, default: env TRADING_MODE or demo)")
     parser.add_argument("--type", choices=["full", "simple", "morning", "evening", "market_close", "weekend"],
                        default="full", help="Report type")
     parser.add_argument("--token", help="Telegram bot token")

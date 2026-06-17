@@ -1,8 +1,22 @@
 import asyncio
 import sqlite3
+import time
 from typing import Dict, Any
 
 from streamlit import cursor
+
+# ── KIS API Rate Limit 방지: 트레이더 싱글톤 ──
+# 매 호출마다 DomesticStockTrading()을 생성하면 불필요한 auth 호출이 발생하고
+# API 호출이 burst로 몰려 초당 거래건수 초과(EGW00215) 오류를 유발함.
+_trader_instance = None
+
+def _get_trader():
+    """모듈 레벨 DomesticStockTrading 싱글톤을 반환합니다."""
+    global _trader_instance
+    if _trader_instance is None:
+        from trading.domestic_stock_trading import DomesticStockTrading
+        _trader_instance = DomesticStockTrading()
+    return _trader_instance
 
 async def get_portfolio_stock_count(db_path: str = "stock_tracking_db.sqlite") -> int:
     """현재 보유 중인 포트폴리오 종목 갯수를 반환합니다."""
@@ -47,11 +61,10 @@ async def get_portfolio_stock(db_path: str = "stock_tracking_db.sqlite") -> list
 
 async def sell_real_stock(ticker: str):
     try:
-        # 실제 계좌 매매 함수 호출(비동기)
-        from trading.domestic_stock_trading import AsyncTradingContext
-        async with AsyncTradingContext() as trading:
-            # 비동기 매도 실행
-            trade_result = await trading.async_sell_stock(stock_code=ticker)
+        # 싱글톤 트레이더를 사용하여 매도 (AsyncTradingContext 대신)
+        trader = _get_trader()
+        # 비동기 매도 실행
+        trade_result = await trader.async_sell_stock(stock_code=ticker)
 
         if trade_result['success']:
             print(f"{ticker} 매도 성공: {trade_result}")
@@ -169,32 +182,23 @@ async def sell_stock(stock_data: Dict[str, Any], sell_reason: str) -> bool:
 
 
 async def get_current_stock_price(ticker: str) -> float:
-    """주식의 현재 가격을 반환하는 더미 함수입니다. 실제 구현에서는 API 호출 등을 통해 가격을 가져와야 합니다."""
-    from trading.domestic_stock_trading import DomesticStockTrading
+    """주식의 현재 가격을 반환합니다. 싱글톤 트레이더 인스턴스를 사용합니다."""
+    trader = _get_trader()
 
-    # 1. 초기화
-    trader = DomesticStockTrading()
-
-    # 2. 연동테스트 - 현재가 조회
-    # print("\n=== 1. 현재가 조회 (연동 테스트) ===")
-    price_info = trader.get_current_price(ticker)  # 알에프텍
+    price_info = trader.get_current_price(ticker)
     if price_info:
-        # print(f"종목명: {price_info['stock_name']}")
-        # print(f"현재가: {price_info['current_price']:,}원")
-        # print(f"등락률: {price_info['change_rate']:+.2f}%")
         return price_info['current_price']
     return None
 
 async def get_trading_data():
     """
-    트레이딩 데이터를 가져옴
+    트레이딩 데이터를 가져옴. 싱글톤 트레이더 인스턴스를 사용합니다.
 
     Returns:
         portfolio
     """
-    from trading.domestic_stock_trading import DomesticStockTrading
     try:
-        trader = DomesticStockTrading()
+        trader = _get_trader()
 
         portfolio = trader.get_portfolio(error=True)
         print(portfolio)
@@ -205,9 +209,9 @@ async def get_trading_data():
     return None
 
 async def get_account():
-    from trading.domestic_stock_trading import DomesticStockTrading
+    """계좌 요약 정보를 반환합니다. 싱글톤 트레이더 인스턴스를 사용합니다."""
     try:
-        trader = DomesticStockTrading()
+        trader = _get_trader()
 
         account = trader.get_account_summary()
         print(account)
@@ -229,6 +233,8 @@ async def check_stop_loss_triggered(db_path: str = "stock_tracking_db.sqlite"):
     query = "SELECT * FROM stock_holdings"
     cursor.execute(query)
 
+    # API 호출 간 rate limit 방지 delay
+    time.sleep(0.5)
     real_portfolio = await get_trading_data()
     if real_portfolio is None:
         print("실제 계좌에서 포트폴리오 데이터를 가져오는 데 실패했습니다. 손절 체크를 중단합니다.")
@@ -248,6 +254,8 @@ async def check_stop_loss_triggered(db_path: str = "stock_tracking_db.sqlite"):
         target_price = stock["target_price"]
 
         # 현재 가격을 가져오는 로직 (예: API 호출)
+        # API 호출 간 rate limit 방지 delay
+        time.sleep(0.5)
         current_portpolio = await get_current_stock_price(ticker)
         if current_portpolio is not None:
             # v2.1.0: Whipsaw 방지 필터 (장중에는 손절선 대비 추가 2% 하락 시에만 손절)
@@ -289,7 +297,7 @@ async def check_stop_loss_triggered(db_path: str = "stock_tracking_db.sqlite"):
             '''
 
 
-        time.sleep(5)  # API 호출 제한을 피하기 위해 약간의 지연 추가
+        time.sleep(1)  # API 호출 제한을 피하기 위한 지연 (싱글톤 사용으로 5s→1s 단축)
     
     cursor.close()
     conn.close()

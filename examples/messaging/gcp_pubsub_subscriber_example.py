@@ -59,15 +59,19 @@ except ImportError:
 # ============================================================
 
 def get_trading_mode() -> str:
-    """Check trading mode from kis_devlp.yaml (demo/real)"""
+    """Check trading mode from env var or kis_devlp.yaml (demo/real)"""
+    # 환경변수 우선
+    env_mode = os.environ.get("TRADING_MODE")
+    if env_mode in ("demo", "real"):
+        return env_mode
     try:
         import yaml
         config_path = PROJECT_ROOT / "trading" / "config" / "kis_devlp.yaml"
         with open(config_path, encoding="UTF-8") as f:
             cfg = yaml.load(f, Loader=yaml.FullLoader)
-        return cfg.get("default_mode", "real")
+        return cfg.get("default_mode", "demo")
     except Exception:
-        return "real"
+        return "demo"
 
 
 def is_market_hours(market: str = "KR") -> bool:
