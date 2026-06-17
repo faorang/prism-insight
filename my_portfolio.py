@@ -238,21 +238,34 @@ async def check_stop_loss_triggered(db_path: str = "stock_tracking_db.sqlite"):
             if current_portpolio <= effective_stop_loss:
                 # 주가 정보 업데이트
                 stock['current_price'] = current_portpolio
-                triggered_stocks.append(stock)
-                await sell_stock(stock, sell_reason="손절가 도달")
-                await sell_real_stock(ticker)
+                
+                # 1. 실제 계좌 매도 먼저 수행 (실패 가능성 대비)
+                success = await sell_real_stock(ticker)
+                if success:
+                    # 2. 실제 매도가 성공한 경우에만 DB 정보 업데이트 (판매 처리)
+                    triggered_stocks.append(stock)
+                    await sell_stock(stock, sell_reason="손절가 도달")
+                else:
+                    # 실제 매도 실패 시 경고 메시지 전송
+                    fail_msg = f"⚠️ **손절 실패 알림**\n종목: {stock['company_name']}({ticker})\n현재가: {current_portpolio:,}원 (유효손절가: {effective_stop_loss:.0f}원)\n실제 계좌 매도 주문이 실패했습니다. 다음 주기에 재시도합니다."
+                    await send_telegram_message(fail_msg)
             ''' 잠시 비활성화, canslim 전략과 충돌
-            elif current_price >= target_price:
+            elif current_portpolio >= target_price:
                 print(f"{ticker} 종목이 목표가에 도달했으니 매도합니다.")
                 # 주가 정보 업데이트
-                stock['current_price'] = current_price
-                triggered_stocks.append(ticker)
-                await sell_stock(stock, sell_reason="목표가 도달")
-                await sell_real_stock(ticker)
+                stock['current_price'] = current_portpolio
+                success = await sell_real_stock(ticker)
+                if success:
+                    triggered_stocks.append(stock)
+                    await sell_stock(stock, sell_reason="목표가 도달")
             '''
 
 
         time.sleep(5)  # API 호출 제한을 피하기 위해 약간의 지연 추가
+    
+    cursor.close()
+    conn.close()
+
     if triggered_stocks:
         message = f"손절가/목표가 발동된 종목: {format_telegram_trigger_message(triggered_stocks)}"
         current_portpolio = await get_trading_data()
