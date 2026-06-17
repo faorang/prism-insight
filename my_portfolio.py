@@ -128,6 +128,34 @@ async def sell_stock(stock_data: Dict[str, Any], sell_reason: str) -> bool:
 
         # 변경사항 저장
         conn.commit()
+
+        # 거래 저널(Journal) 작성 및 원칙(Principles) 업데이트
+        try:
+            import os
+            from dotenv import load_dotenv
+            from tracking.journal import JournalManager
+
+            load_dotenv(dotenv_path=str('./.env'))
+            enable_journal = os.getenv("ENABLE_JOURNAL", "True").lower() == "true"
+            language = os.getenv("LANGUAGE", "ko")
+
+            journal_manager = JournalManager(
+                cursor=cursor,
+                conn=conn,
+                language=language,
+                enable_journal=enable_journal
+            )
+
+            await journal_manager.create_entry(
+                stock_data=stock_data,
+                sell_price=current_price,
+                profit_rate=profit_rate,
+                holding_days=holding_days,
+                sell_reason=sell_reason
+            )
+        except Exception as journal_err:
+            print(f"저널 작성 중 오류 발생 (진행엔 지장 없음): {journal_err}")
+
         return True
 
     except Exception as e:
