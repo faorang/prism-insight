@@ -142,6 +142,7 @@ TRIGGER_CRITERIA = {
 - **코드 파일 변경** (`.py`, `.ts`, `.tsx`, `.js`, `.jsx` 등): 반드시 feature 브랜치에서 작업 후 PR 생성
 - **문서만 변경** (`.md` 등): main 직접 커밋 허용
 - 브랜치 네이밍: `feat/`, `fix/`, `refactor/`, `test/` + 설명 (예: `fix/us-dashboard-ai-holding`)
+- **자동 커밋 금지**: 코드 수정 후 `git add` 및 `git commit`은 자동으로 수행하지 않으며, 사용자가 명시적으로 요청하는 경우에만 수행합니다.
 
 ### Commit Message
 ```

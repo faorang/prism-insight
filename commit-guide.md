@@ -40,5 +40,9 @@ refactor(trading): implement bottom-up weighted scoring
 - JSON 출력 형식을 가중치 항목 수(Max 4)에 맞춰 업데이트
 ```
 
+## 6. 자동 커밋 및 추가 금지 규칙 (AI Assistant 전용)
+- 코드 수정 후 `git add` 및 `git commit`은 자동으로 수행하지 않습니다.
+- `git add`와 `git commit` 명령어는 오직 사용자가 명시적으로 요청한 경우에만 수행해야 합니다.
+
 ---
 *이 가이드는 프로젝트의 일관된 이력 관리를 위해 반드시 준수해 주세요.*

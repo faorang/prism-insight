@@ -599,7 +599,246 @@ class StockTrackingAgent:
         except Exception:
             return ""
 
-    async def buy_stock(self, ticker: str, company_name: str, current_price: float, scenario: Dict[str, Any], rank_change_msg: str = "") -> bool:
+    async def _retire_watch_stock(self, wl_id: int, ticker: str, decision: str, reason: str):
+        """Helper to retire a watch stock as Skip in both tables."""
+        try:
+            self.cursor.execute(
+                """
+                UPDATE watchlist_history
+                SET decision = ?, skip_reason = ?
+                WHERE id = ?
+                """,
+                (decision, reason, wl_id)
+            )
+            self.cursor.execute(
+                """
+                UPDATE analysis_performance_tracker
+                SET decision = ?, skip_reason = ?
+                WHERE watchlist_id = ?
+                """,
+                (decision, reason, wl_id)
+            )
+            self.conn.commit()
+            logger.info(f"[{ticker}] Retired watch stock as {decision}: {reason}")
+        except Exception as e:
+            logger.error(f"[{ticker}] Failed to retire watch stock ID {wl_id}: {e}")
+
+    async def _reevaluate_watch_stocks(self) -> int:
+        """
+        Re-evaluate stocks currently in 'Watch' state in watchlist_history.
+        Verify if they satisfy pivot breakout conditions or should be skipped.
+        Returns the number of successful purchases.
+        """
+        watch_buy_count = 0
+        try:
+            import json
+            from datetime import datetime, timedelta
+            import traceback
+
+            logger.info("Starting re-evaluation of 'Watch' stocks in watchlist")
+            
+            # 1. Fetch pending Watch items from watchlist_history
+            self.cursor.execute(
+                """
+                SELECT id, ticker, company_name, analyzed_date, buy_score, min_score,
+                       target_price, stop_loss, sector, scenario, trigger_type, trigger_mode
+                FROM watchlist_history
+                WHERE decision = 'Watch' AND was_traded = 0
+                """
+            )
+            rows = self.cursor.fetchall()
+            watch_stocks = [dict(row) for row in rows]
+            
+            if not watch_stocks:
+                logger.info("No active 'Watch' stocks found for re-evaluation")
+                return 0
+                
+            logger.info(f"Found {len(watch_stocks)} 'Watch' stock(s) to re-evaluate")
+            
+            # Determine market regime (used for maximum pivot buffer bound check)
+            is_bull = False
+            try:
+                from trigger_batch import determine_market_regime
+                today_str = datetime.now().strftime("%Y%m%d")
+                regime = determine_market_regime(today_str)
+                is_bull = regime in ["strong_bull", "moderate_bull"]
+            except Exception as regime_err:
+                logger.warning(f"Failed to check market regime during re-evaluation: {regime_err}")
+                
+            for item in watch_stocks:
+                try:
+                    ticker = str(item.get("ticker", ""))
+                    company_name = str(item.get("company_name", ""))
+                    analyzed_date_str = item.get("analyzed_date")
+                    
+                    # Safe type conversions using _parse_price_value
+                    stop_loss = self._parse_price_value(item.get("stop_loss", 0))
+                    target_price = self._parse_price_value(item.get("target_price", 0))
+                    
+                    # A. Parse scenario and extract pivot settings
+                    scenario_str = item.get("scenario", "{}")
+                    scenario = {}
+                    try:
+                        if isinstance(scenario_str, str):
+                            scenario = json.loads(scenario_str)
+                        elif isinstance(scenario_str, dict):
+                            scenario = scenario_str
+                    except Exception as parse_err:
+                        logger.warning(f"[{ticker}] Failed to parse scenario JSON during re-evaluation: {parse_err}")
+                    
+                    # Calculate days passed safely
+                    days_passed = 0
+                    if analyzed_date_str:
+                        try:
+                            # Strip timestamp if exists
+                            date_only = str(analyzed_date_str).split(' ')[0] if ' ' in str(analyzed_date_str) else str(analyzed_date_str)
+                            analyzed_date = datetime.strptime(date_only, "%Y-%m-%d")
+                            days_passed = (datetime.now() - analyzed_date).days
+                        except Exception as dt_err:
+                            logger.warning(f"[{ticker}] Failed to parse analyzed_date '{analyzed_date_str}': {dt_err}")
+                    
+                    # Fetch current price
+                    current_price = await self._get_current_stock_price(ticker)
+                    if current_price <= 0:
+                        logger.warning(f"[{ticker}] Failed to query current price during watch re-evaluation, skipping")
+                        continue
+                    
+                    # Get pivot points and buffer pct from scenario
+                    pivot_val = scenario.get("pivot_point", 0)
+                    pivot_point = self._parse_price_value(pivot_val)
+                    if pivot_point <= 0:
+                        # Fallback to technical pivot_point from trigger_info_map if scenario doesn't have a valid one
+                        trigger_info = getattr(self, 'trigger_info_map', {}).get(ticker, {})
+                        pivot_point = self._parse_price_value(trigger_info.get('pivot_point', 0))
+                        
+                    if pivot_point <= 0:
+                        pivot_point = float(current_price)
+                    
+                    pivot_buffer_pct = scenario.get("pivot_buffer_pct", 5.0)
+                    try:
+                        pivot_buffer_pct = float(pivot_buffer_pct)
+                        max_buffer = 15.0 if is_bull else 8.0
+                        pivot_buffer_pct = min(max(pivot_buffer_pct, 5.0), max_buffer)
+                    except (ValueError, TypeError):
+                        pivot_buffer_pct = 5.0
+                        
+                    pivot_multiplier = 1.0 + (pivot_buffer_pct / 100.0)
+                    
+                    # Check Expiration (14 days)
+                    if days_passed > 14:
+                        logger.info(f"[{ticker}] {company_name}: Watch period expired (14 days passed). Changing to Skip.")
+                        await self._retire_watch_stock(item["id"], ticker, "Skip", "Watch period expired (14 days)")
+                        continue
+                        
+                    # Check Stop-loss breach (Current price below stop loss)
+                    if stop_loss > 0 and current_price < stop_loss:
+                        logger.info(f"[{ticker}] {company_name}: Price fell below stop_loss ({current_price:,.0f} < {stop_loss:,.0f}). Changing to Skip.")
+                        await self._retire_watch_stock(item["id"], ticker, "Skip", "Watch stock fell below stop_loss prior to breakout")
+                        continue
+                        
+                    # Check Breakout & Pivot Rule validation
+                    if current_price < pivot_point:
+                        # Still below pivot, remain Watch
+                        logger.info(f"[{ticker}] {company_name}: Still below pivot. Current: {current_price:,.0f} < Pivot: {pivot_point:,.0f}. Remain Watch.")
+                        continue
+                    elif current_price > pivot_point * pivot_multiplier:
+                        # Chasing limit exceeded, transition to Skip
+                        logger.info(f"[{ticker}] {company_name}: Chase buying prohibited. Current: {current_price:,.0f} > Max Pivot Buffer: {pivot_point * pivot_multiplier:,.0f}. Changing to Skip.")
+                        await self._retire_watch_stock(item["id"], ticker, "Skip", f"Chase buying prohibited (Current: {current_price:,.0f} > Max Pivot Buffer: {pivot_point * pivot_multiplier:,.0f})")
+                        continue
+                    else:
+                        # Pivot rule satisfied, BUY entry!
+                        logger.info(f"[{ticker}] {company_name}: Breakout verified! Current: {current_price:,.0f} matches Pivot: {pivot_point:,.0f} with buffer. Executing Enter.")
+                        
+                        # Ensure scenario keys are updated
+                        scenario["pivot_point"] = pivot_point
+                        scenario["pivot_buffer_pct"] = pivot_buffer_pct
+                        
+                        # Trigger buy entry with is_watchlist_entry=True flag
+                        buy_success = await self.buy_stock(
+                            ticker=ticker,
+                            company_name=company_name,
+                            current_price=current_price,
+                            scenario=scenario,
+                            rank_change_msg="Watchlist breakout buy entry",
+                            is_watchlist_entry=True
+                        )
+                        
+                        if buy_success:
+                            # Call actual account trading function (async)
+                            trade_result = {'success': False, 'message': 'Trading context execution bypassed or failed'}
+                            try:
+                                from trading.domestic_stock_trading import AsyncTradingContext
+                                async with AsyncTradingContext() as trading:
+                                    trade_result = await trading.async_buy_stock(stock_code=ticker, limit_price=current_price)
+                                    
+                                if trade_result['success']:
+                                    logger.info(f"[{ticker}] Actual purchase successful: {trade_result['message']}")
+                                    watch_buy_count += 1
+                                else:
+                                    logger.error(f"[{ticker}] Actual purchase failed: {trade_result['message']}")
+                            except Exception as trade_err:
+                                logger.error(f"[{ticker}] Error during actual purchase API execution: {trade_err}")
+                                trade_result = {'success': False, 'message': str(trade_err)}
+                                
+                            # Publish buy signal via Redis
+                            try:
+                                from messaging.redis_signal_publisher import publish_buy_signal
+                                await publish_buy_signal(
+                                    ticker=ticker,
+                                    company_name=company_name,
+                                    price=current_price,
+                                    scenario=scenario,
+                                    source="Watchlist Breakout Entry",
+                                    trade_result=trade_result
+                                )
+                            except Exception as signal_err:
+                                logger.warning(f"Buy signal publish failed (Redis): {signal_err}")
+                                
+                            # Publish buy signal via GCP Pub/Sub
+                            try:
+                                from messaging.gcp_pubsub_signal_publisher import publish_buy_signal as gcp_publish_buy_signal
+                                await gcp_publish_buy_signal(
+                                    ticker=ticker,
+                                    company_name=company_name,
+                                    price=current_price,
+                                    scenario=scenario,
+                                    source="Watchlist Breakout Entry",
+                                    trade_result=trade_result
+                                )
+                            except Exception as signal_err:
+                                logger.warning(f"Buy signal publish failed (GCP): {signal_err}")
+                                
+                            # Update DB entry in watchlist_history and analysis_performance_tracker
+                            self.cursor.execute(
+                                """
+                                UPDATE watchlist_history
+                                SET decision = 'Enter', was_traded = 1, current_price = ?
+                                WHERE id = ?
+                                """,
+                                (current_price, item["id"])
+                            )
+                            self.cursor.execute(
+                                """
+                                UPDATE analysis_performance_tracker
+                                SET decision = 'Enter', was_traded = 1
+                                WHERE watchlist_id = ?
+                                """,
+                                (item["id"],)
+                            )
+                            self.conn.commit()
+                            logger.info(f"[{ticker}] Watchlist history and performance tracker updated to Enter/Traded")
+                except Exception as item_err:
+                    logger.error(f"[{item.get('ticker', 'Unknown')}] Error processing single watch stock: {item_err}")
+                    logger.error(traceback.format_exc())
+                    
+        except Exception as e:
+            logger.error(f"Error during watch stocks re-evaluation: {str(e)}")
+            logger.error(traceback.format_exc())
+            
+        return watch_buy_count
+
+    async def buy_stock(self, ticker: str, company_name: str, current_price: float, scenario: Dict[str, Any], rank_change_msg: str = "", is_watchlist_entry: bool = False) -> bool:
         """
         Process stock purchase
 
@@ -609,6 +848,7 @@ class StockTrackingAgent:
             current_price: Current stock price
             scenario: Trading scenario information
             rank_change_msg: Trading value ranking change info
+            is_watchlist_entry: Whether this buy is triggered from watchlist re-evaluation
 
         Returns:
             bool: Purchase success status
@@ -666,7 +906,7 @@ class StockTrackingAgent:
                     trigger_mode
                 )
             )
-            self.conn.commit()
+            self.cursor.connection.commit() # Safely ensure commit in holdings
 
             buy_score = scenario.get("buy_score", 0)
             effective_score = scenario.get("effective_score", buy_score)
@@ -680,7 +920,10 @@ class StockTrackingAgent:
             adj_reasons = scenario.get("score_adjustment_reasons", [])
 
             # Add purchase message
-            message = f"📈 신규 매수: {company_name}({ticker})\n"
+            if is_watchlist_entry:
+                message = f"👁️ 관망 종목 돌파 매수: {company_name}({ticker})\n"
+            else:
+                message = f"📈 신규 매수: {company_name}({ticker})\n"
             
             # Format breakdown string
             adj_parts = [f"기본: {buy_score_orig}"]
@@ -1483,6 +1726,11 @@ class StockTrackingAgent:
                         reason = f"Not an entry decision (Decision: {analysis_result.get('decision')})"
 
                     logger.info(f"Purchase deferred: {company_name}({ticker}) - {reason}")
+
+            # 3. [New v2.6.0] Re-evaluate Watchlist stocks for breakout/expiration (1+3 Approach)
+            # Checked at the very end of process to prevent delaying time-sensitive morning report buys
+            watch_buy_count = await self._reevaluate_watch_stocks()
+            buy_count += watch_buy_count
 
             logger.info(f"Report processing complete - Purchased: {buy_count} stocks, Sold: {sell_count} stocks")
             return buy_count, sell_count
