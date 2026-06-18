@@ -1459,6 +1459,8 @@ class DomesticStockTrading:
 
                 # Error Code : 500 | {"rt_cd":"1","msg_cd":"EGW00201","msg1":"원장에서 허용 가능한 초당 거래건수를 초과하였습니다."}
                     logger.error(f"잔고 조회 실패: {res.getErrorCode()} - {res.getErrorMessage()}")
+                    if error:
+                        raise RuntimeError(f"잔고 조회 실패: {res.getErrorCode()} - {res.getErrorMessage()}")
                     return []
 
         except Exception as e:
