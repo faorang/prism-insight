@@ -1442,10 +1442,19 @@ class DomesticStockTrading:
                     return current_portfolio
 
                 else:
+                    error_code = res.getErrorCode()
+                    error_msg = res.getErrorMessage()
                     if tryCount > 0:
-                        # 60초 대기 후 재시도
-                        logger.warning(f"잔고 조회 초과로 재시도 중... 남은 시도 횟수: {tryCount}")
-                        time.sleep(60)
+                        logger.warning(
+                            f"잔고 조회 실패(code={error_code})로 재시도 중... "
+                            f"남은 시도 횟수: {tryCount}, msg: {error_msg}"
+                        )
+                        time.sleep(5)  # 초당 제한이므로 5초면 충분 (기존 60초에서 단축)
+                        # token 만료 대비 재인증
+                        try:
+                            ka.auth(svr=self.env, product="01")
+                        except Exception as auth_err:
+                            logger.warning(f"재인증 시도 중 오류 (무시): {auth_err}")
                         continue
 
                 # Error Code : 500 | {"rt_cd":"1","msg_cd":"EGW00201","msg1":"원장에서 허용 가능한 초당 거래건수를 초과하였습니다."}

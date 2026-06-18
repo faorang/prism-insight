@@ -1,9 +1,17 @@
 import asyncio
+import logging
 import sqlite3
 import time
 from typing import Dict, Any
 
 from streamlit import cursor
+
+# 로거 설정 (타임스탬프 포함)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 # ── KIS API Rate Limit 방지: 트레이더 싱글톤 ──
 # 매 호출마다 DomesticStockTrading()을 생성하면 불필요한 auth 호출이 발생하고
@@ -67,13 +75,12 @@ async def sell_real_stock(ticker: str):
         trade_result = await trader.async_sell_stock(stock_code=ticker)
 
         if trade_result['success']:
-            print(f"{ticker} 매도 성공: {trade_result}")
+            logger.info(f"{ticker} 매도 성공: {trade_result}")
         else:
-            print(f"{ticker} 매도 실패: {trade_result}")
+            logger.error(f"{ticker} 매도 실패: {trade_result}")
         return trade_result['success']
     except Exception as e:
-        print(e)
-        print(f"에러 {ticker} 매도 실패")
+        logger.error(f"에러 {ticker} 매도 실패: {e}")
         return False
 
 
@@ -205,7 +212,7 @@ async def get_trading_data():
 
         return portfolio
     except Exception as e:
-        print(e)
+        logger.error(f"트레이딩 데이터 조회 실패: {e}")
     return None
 
 async def get_account():
@@ -218,7 +225,7 @@ async def get_account():
 
         return account
     except Exception as e:
-        print(e)
+        logger.error(f"계좌 요약 조회 실패: {e}")
     return None
 
 
@@ -237,7 +244,7 @@ async def check_stop_loss_triggered(db_path: str = "stock_tracking_db.sqlite"):
     time.sleep(0.5)
     real_portfolio = await get_trading_data()
     if real_portfolio is None:
-        print("실제 계좌에서 포트폴리오 데이터를 가져오는 데 실패했습니다. 손절 체크를 중단합니다.")
+        logger.error("실제 계좌에서 포트폴리오 데이터를 가져오는 데 실패했습니다. 손절 체크를 중단합니다.")
         return
     stock_codes = [item['stock_code'] for item in real_portfolio]
 
@@ -269,20 +276,23 @@ async def check_stop_loss_triggered(db_path: str = "stock_tracking_db.sqlite"):
             if not is_market_close_time:
                 effective_stop_loss = stop_loss * 0.98
                 
-            print(f"{ticker} 현재가: {current_portpolio}, 유효손절가: {effective_stop_loss:.0f} (원래: {stop_loss}), 목표가: {target_price}")
+            logger.info(f"{ticker} 현재가: {current_portpolio}, 유효손절가: {effective_stop_loss:.0f} (원래: {stop_loss}), 목표가: {target_price}")
             
             if current_portpolio <= effective_stop_loss:
                 # 주가 정보 업데이트
                 stock['current_price'] = current_portpolio
                 
                 # 1. 실제 계좌 매도 먼저 수행 (실패 가능성 대비)
+                logger.warning(f"🔴 손절 트리거: {ticker} 현재가={current_portpolio}, 유효손절가={effective_stop_loss:.0f}")
                 success = await sell_real_stock(ticker)
                 if success:
                     # 2. 실제 매도가 성공한 경우에만 DB 정보 업데이트 (판매 처리)
                     triggered_stocks.append(stock)
                     await sell_stock(stock, sell_reason="손절가 도달")
+                    logger.info(f"✅ 손절 매도 완료: {ticker}")
                 else:
                     # 실제 매도 실패 시 경고 메시지 전송
+                    logger.error(f"❌ 손절 매도 실패: {ticker}")
                     fail_msg = f"⚠️ **손절 실패 알림**\n종목: {stock['company_name']}({ticker})\n현재가: {current_portpolio:,}원 (유효손절가: {effective_stop_loss:.0f}원)\n실제 계좌 매도 주문이 실패했습니다. 다음 주기에 재시도합니다."
                     await send_telegram_message(fail_msg)
             ''' 잠시 비활성화, canslim 전략과 충돌
@@ -388,7 +398,7 @@ async def syncup_portfolio_data():
         # 실제 계좌에서 종목 가져오기
         real_portfolio = await get_trading_data()
         if real_portfolio is None:
-            print("실제 계좌에서 포트폴리오 데이터를 가져오는 데 실패했습니다. 동기화를 중단합니다.")
+            logger.error("실제 계좌에서 포트폴리오 데이터를 가져오는 데 실패했습니다. 동기화를 중단합니다.")
             return
         real_tickers = {item['stock_code'] for item in real_portfolio}
         real_full_data = real_portfolio
@@ -447,16 +457,16 @@ async def syncup_portfolio_data():
 
     except sqlite3.Error as e:
         error_message = f"DB 동기화 중 SQLite 오류 발생: {e}"
-        print(error_message)
+        logger.error(error_message)
         await send_telegram_message(error_message)
     except Exception as e:
         error_message = f"DB 동기화 중 알 수 없는 오류 발생: {e}"
-        print(error_message)
+        logger.error(error_message)
         await send_telegram_message(error_message)
     finally:
         if conn:
             conn.close()
-            print("DB 연결이 종료되었습니다.")
+            logger.info("DB 연결이 종료되었습니다.")
 
 
 
