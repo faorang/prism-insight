@@ -223,6 +223,46 @@ def get_current_slots_count(cursor) -> int:
         return 0
 
 
+SECTOR_GROUPS = [
+    {"전기전자", "전기·전자", "일반전기전자", "IT하드웨어/통신부품/전자부품", "IT하드웨어"},
+    {"운수장비", "운송장비·부품", "운송장비,부품", "자동차부품", "자동차부품/전장(와이어하네스)", "방산/항공우주(운송장비·부품)"},
+    {"의약품", "제약", "제약/바이오", "제약/헬스케어", "코스닥 제약/체외진단(분자진단)", "바이오/신약개발", "바이오/헬스케어"},
+    {"철강금속", "금속"},
+    {"서비스업", "IT 서비스", "IT서비스/소프트웨어", "일반서비스", "게임/소프트웨어"},
+    {"운수창고", "운송·창고", "운송/물류"},
+    {"전기가스업", "전기·가스"},
+    {"통신업", "통신"},
+    {"기계", "기계·장비", "기계,장비"},
+    {"음식료품", "음식료·담배", "음식료,담배"},
+    {"섬유의복", "섬유·의류", "섬유,의류(OEM/ODM)", "섬유,의류"},
+    {"종이목재", "종이·목재", "종이,목재", "종이·목재(제지)"},
+    {"의료정밀", "의료·정밀기기", "의료,정밀기기", "의료정밀기기"},
+]
+
+
+def are_sectors_compatible(s1: str, s2: str) -> bool:
+    """Check if two sector names are compatible (backward compatibility & aliases)."""
+    if not s1 or not s2:
+        return False
+    s1_clean = s1.strip().lower()
+    s2_clean = s2.strip().lower()
+    if s1_clean == s2_clean:
+        return True
+    
+    import re
+    s1_norm = re.sub(r'[\s·,\-/]', '', s1_clean)
+    s2_norm = re.sub(r'[\s·,\-/]', '', s2_clean)
+    if s1_norm == s2_norm:
+        return True
+        
+    for group in SECTOR_GROUPS:
+        norm_group = {re.sub(r'[\s·,\-/]', '', item.lower()) for item in group}
+        if s1_norm in norm_group and s2_norm in norm_group:
+            return True
+            
+    return False
+
+
 def check_sector_diversity(cursor, sector: str, max_same_sector: int, concentration_ratio: float) -> bool:
     """
     Check for over-concentration in same sector.
@@ -253,7 +293,7 @@ def check_sector_diversity(cursor, sector: str, max_same_sector: int, concentrat
                 except:
                     pass
 
-        same_sector_count = sum(1 for s in sectors if s and s.lower() == sector.lower())
+        same_sector_count = sum(1 for s in sectors if s and are_sectors_compatible(s, sector))
 
         if same_sector_count >= max_same_sector or \
            (sectors and same_sector_count / len(sectors) >= concentration_ratio):

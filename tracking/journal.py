@@ -12,6 +12,7 @@ import traceback
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 from cores.utils import parse_llm_json
+from tracking.helpers import SECTOR_GROUPS
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,21 @@ class JournalManager:
         self.conn = conn
         self.language = language
         self.enable_journal = enable_journal
+
+    def _get_compatible_sectors(self, sector: str) -> list:
+        """Get all equivalent sector names for database query matching."""
+        if not sector or sector == "Unknown":
+            return ["Unknown"]
+            
+        import re
+        sector_clean = re.sub(r'[\s·,\-/]', '', sector.lower())
+        
+        for group in SECTOR_GROUPS:
+            norm_group = {re.sub(r'[\s·,\-/]', '', item.lower()) for item in group}
+            if sector_clean in norm_group:
+                return list(group)
+                
+        return [sector]
 
     async def create_entry(
         self,
@@ -725,14 +741,17 @@ Please review the following completed trade:
 
             # 2순위: 동일 종목 이력이 전혀 없을 때(0건)만 동일 섹터 타 종목 극단값 1건 로드
             if not retrieved_entries and sector and sector != "Unknown":
-                self.cursor.execute("""
+                comp_sectors = self._get_compatible_sectors(sector)
+                like_clauses = " OR ".join(["buy_scenario LIKE ?" for _ in comp_sectors])
+                params = [ticker] + [f'%"{s}"%' for s in comp_sectors]
+                self.cursor.execute(f"""
                     SELECT ticker, company_name, profit_rate, holding_days,
                            one_line_summary, lessons, pattern_tags, trade_date,
                            sell_reason, situation_analysis, judgment_evaluation, trade_type
                     FROM trading_journal 
-                    WHERE ticker != ? AND buy_scenario LIKE ?
+                    WHERE ticker != ? AND ({like_clauses})
                     ORDER BY ABS(profit_rate) DESC LIMIT 1
-                """, (ticker, f'%"{sector}"%'))
+                """, tuple(params))
                 
                 for raw_entry in self.cursor.fetchall():
                     if hasattr(raw_entry, 'keys'):
@@ -990,10 +1009,13 @@ Please review the following completed trade:
 
             # 2. Sector performance (from journal - excluding skipped stocks)
             if sector and sector != "Unknown":
-                self.cursor.execute("""
+                comp_sectors = self._get_compatible_sectors(sector)
+                like_clauses = " OR ".join(["buy_scenario LIKE ?" for _ in comp_sectors])
+                params = [f'%"{s}"%' for s in comp_sectors]
+                self.cursor.execute(f"""
                     SELECT AVG(profit_rate), COUNT(*)
-                    FROM trading_journal WHERE buy_scenario LIKE ? AND trade_type != 'skip'
-                """, (f'%"{sector}"%',))
+                    FROM trading_journal WHERE ({like_clauses}) AND trade_type != 'skip'
+                """, tuple(params))
 
                 sector_stats = self.cursor.fetchone()
                 if sector_stats and sector_stats[1] >= 3:
