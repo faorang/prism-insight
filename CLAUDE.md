@@ -82,6 +82,13 @@ for section in sections:
 reports = await asyncio.gather(*[generate_report(a, s) for s in sections])
 ```
 
+### AI Assistant Modification & Planning Rules (CRITICAL)
+- **선-계획 후-수정**: 코드 수정 요청(버그 수정, 기능 추가, 리팩토링 등)을 받으면 반드시 사전에 `implementation_plan.md` 아티팩트를 작성하여 사용자의 명시적 승인을 받아야 합니다.
+- **즉시 수행 금지**: 사용자의 질문이나 단순 명령에 대해 분석이나 계획 수립 없이 즉시 코드를 변경해서는 안 됩니다.
+- **기록 및 체크리스트 관리**: 승인을 받은 후에는 `task.md`를 생성하여 작업 체크리스트를 관리하고, 작업 완료 후에는 `walkthrough.md`를 생성하여 변경 내역을 정리해야 합니다.
+- **규칙 우선 순위**: 이 규칙은 모든 개발 작업 시 최우선적으로 적용되며, 사소한 변경(단순 설명 수정 등)을 제외한 모든 기능적/구조적 수정에 필수로 요구됩니다.
+- **자동 커밋 금지**: 기존 `commit-guide.md`와 동일하게 사용자가 직접 명령하기 전에 `git add`나 `git commit`을 자동으로 실행하지 않습니다.
+
 ## Trading Constraints
 
 ```python

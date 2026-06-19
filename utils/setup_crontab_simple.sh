@@ -46,8 +46,8 @@ fi
 cat >> "$TEMP_CRON" << EOF
 
 # === PRISM-INSIGHT 자동 실행 스케줄 ===
-# 오전 9시 30분 - 오전 분석 (월-금)
-30 9 * * 1-5 cd $PROJECT_DIR && $PYTHON_CMD stock_analysis_orchestrator.py --mode morning >> $PROJECT_DIR/logs/morning.log 2>&1
+# 오전 10시 30분 - 오전 분석 (월-금)
+30 10 * * 1-5 cd $PROJECT_DIR && $PYTHON_CMD stock_analysis_orchestrator.py --mode morning >> $PROJECT_DIR/logs/morning.log 2>&1
 
 # 오후 3시 40분 - 오후 분석 (월-금)
 40 15 * * 1-5 cd $PROJECT_DIR && $PYTHON_CMD stock_analysis_orchestrator.py --mode afternoon >> $PROJECT_DIR/logs/afternoon.log 2>&1
@@ -66,7 +66,7 @@ rm -f "$TEMP_CRON"
 echo -e "${GREEN}✅ Crontab 설정 완료!${NC}"
 echo ""
 echo "📋 설정된 스케줄:"
-echo "  • 오전 9:30 - 장 시작 분석"
+echo "  • 오전 10:30 - 장 시작 분석"
 echo "  • 오후 3:40 - 장 마감 분석"
 echo "  • 오전 7:00 - 데이터 업데이트"
 echo "  • 오전 3:00 - 로그 정리"

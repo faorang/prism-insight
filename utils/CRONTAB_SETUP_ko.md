@@ -33,15 +33,15 @@ PROJECT_DIR=/opt/prism-insight PYTHON_PATH=/usr/bin/python3 ./setup_crontab.sh -
 | 시간 | 작업 | 설명 |
 |------|------|------|
 | 07:00 | 데이터 업데이트 | 장 시작 전 종목 정보 갱신 |
-| 09:30 | 오전 분석 | 장 시작 후 급등주 포착 및 분석 |
+| 10:30 | 오전 분석 | 장 시작 후 1시간 데이터 기반 급등주 포착 및 분석 |
 | 15:40 | 오후 분석 | 장 마감 후 종합 분석 |
 | 03:00 | 로그 정리 | 오래된 로그 파일 삭제 |
 | 18:00 | 포트폴리오 리포트 | (선택) 일일 매매 실적 보고 |
 
 ### 스케줄 설명
 
-#### 1. **오전 분석 (09:30)**
-- 장 시작 후 10분 데이터 기반
+#### 1. **오전 분석 (10:30)**
+- 장 시작 후 1시간 데이터 기반
 - 갭 상승, 거래량 급증 종목 포착
 - 실시간 시장 동향 분석
 
@@ -77,7 +77,7 @@ PYTHONPATH=/path/to/prism-insight
 ### 3. 스케줄 추가
 ```bash
 # 오전 분석 (월-금)
-30 9 * * 1-5 cd /path/to/prism-insight && python stock_analysis_orchestrator.py --mode morning >> logs/morning.log 2>&1
+30 10 * * 1-5 cd /path/to/prism-insight && python stock_analysis_orchestrator.py --mode morning >> logs/morning.log 2>&1
 
 # 오후 분석 (월-금)
 40 15 * * 1-5 cd /path/to/prism-insight && python stock_analysis_orchestrator.py --mode afternoon >> logs/afternoon.log 2>&1
@@ -214,7 +214,7 @@ sudo timedatectl set-timezone Asia/Seoul
 
 # crontab에서 시간대 지정
 TZ=Asia/Seoul
-30 9 * * 1-5 command
+30 10 * * 1-5 command
 ```
 
 ## 📝 유지보수
@@ -274,7 +274,7 @@ done
 ```bash
 # 에러 발생 시 이메일 알림
 MAILTO=your-email@example.com
-30 9 * * 1-5 /path/to/script.py || echo "오전 분석 실패" | mail -s "PRISM-INSIGHT 에러" $MAILTO
+30 10 * * 1-5 /path/to/script.py || echo "오전 분석 실패" | mail -s "PRISM-INSIGHT 에러" $MAILTO
 ```
 
 ### 3. **건강 체크**
@@ -293,7 +293,7 @@ fi
 ### 4. **리소스 제한**
 ```bash
 # CPU/메모리 사용량 제한
-30 9 * * 1-5 nice -n 10 ionice -c 3 timeout 3600 python script.py
+30 10 * * 1-5 nice -n 10 ionice -c 3 timeout 3600 python script.py
 
 # nice: CPU 우선순위 낮춤
 # ionice: I/O 우선순위 낮춤

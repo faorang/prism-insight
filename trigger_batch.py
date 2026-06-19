@@ -993,7 +993,7 @@ def trigger_morning_pullback_from_high(trade_date: str, snapshot: pd.DataFrame, 
     - Market cap 500B KRW or more, minimum trade value 10B KRW
     - Daily bull candle (Close > Open) and change rate <= 15.0%
     - Pullback check: D-1 Close is -3% ~ -12% compared to past 20-day High (excluding today)
-    - Rebound check: Today's close (9:10) is higher than D-1 Close
+    - Rebound check: Today's close (10:10) is higher than D-1 Close
     - Composite score: normalized pullback_ratio (60%) + normalized Amount (40%)
     """
     logger.debug("trigger_morning_pullback_from_high started")

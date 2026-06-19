@@ -38,7 +38,7 @@ PROJECT_DIR=/opt/prism-insight PYTHON_PATH=/usr/bin/python3 ./setup_crontab.sh -
 | 03:00 (Sun) | Memory Compression | Weekly trading memory compression & cleanup |
 | 03:00 | Log Cleanup | Delete old log files |
 | 07:00 | Data Update | Update stock information before market opens |
-| 09:30 | Morning Analysis | Detect and analyze surging stocks after market opens |
+| 10:30 | Morning Analysis | Detect and analyze surging stocks after market opens |
 | 11:05 | Dashboard Refresh | Update dashboard JSON data (morning) |
 | 15:40 | Afternoon Analysis | Comprehensive analysis after market closes |
 | 17:00 | Performance Tracker | Update 7/14/30 day performance tracking |
@@ -47,8 +47,8 @@ PROJECT_DIR=/opt/prism-insight PYTHON_PATH=/usr/bin/python3 ./setup_crontab.sh -
 
 ### Schedule Details
 
-#### 1. **Morning Analysis (09:30)**
-- Based on 10-minute data after market opens
+#### 1. **Morning Analysis (10:30)**
+- Based on 1-hour data after market opens
 - Detect gap-up and volume surge stocks
 - Real-time market trend analysis
 
@@ -126,8 +126,8 @@ PYTHONPATH=/path/to/prism-insight
 # Data update before market opens (Mon-Fri 7 AM)
 0 7 * * 1-5 cd /path/to/prism-insight && python update_stock_data.py >> logs/update.log 2>&1
 
-# Morning analysis (Mon-Fri 9:30 AM)
-30 9 * * 1-5 cd /path/to/prism-insight && python stock_analysis_orchestrator.py --mode morning >> logs/morning.log 2>&1
+# Morning analysis (Mon-Fri 10:30 AM)
+30 10 * * 1-5 cd /path/to/prism-insight && python stock_analysis_orchestrator.py --mode morning >> logs/morning.log 2>&1
 
 # Afternoon analysis (Mon-Fri 3:40 PM)
 40 15 * * 1-5 cd /path/to/prism-insight && python stock_analysis_orchestrator.py --mode afternoon >> logs/afternoon.log 2>&1
@@ -271,7 +271,7 @@ sudo timedatectl set-timezone Asia/Seoul
 
 # Specify timezone in crontab
 TZ=Asia/Seoul
-30 9 * * 1-5 command
+30 10 * * 1-5 command
 ```
 
 ## 📝 Maintenance
@@ -331,7 +331,7 @@ done
 ```bash
 # Email notification on error
 MAILTO=your-email@example.com
-30 9 * * 1-5 /path/to/script.py || echo "Morning analysis failed" | mail -s "PRISM-INSIGHT Error" $MAILTO
+30 10 * * 1-5 /path/to/script.py || echo "Morning analysis failed" | mail -s "PRISM-INSIGHT Error" $MAILTO
 ```
 
 ### 3. **Health Check**
@@ -350,7 +350,7 @@ fi
 ### 4. **Resource Limits**
 ```bash
 # CPU/memory usage limits
-30 9 * * 1-5 nice -n 10 ionice -c 3 timeout 3600 python script.py
+30 10 * * 1-5 nice -n 10 ionice -c 3 timeout 3600 python script.py
 
 # nice: Lower CPU priority
 # ionice: Lower I/O priority
