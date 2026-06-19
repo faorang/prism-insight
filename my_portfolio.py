@@ -320,7 +320,7 @@ async def check_stop_loss_triggered(db_path: str = "stock_tracking_db.sqlite"):
         await send_telegram_message(message)
 
 def escape_md(text):
-    special = r'_*[]()~`>#+-=|{}.!'
+    special = r'_*[]~`>#+-=|{}.!'
     for ch in special:
         text = text.replace(ch, f'\\{ch}')
     return text
@@ -342,10 +342,13 @@ def format_telegram_trigger_message(triggered_stocks):
         ticker = escape_md(s["ticker"])
         scenario = escape_md(s["scenario"])
 
+        # 수익률 계산
+        profit_rate = ((s['current_price'] - s['buy_price']) / s['buy_price']) * 100
+
         lines.append(
-            f"{emoji} *{company}* \\({ticker}\\)\n"
+            f"{emoji} *{company}* ({ticker})\n"
             f"• 매수가: {s['buy_price']:,}\n"
-            f"• 현재가: {s['current_price']:,}\n"
+            f"• 현재가: {s['current_price']:,} ({profit_rate:+.2f}%)\n"
             f"• 목표가: {s['target_price']:,} / 손절가: {s['stop_loss']:,}"
         )
 
