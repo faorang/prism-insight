@@ -39,22 +39,18 @@ class TestParsePriceValue:
                 # Remove commas
                 value = value.replace(',', '')
 
-                # Check range expression (e.g., "2000~2050", "1,700-1,800")
-                range_patterns = [
-                    r'(\d+(?:\.\d+)?)\s*[-~]\s*(\d+(?:\.\d+)?)',  # 2000~2050 or 2000-2050
-                    r'(\d+(?:\.\d+)?)\s*~\s*(\d+(?:\.\d+)?)',     # 2000 ~ 2050
-                ]
+                # Enhanced range expression pattern that allows Korean units, words (min/max), and negative values
+                range_match = re.search(
+                    r'(-?\d+(?:\.\d+)?)\s*[^-\d~\s]*\s*[-~]\s*[^-\d~\s]*\s*(-?\d+(?:\.\d+)?)', 
+                    value
+                )
+                if range_match:
+                    low = float(range_match.group(1))
+                    high = float(range_match.group(2))
+                    return (low + high) / 2
 
-                for pattern in range_patterns:
-                    match = re.search(pattern, value)
-                    if match:
-                        # Use midpoint of range
-                        low = float(match.group(1))
-                        high = float(match.group(2))
-                        return (low + high) / 2
-
-                # Try to extract single number
-                number_match = re.search(r'(\d+(?:\.\d+)?)', value)
+                # Try to extract single number (supporting negatives)
+                number_match = re.search(r'(-?\d+(?:\.\d+)?)', value)
                 if number_match:
                     return float(number_match.group(1))
 

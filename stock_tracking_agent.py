@@ -444,6 +444,18 @@ class StockTrackingAgent:
             from pdf_converter import pdf_to_markdown_text
             report_content = pdf_to_markdown_text(pdf_report_path)
 
+            # Remove disclaimer sections to save tokens and prevent OpenAI API load errors
+            if isinstance(report_content, str) and report_content:
+                disclaimer_pattern = re.compile(
+                    r'(?:^|\n)#+\s*(투자\s*유의\s*사항|investment\s*disclaimer)', 
+                    re.IGNORECASE
+                )
+                match = disclaimer_pattern.search(report_content)
+                if match:
+                    logger.info(f"Removing disclaimer section starting at index {match.start()} for ticker {ticker}")
+                    report_content = report_content[:match.start()].strip()
+
+
             # Get trigger info for this ticker (from trigger_results file loaded at run() time)
             trigger_info = getattr(self, 'trigger_info_map', {}).get(ticker, {})
             trigger_type = trigger_info.get('trigger_type', '')

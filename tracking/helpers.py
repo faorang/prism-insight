@@ -328,19 +328,19 @@ def parse_price_value(value: Any) -> float:
         if isinstance(value, str):
             value = value.replace(',', '')
 
-            range_patterns = [
-                r'(\d+(?:\.\d+)?)\s*[-~]\s*(\d+(?:\.\d+)?)',
-                r'(\d+(?:\.\d+)?)\s*~\s*(\d+(?:\.\d+)?)',
-            ]
+            # Enhanced range expression pattern that allows Korean units, words (min/max), and negative values
+            # e.g. "1,700원~2,000원", "최소 1,500 ~ 최대 2,000", "-1000~-500"
+            range_match = re.search(
+                r'(-?\d+(?:\.\d+)?)\s*[^-\d~\s]*\s*[-~]\s*[^-\d~\s]*\s*(-?\d+(?:\.\d+)?)', 
+                value
+            )
+            if range_match:
+                low = float(range_match.group(1))
+                high = float(range_match.group(2))
+                return (low + high) / 2
 
-            for pattern in range_patterns:
-                match = re.search(pattern, value)
-                if match:
-                    low = float(match.group(1))
-                    high = float(match.group(2))
-                    return (low + high) / 2
-
-            number_match = re.search(r'(\d+(?:\.\d+)?)', value)
+            # Extract single number (supporting negatives)
+            number_match = re.search(r'(-?\d+(?:\.\d+)?)', value)
             if number_match:
                 return float(number_match.group(1))
 
