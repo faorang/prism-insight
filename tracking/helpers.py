@@ -353,6 +353,7 @@ def parse_price_value(value: Any) -> float:
 def default_scenario() -> Dict[str, Any]:
     """Return default trading scenario."""
     return {
+        "_analysis_failed": True,
         "portfolio_analysis": "Analysis failed",
         "buy_score": 0,
         "decision": "No Entry",

@@ -406,7 +406,13 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
                 analysis_result = await self.analyze_report(pdf_report_path)
 
                 if not analysis_result.get("success", False):
-                    logger.error(f"Report analysis failed: {pdf_report_path} - {analysis_result.get('error', 'Unknown error')}")
+                    ticker_info = analysis_result.get("company_name", "") or ""
+                    if ticker_info:
+                        ticker_info = f" [{ticker_info}({analysis_result.get('ticker', '')})]"
+                    logger.error(
+                        f"Report analysis failed{ticker_info}: {pdf_report_path} "
+                        f"- {analysis_result.get('error', 'Unknown error')} (not saved to DB)"
+                    )
                     continue
 
                 # Skip if already holding this stock (no telegram message for already held stocks)
