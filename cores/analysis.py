@@ -61,7 +61,7 @@ async def analyze_stock(company_code: str = "000660", company_name: str = "SK하
             logger.info(f"Starting prefetch process for {company_name}({company_code}) - reference date: {reference_date}")
             from datetime import timedelta
             ref_date_obj = datetime.strptime(reference_date, "%Y%m%d")
-            
+
             # If reference_date is today and current time is before 15:30 (KST),
             # adjust the prefetch end date to T-1 (yesterday) to avoid incomplete daily bar.
             now = datetime.now()
@@ -70,7 +70,7 @@ async def analyze_stock(company_code: str = "000660", company_name: str = "SK하
             if reference_date == today_str and (now.hour < 15 or (now.hour == 15 and now.minute < 30)):
                 prefetch_end_date = (ref_date_obj - timedelta(days=1)).strftime("%Y%m%d")
                 logger.info(f"Adjusting prefetch end date to {prefetch_end_date} (T-1) to avoid incomplete today's daily bar (current time: {now.strftime('%H:%M')}).")
-                
+
             max_years_calc = 1
             max_years_ago_calc = (datetime.strptime(prefetch_end_date, "%Y%m%d") - timedelta(days=365*max_years_calc)).strftime("%Y%m%d")
             prefetched = prefetch_kr_analysis_data(company_code, prefetch_end_date, max_years_ago_calc)
@@ -285,7 +285,7 @@ async def analyze_stock(company_code: str = "000660", company_name: str = "SK하
             final_report += section_reports["investment_strategy"] + "\n\n"
 
         # Add disclaimer at the end
-        final_report += "---\n\n" + disclaimer + "\n"
+        # final_report += "---\n\n" + disclaimer + "\n"
 
         # 12. Final markdown cleanup
         final_report = clean_markdown(final_report)

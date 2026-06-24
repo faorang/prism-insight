@@ -340,11 +340,11 @@ class StockTrackingAgent:
             response = await llm.generate_str(
                 message=prompt_message,
                 request_params=RequestParams(
-                    model="gpt-5.4",
-                    maxTokens=20000,
-                    metadata={
-                        "service_tier":"flex",
-                    }
+                    model="gpt-5.5",
+                    maxTokens=30000,
+                    #metadata={
+                    #    "service_tier":"flex",
+                    #}
                 )
             )
 
@@ -357,14 +357,14 @@ class StockTrackingAgent:
                     original_buy_score = float(scenario_json.get("buy_score") or 0.0)
                     macro_adj = float(scenario_json.get("macro_adjustment") or 0.0)
                     min_score = float(scenario_json.get("min_score") or 5.0)
-                    
+
                     if original_buy_score == 0.0 and scenario_json.get("effective_score"):
                         original_buy_score = float(scenario_json.get("effective_score")) - macro_adj
 
                     # Compute final scores (buy_score gets adjustment, effective_score gets both adjustment and macro_adjustment)
                     final_buy_score = round(max(1.0, min(10.0, original_buy_score + adjustment)), 2)
                     final_effective_score = round(max(1.0, min(10.0, final_buy_score + macro_adj)), 2)
-                    
+
                     # Store score details inside the scenario JSON
                     scenario_json["buy_score_original"] = scenario_json.get("buy_score", 0.0)
                     scenario_json["effective_score_original"] = scenario_json.get("effective_score", 0.0)
@@ -372,7 +372,7 @@ class StockTrackingAgent:
                     scenario_json["effective_score"] = final_effective_score
                     scenario_json["score_adjustment"] = adjustment
                     scenario_json["score_adjustment_reasons"] = reasons
-                    
+
                     # Overrule decision if the resulting score doesn't reach the required minimum threshold
                     decision = self._normalize_decision(scenario_json.get("decision", "No entry"))
                     if decision == "Enter" and final_effective_score < min_score:
@@ -447,7 +447,7 @@ class StockTrackingAgent:
             # Remove disclaimer sections to save tokens and prevent OpenAI API load errors
             if isinstance(report_content, str) and report_content:
                 disclaimer_pattern = re.compile(
-                    r'(?:^|\n)#+\s*(투자\s*유의\s*사항|investment\s*disclaimer)', 
+                    r'(?:^|\n)#+\s*(투자\s*유의\s*사항|investment\s*disclaimer)',
                     re.IGNORECASE
                 )
                 match = disclaimer_pattern.search(report_content)
@@ -490,16 +490,16 @@ class StockTrackingAgent:
                 # Get pivot_point from scenario (AI suggested)
                 pivot_val = scenario.get("pivot_point", 0)
                 pivot_point = self._parse_price_value(pivot_val)
-                
+
                 # Fallback to technical pivot_point from trigger_info_map if scenario doesn't have a valid one
                 if pivot_point <= 0:
                     trigger_info = getattr(self, 'trigger_info_map', {}).get(ticker, {})
                     pivot_point = float(trigger_info.get('pivot_point', 0))
-                    
+
                 # If still invalid, fallback to current price
                 if pivot_point <= 0:
                     pivot_point = float(current_price)
-                    
+
                 # v2.1.0: 마켓 레짐에 따른 피벗 버퍼 한도 완화 (강세장 시 최대 15.0% 허용)
                 try:
                     from trigger_batch import determine_market_regime
@@ -519,11 +519,11 @@ class StockTrackingAgent:
                     pivot_buffer_pct = min(max(pivot_buffer_pct, 5.0), max_buffer)
                 except (ValueError, TypeError):
                     pivot_buffer_pct = 5.0
-                
+
                 pivot_multiplier = 1.0 + (pivot_buffer_pct / 100.0)
-                
+
                 logger.info(f"{ticker}({company_name}): Verifying pivot rule. Pivot: {pivot_point:,.0f}, Current: {current_price:,.0f}, Buffer: {pivot_buffer_pct:.1f}%")
-                
+
                 if current_price < pivot_point:
                     decision = "Watch"
                     scenario["decision"] = "Watch"
@@ -648,7 +648,7 @@ class StockTrackingAgent:
             import traceback
 
             logger.info("Starting re-evaluation of 'Watch' stocks in watchlist")
-            
+
             # 1. Fetch pending Watch items from watchlist_history
             self.cursor.execute(
                 """
@@ -660,13 +660,13 @@ class StockTrackingAgent:
             )
             rows = self.cursor.fetchall()
             watch_stocks = [dict(row) for row in rows]
-            
+
             if not watch_stocks:
                 logger.info("No active 'Watch' stocks found for re-evaluation")
                 return 0
-                
+
             logger.info(f"Found {len(watch_stocks)} 'Watch' stock(s) to re-evaluate")
-            
+
             # Determine market regime (used for maximum pivot buffer bound check)
             is_bull = False
             try:
@@ -676,17 +676,17 @@ class StockTrackingAgent:
                 is_bull = regime in ["strong_bull", "moderate_bull"]
             except Exception as regime_err:
                 logger.warning(f"Failed to check market regime during re-evaluation: {regime_err}")
-                
+
             for item in watch_stocks:
                 try:
                     ticker = str(item.get("ticker", ""))
                     company_name = str(item.get("company_name", ""))
                     analyzed_date_str = item.get("analyzed_date")
-                    
+
                     # Safe type conversions using _parse_price_value
                     stop_loss = self._parse_price_value(item.get("stop_loss", 0))
                     target_price = self._parse_price_value(item.get("target_price", 0))
-                    
+
                     # A. Parse scenario and extract pivot settings
                     scenario_str = item.get("scenario", "{}")
                     scenario = {}
@@ -697,7 +697,7 @@ class StockTrackingAgent:
                             scenario = scenario_str
                     except Exception as parse_err:
                         logger.warning(f"[{ticker}] Failed to parse scenario JSON during re-evaluation: {parse_err}")
-                    
+
                     # Calculate days passed safely
                     days_passed = 0
                     if analyzed_date_str:
@@ -708,13 +708,13 @@ class StockTrackingAgent:
                             days_passed = (datetime.now() - analyzed_date).days
                         except Exception as dt_err:
                             logger.warning(f"[{ticker}] Failed to parse analyzed_date '{analyzed_date_str}': {dt_err}")
-                    
+
                     # Fetch current price
                     current_price = await self._get_current_stock_price(ticker)
                     if current_price <= 0:
                         logger.warning(f"[{ticker}] Failed to query current price during watch re-evaluation, skipping")
                         continue
-                    
+
                     # Get pivot points and buffer pct from scenario
                     pivot_val = scenario.get("pivot_point", 0)
                     pivot_point = self._parse_price_value(pivot_val)
@@ -722,10 +722,10 @@ class StockTrackingAgent:
                         # Fallback to technical pivot_point from trigger_info_map if scenario doesn't have a valid one
                         trigger_info = getattr(self, 'trigger_info_map', {}).get(ticker, {})
                         pivot_point = self._parse_price_value(trigger_info.get('pivot_point', 0))
-                        
+
                     if pivot_point <= 0:
                         pivot_point = float(current_price)
-                    
+
                     pivot_buffer_pct = scenario.get("pivot_buffer_pct", 5.0)
                     try:
                         pivot_buffer_pct = float(pivot_buffer_pct)
@@ -733,21 +733,21 @@ class StockTrackingAgent:
                         pivot_buffer_pct = min(max(pivot_buffer_pct, 5.0), max_buffer)
                     except (ValueError, TypeError):
                         pivot_buffer_pct = 5.0
-                        
+
                     pivot_multiplier = 1.0 + (pivot_buffer_pct / 100.0)
-                    
+
                     # Check Expiration (14 days)
                     if days_passed > 14:
                         logger.info(f"[{ticker}] {company_name}: Watch period expired (14 days passed). Changing to Skip.")
                         await self._retire_watch_stock(item["id"], ticker, "Skip", "Watch period expired (14 days)")
                         continue
-                        
+
                     # Check Stop-loss breach (Current price below stop loss)
                     if stop_loss > 0 and current_price < stop_loss:
                         logger.info(f"[{ticker}] {company_name}: Price fell below stop_loss ({current_price:,.0f} < {stop_loss:,.0f}). Changing to Skip.")
                         await self._retire_watch_stock(item["id"], ticker, "Skip", "Watch stock fell below stop_loss prior to breakout")
                         continue
-                        
+
                     # Check Breakout & Pivot Rule validation
                     if current_price < pivot_point:
                         # Still below pivot, remain Watch
@@ -761,11 +761,11 @@ class StockTrackingAgent:
                     else:
                         # Pivot rule satisfied, BUY entry!
                         logger.info(f"[{ticker}] {company_name}: Breakout verified! Current: {current_price:,.0f} matches Pivot: {pivot_point:,.0f} with buffer. Executing Enter.")
-                        
+
                         # Ensure scenario keys are updated
                         scenario["pivot_point"] = pivot_point
                         scenario["pivot_buffer_pct"] = pivot_buffer_pct
-                        
+
                         # Trigger buy entry with is_watchlist_entry=True flag
                         buy_success = await self.buy_stock(
                             ticker=ticker,
@@ -775,7 +775,7 @@ class StockTrackingAgent:
                             rank_change_msg="Watchlist breakout buy entry",
                             is_watchlist_entry=True
                         )
-                        
+
                         if buy_success:
                             # Call actual account trading function (async)
                             trade_result = {'success': False, 'message': 'Trading context execution bypassed or failed'}
@@ -783,7 +783,7 @@ class StockTrackingAgent:
                                 from trading.domestic_stock_trading import AsyncTradingContext
                                 async with AsyncTradingContext() as trading:
                                     trade_result = await trading.async_buy_stock(stock_code=ticker, limit_price=current_price)
-                                    
+
                                 if trade_result['success']:
                                     logger.info(f"[{ticker}] Actual purchase successful: {trade_result['message']}")
                                     watch_buy_count += 1
@@ -792,7 +792,7 @@ class StockTrackingAgent:
                             except Exception as trade_err:
                                 logger.error(f"[{ticker}] Error during actual purchase API execution: {trade_err}")
                                 trade_result = {'success': False, 'message': str(trade_err)}
-                                
+
                             # Publish buy signal via Redis
                             try:
                                 from messaging.redis_signal_publisher import publish_buy_signal
@@ -806,7 +806,7 @@ class StockTrackingAgent:
                                 )
                             except Exception as signal_err:
                                 logger.warning(f"Buy signal publish failed (Redis): {signal_err}")
-                                
+
                             # Publish buy signal via GCP Pub/Sub
                             try:
                                 from messaging.gcp_pubsub_signal_publisher import publish_buy_signal as gcp_publish_buy_signal
@@ -820,7 +820,7 @@ class StockTrackingAgent:
                                 )
                             except Exception as signal_err:
                                 logger.warning(f"Buy signal publish failed (GCP): {signal_err}")
-                                
+
                             # Update DB entry in watchlist_history and analysis_performance_tracker
                             self.cursor.execute(
                                 """
@@ -843,11 +843,11 @@ class StockTrackingAgent:
                 except Exception as item_err:
                     logger.error(f"[{item.get('ticker', 'Unknown')}] Error processing single watch stock: {item_err}")
                     logger.error(traceback.format_exc())
-                    
+
         except Exception as e:
             logger.error(f"Error during watch stocks re-evaluation: {str(e)}")
             logger.error(traceback.format_exc())
-            
+
         return watch_buy_count
 
     async def buy_stock(self, ticker: str, company_name: str, current_price: float, scenario: Dict[str, Any], rank_change_msg: str = "", is_watchlist_entry: bool = False) -> bool:
@@ -936,30 +936,30 @@ class StockTrackingAgent:
                 message = f"👁️ 관망 종목 돌파 매수: {company_name}({ticker})\n"
             else:
                 message = f"📈 신규 매수: {company_name}({ticker})\n"
-            
+
             # Format breakdown string
             adj_parts = [f"기본: {buy_score_orig}"]
             if macro_adj != 0.0:
                 adj_parts.append(f"거시: {macro_adj:+.1f}")
             if score_adj != 0.0:
                 adj_parts.append(f"이력: {score_adj:+.1f}")
-            
+
             adj_str = f" [{', '.join(adj_parts)}]"
             message += f"점수: {effective_score} (최소 요구 점수: {min_score}){adj_str}\n"
-            
+
             if score_adj != 0.0 and adj_reasons:
                 message += "보정 사유:\n"
                 for r in adj_reasons:
                     message += f"  • {r}\n"
-                    
+
             message += f"매수가: {current_price:,.0f}원\n"
             if pivot_point and pivot_point > 0:
                 message += f"피벗 기준가: {pivot_point:,.0f}원\n"
-                
+
             vp_info = scenario.get("volume_profile_info", "")
             if vp_info and vp_info != "No significant upper resistance":
                 message += f"매물 저항대: {vp_info}\n"
-                
+
             rr_ratio = scenario.get("risk_reward_ratio", 0)
             if rr_ratio:
                 message += f"기대 손익비: {float(rr_ratio):.1f}배\n"
