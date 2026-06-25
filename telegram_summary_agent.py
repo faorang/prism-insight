@@ -244,6 +244,19 @@ class TelegramSummaryGenerator:
             )
         )
 
+        # ponytail: Fallback to standard tier if flex tier fails (returns empty)
+        if not response or not response.strip():
+            logger.warning("Empty response received with flex tier. Retrying without service_tier...")
+            response = await evaluator_optimizer.generate_str(
+                message=prompt_message,
+                request_params=RequestParams(
+                    model="gpt-5.2",
+                    reasoning_effort="none",
+                    maxTokens=6000,
+                    max_iterations=2,
+                )
+            )
+
         # Process response - improved method
         logger.info(f"Response type: {type(response)}")
 

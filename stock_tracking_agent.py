@@ -342,11 +342,22 @@ class StockTrackingAgent:
                 request_params=RequestParams(
                     model="gpt-5.5",
                     maxTokens=30000,
-                    #metadata={
-                    #    "service_tier":"flex",
-                    #}
+                    metadata={
+                        "service_tier":"flex",
+                    }
                 )
             )
+
+            # ponytail: Fallback to standard tier if flex tier fails (returns empty)
+            if not response or not response.strip():
+                logger.warning("[trading scenario] Empty response received with flex tier. Retrying without service_tier...")
+                response = await llm.generate_str(
+                    message=prompt_message,
+                    request_params=RequestParams(
+                        model="gpt-5.5",
+                        maxTokens=30000,
+                    )
+                )
 
             # JSON parsing (consolidated in cores/utils.py)
             # TODO: Create model and call generate_structured function to improve code maintainability

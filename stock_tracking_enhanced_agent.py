@@ -434,12 +434,12 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
                 if isinstance(scenario, dict):
                     scenario["pivot_point"] = self._parse_price_value(scenario.get("pivot_point", 0))
                     scenario["pivot_buffer_pct"] = self._safe_number_conversion(scenario.get("pivot_buffer_pct", 5.0))
-                    
+
                     buy_limit_price_val = scenario.get("buy_limit_price", current_price)
                     scenario["buy_limit_price"] = self._parse_price_value(buy_limit_price_val)
                     if scenario["buy_limit_price"] <= 0:
                         scenario["buy_limit_price"] = current_price
-                        
+
                     scenario["target_price"] = self._parse_price_value(scenario.get("target_price", 0))
                     scenario["stop_loss"] = self._parse_price_value(scenario.get("stop_loss", 0))
                     scenario["buy_score"] = self._safe_number_conversion(scenario.get("buy_score", 0))
@@ -486,17 +486,17 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
                                    f"현재가: {current_price:,.0f}원\n"
                     if pivot_point and pivot_point > 0:
                         skip_message += f"피벗 기준가: {pivot_point:,.0f}원\n"
-                        
+
                     vp_info = scenario.get("volume_profile_info", "")
                     if vp_info and vp_info != "No significant upper resistance":
                         skip_message += f"매물 저항대: {vp_info}\n"
-                        
+
                     rr_ratio = scenario.get("risk_reward_ratio", 0)
                     if rr_ratio:
                         skip_message += f"기대 손익비: {float(rr_ratio):.1f}배\n"
 
                     skip_message += f"매수 Score: {buy_score}/10{adj_str}\n"
-                    
+
                     if score_adj != 0.0 and adj_reasons:
                         skip_message += "보정 사유:\n"
                         for r in adj_reasons:
@@ -816,7 +816,7 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
                     highest_price = max(row[0], current_price)
                 else:
                     highest_price = max(buy_price, current_price)
-                
+
                 # DB에 업데이트
                 self.cursor.execute(
                     "UPDATE stock_holdings SET highest_price = ? WHERE ticker = ?",
@@ -831,7 +831,7 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
                 profit_rate = ((current_price - buy_price) / buy_price) * 100
             else:
                 profit_rate = 0.0
-            
+
             # 최고가 대비 하락률 계산 (Trailing Stop 용)
             if highest_price > 0:
                 drawdown_from_high = ((current_price - highest_price) / highest_price) * 100
@@ -965,13 +965,25 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
                 message=prompt_message,
                 request_params=RequestParams(
                     model="gpt-5.5",
-                    reasoning_effort="medium",
+                    # reasoning_effort="medium",
                     maxTokens=30_000,
                     metadata={
-                        # "service_tier":"flex",
+                        "service_tier":"flex",
                     }
                 )
             )
+
+            # ponytail: Fallback to standard tier if flex tier fails (returns empty)
+            if not response or not response.strip():
+                logger.warning(f"[{ticker}] Empty response received with flex tier. Retrying without service_tier...")
+                response = await llm.generate_str(
+                    message=prompt_message,
+                    request_params=RequestParams(
+                        model="gpt-5.5",
+                        # reasoning_effort="medium",
+                        maxTokens=30_000,
+                    )
+                )
 
             # JSON parsing (consolidated in cores/utils.py)
             try:
@@ -1028,25 +1040,25 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
                 # ===== [안전장치 3] 본전 보호(Break-even) 및 트레일링 스탑 손절가 상향 강제 적용 =====
                 if not should_sell:
                     calculated_stop_loss = stop_loss
-                    
+
                     if profit_rate >= 10.0:
                         calculated_stop_loss = max(calculated_stop_loss, buy_price)
-                        
+
                     if profit_rate >= 3.0:
                         trailing_line = highest_price * 0.88
                         calculated_stop_loss = max(calculated_stop_loss, trailing_line)
-                        
+
                     current_adjustment_stop_loss = stop_loss
                     if portfolio_adjustment.get("needed", False) and portfolio_adjustment.get("new_stop_loss") is not None:
                         current_adjustment_stop_loss = self._safe_number_conversion(portfolio_adjustment.get("new_stop_loss"))
-                        
+
                     if calculated_stop_loss > current_adjustment_stop_loss:
                         logger.info(f"{ticker}({company_name}) Adjusting stop_loss via hard-rule guardrail. Calculated: {calculated_stop_loss:,.0f} > DB/LLM: {current_adjustment_stop_loss:,.0f}")
                         portfolio_adjustment["needed"] = True
                         portfolio_adjustment["new_stop_loss"] = calculated_stop_loss
                         portfolio_adjustment["urgency"] = "medium"
                         portfolio_adjustment["reason"] = f"Break-even / Trailing Stop hard-rule guardrail (highest_price: {highest_price:,.0f}원)"
-                        
+
                 logger.info(f"{ticker}({company_name}) AI sell decision (post-guardrail): {'Sell' if should_sell else 'Hold'} (Confidence: {confidence}/10)")
                 logger.info(f"Sell reason (post-guardrail): {sell_reason}")
 
@@ -1340,7 +1352,7 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
                 should_sell = bool(should_sell_val)
 
             sell_reason = decision_json.get("sell_reason", "")
-            
+
             try:
                 confidence = int(decision_json.get("confidence", 0))
             except:
@@ -1355,7 +1367,7 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
             portfolio_adjustment = decision_json.get("portfolio_adjustment", {})
             if not isinstance(portfolio_adjustment, dict):
                 portfolio_adjustment = {}
-                
+
             adjustment_needed_val = portfolio_adjustment.get("needed", False)
             if isinstance(adjustment_needed_val, str):
                 adjustment_needed = adjustment_needed_val.lower().strip() in ("true", "1", "yes", "y", "t")

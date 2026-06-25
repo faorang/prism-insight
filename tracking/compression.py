@@ -136,11 +136,27 @@ class CompressionManager:
 
                 response = await llm.generate_str(
                     message=prompt,
-                    request_params=RequestParams(model="gpt-5.2", maxTokens=8000,
-                    metadata={
-                        "service_tier":"flex",
-                    })
+                    request_params=RequestParams(
+                        model="gpt-5.4",
+                        maxTokens=8000,
+                        reasoning_effort="none",
+                        metadata={
+                            "service_tier": "flex",
+                        }
+                    )
                 )
+
+                # ponytail: Fallback to standard tier if flex tier fails (returns empty)
+                if not response or not response.strip():
+                    logger.warning("[Layer 2 compression] Empty response received with flex tier. Retrying without service_tier...")
+                    response = await llm.generate_str(
+                        message=prompt,
+                        request_params=RequestParams(
+                            model="gpt-5.4",
+                            maxTokens=8000,
+                            reasoning_effort="none",
+                        )
+                    )
 
             compression_data = self._parse_response(response)
 
@@ -197,11 +213,27 @@ class CompressionManager:
 
                 response = await llm.generate_str(
                     message=prompt,
-                    request_params=RequestParams(model="gpt-5.2", maxTokens=8000,
-                metadata={
-                    "service_tier":"flex",
-                })
+                    request_params=RequestParams(
+                        model="gpt-5.4",
+                        maxTokens=8000,
+                        reasoning_effort="none",
+                        metadata={
+                            "service_tier": "flex",
+                        }
+                    )
                 )
+
+                # ponytail: Fallback to standard tier if flex tier fails (returns empty)
+                if not response or not response.strip():
+                    logger.warning("[Layer 3 compression] Empty response received with flex tier. Retrying without service_tier...")
+                    response = await llm.generate_str(
+                        message=prompt,
+                        request_params=RequestParams(
+                            model="gpt-5.4",
+                            maxTokens=8000,
+                            reasoning_effort="none",
+                        )
+                    )
 
             compression_data = self._parse_response(response)
 
@@ -253,7 +285,7 @@ class CompressionManager:
                 ORDER BY trade_date DESC
                 LIMIT ?
             """, (cutoff, limit))
-            
+
             raw_entries = self.cursor.fetchall()
             entries = []
             for row in raw_entries:
@@ -261,7 +293,7 @@ class CompressionManager:
                     entries.append(dict(row))
                 else:
                     entries.append(dict(zip([d[0] for d in self.cursor.description], row)))
-            
+
             results["corpus"] = len(entries)
             if len(entries) < min_entries:
                 results["reason"] = "insufficient_corpus"
@@ -275,13 +307,26 @@ class CompressionManager:
                 response = await llm.generate_str(
                     message=prompt,
                     request_params=RequestParams(
-                        model="gpt-5.2", 
+                        model="gpt-5.4",
+                        reasoning_effort="none",
                         maxTokens=8000,
                         metadata={
                             "service_tier": "flex",
                         }
                     )
                 )
+
+                # ponytail: Fallback to standard tier if flex tier fails (returns empty)
+                if not response or not response.strip():
+                    logger.warning("[refresh_intuitions] Empty response received with flex tier. Retrying without service_tier...")
+                    response = await llm.generate_str(
+                        message=prompt,
+                        request_params=RequestParams(
+                            model="gpt-5.4",
+                            reasoning_effort="none",
+                            maxTokens=8000,
+                        )
+                    )
             data = self._parse_response(response)
             new_intuitions = data.get('new_intuitions', [])
             logger.info(f"[refresh_intuitions] extracted {len(new_intuitions)} intuitions "
