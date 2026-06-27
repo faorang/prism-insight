@@ -69,24 +69,24 @@ class TestTradingHardRules(unittest.IsolatedAsyncioTestCase):
             "Amount": [10000000000, 10000000000, 10000000000, 10000000000, 10000000000]
         })
         
-        # Test current price is 112% of pivot (1120 vs 1000)
-        # In bull market (+15%), this should be valid (agent_fit_score > 0)
-        res = calculate_agent_fit_metrics("005930", 1120, "20260603", lookback_days=5, trigger_type="거래량 급증 상위주")
+        # Test current price is 105% of pivot (1050 vs 1000)
+        # In bull market (+7%), this should be valid (agent_fit_score > 0)
+        res = calculate_agent_fit_metrics("005930", 1050, "20260603", lookback_days=5, trigger_type="거래량 급증 상위주")
         self.assertGreater(res["agent_fit_score"], 0.0)
         
-        # Test current price is 116% of pivot (1160 vs 1000)
-        # Above +15%, should be invalid (agent_fit_score == 0)
-        res = calculate_agent_fit_metrics("005930", 1160, "20260603", lookback_days=5, trigger_type="거래량 급증 상위주")
+        # Test current price is 108% of pivot (1080 vs 1000)
+        # Above +7%, should be invalid (agent_fit_score == 0)
+        res = calculate_agent_fit_metrics("005930", 1080, "20260603", lookback_days=5, trigger_type="거래량 급증 상위주")
         self.assertEqual(res["agent_fit_score"], 0.0)
 
-        # 2. Bear/Neutral market scenario (buffer 8%)
+        # 2. Bear/Neutral market scenario (buffer 5%)
         mock_regime.return_value = "sideways"
-        # Test current price is 107% of pivot (1070 vs 1000) -> valid under 8%
-        res = calculate_agent_fit_metrics("005930", 1070, "20260603", lookback_days=5, trigger_type="거래량 급증 상위주")
+        # Test current price is 103% of pivot (1030 vs 1000) -> valid under 5%
+        res = calculate_agent_fit_metrics("005930", 1030, "20260603", lookback_days=5, trigger_type="거래량 급증 상위주")
         self.assertGreater(res["agent_fit_score"], 0.0)
         
-        # Test current price is 110% of pivot (1100 vs 1000) -> invalid under 8%
-        res = calculate_agent_fit_metrics("005930", 1100, "20260603", lookback_days=5, trigger_type="거래량 급증 상위주")
+        # Test current price is 106% of pivot (1060 vs 1000) -> invalid under 5%
+        res = calculate_agent_fit_metrics("005930", 1060, "20260603", lookback_days=5, trigger_type="거래량 급증 상위주")
         self.assertEqual(res["agent_fit_score"], 0.0)
 
     @patch("stock_tracking_enhanced_agent.create_sell_decision_agent")

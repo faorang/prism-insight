@@ -540,8 +540,8 @@ class StockTrackingAgent:
                 pivot_buffer_pct = scenario.get("pivot_buffer_pct", 5.0)
                 try:
                     pivot_buffer_pct = float(pivot_buffer_pct)
-                    # Bound between 5.0% and 15.0% for bull market, else 8.0% for safety
-                    max_buffer = 15.0 if is_bull else 8.0
+                    # Bound between 5.0% and 7.0% for bull market, else 5.0% for safety (reduced from 15%/8% to prevent chase buying)
+                    max_buffer = 7.0 if is_bull else 5.0
                     pivot_buffer_pct = min(max(pivot_buffer_pct, 5.0), max_buffer)
                 except (ValueError, TypeError):
                     pivot_buffer_pct = 5.0
@@ -755,7 +755,8 @@ class StockTrackingAgent:
                     pivot_buffer_pct = scenario.get("pivot_buffer_pct", 5.0)
                     try:
                         pivot_buffer_pct = float(pivot_buffer_pct)
-                        max_buffer = 15.0 if is_bull else 8.0
+                        # Reduced from 15%/8% to prevent chase buying
+                        max_buffer = 7.0 if is_bull else 5.0
                         pivot_buffer_pct = min(max(pivot_buffer_pct, 5.0), max_buffer)
                     except (ValueError, TypeError):
                         pivot_buffer_pct = 5.0
@@ -815,6 +816,13 @@ class StockTrackingAgent:
                                     watch_buy_count += 1
                                 else:
                                     logger.error(f"[{ticker}] Actual purchase failed: {trade_result['message']}")
+                                    # ponytail: 실제 주문 실패 시 DB 롤백 — 매도(실주문→DB)와 대칭
+                                    try:
+                                        self.cursor.execute("DELETE FROM stock_holdings WHERE ticker = ?", (ticker,))
+                                        self.conn.commit()
+                                        logger.warning(f"[{ticker}] DB rollback: 실제 주문 실패로 holdings에서 제거")
+                                    except Exception as rb_err:
+                                        logger.error(f"[{ticker}] DB rollback failed: {rb_err}")
                             except Exception as trade_err:
                                 logger.error(f"[{ticker}] Error during actual purchase API execution: {trade_err}")
                                 trade_result = {'success': False, 'message': str(trade_err)}
@@ -1117,7 +1125,10 @@ class StockTrackingAgent:
             stop_loss = stock_data.get('stop_loss', 0)
 
             # Calculate profit rate
-            profit_rate = ((current_price - buy_price) / buy_price) * 100
+            if buy_price > 0:
+                profit_rate = ((current_price - buy_price) / buy_price) * 100
+            else:
+                profit_rate = 0.0
 
             # Days elapsed from buy date
             buy_datetime = datetime.strptime(buy_date, "%Y-%m-%d %H:%M:%S")
@@ -1726,6 +1737,13 @@ class StockTrackingAgent:
                             logger.info(f"Actual purchase successful: {trade_result['message']}")
                         else:
                             logger.error(f"Actual purchase failed: {trade_result['message']}")
+                            # ponytail: 실제 주문 실패 시 DB 롤백 — 매도(실주문→DB)와 대칭
+                            try:
+                                self.cursor.execute("DELETE FROM stock_holdings WHERE ticker = ?", (ticker,))
+                                self.conn.commit()
+                                logger.warning(f"[{ticker}] DB rollback: 실제 주문 실패로 holdings에서 제거")
+                            except Exception as rb_err:
+                                logger.error(f"[{ticker}] DB rollback failed: {rb_err}")
 
                         # [Optional] Publish buy signal via Redis Streams
                         # Auto-skipped if Redis not configured (requires UPSTASH_REDIS_REST_URL, UPSTASH_REDIS_REST_TOKEN)

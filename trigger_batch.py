@@ -490,7 +490,7 @@ def calculate_agent_fit_metrics(ticker: str, current_price: float, trade_date: s
 
     # Pivot Point breakout range check (v2.2.0: align pivot buffer dynamically with market regime)
     is_bull = regime in ["strong_bull", "moderate_bull"]
-    pivot_buffer_pct = 15.0 if is_bull else 8.0
+    pivot_buffer_pct = 7.0 if is_bull else 5.0
     pivot_multiplier = 1.0 + (pivot_buffer_pct / 100.0)
 
     if pivot_point and pivot_point > 0:

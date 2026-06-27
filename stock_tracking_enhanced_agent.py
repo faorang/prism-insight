@@ -549,6 +549,13 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
                             logger.info(f"Actual purchase successful: {trade_result['message']}")
                         else:
                             logger.error(f"Actual purchase failed: {trade_result['message']}")
+                            # ponytail: 실제 주문 실패 시 DB 롤백 — 매도(실주문→DB)와 대칭
+                            try:
+                                self.cursor.execute("DELETE FROM stock_holdings WHERE ticker = ?", (ticker,))
+                                self.conn.commit()
+                                logger.warning(f"[{ticker}] DB rollback: 실제 주문 실패로 holdings에서 제거")
+                            except Exception as rb_err:
+                                logger.error(f"[{ticker}] DB rollback failed: {rb_err}")
 
                         # [Optional] Publish buy signal via Redis Streams
                         # Auto-skipped if Redis not configured (requires UPSTASH_REDIS_REST_URL, UPSTASH_REDIS_REST_TOKEN)

@@ -368,7 +368,7 @@ class DomesticStockTrading:
         elif price < 500000:
             return 500
         else:
-            return 100
+            return 1000  # ponytail: KRX 호가 단위 규정 — 50만원 이상 1,000원
 
     def to_bid_tick(self, price: float) -> int:
         """
@@ -581,7 +581,7 @@ class DomesticStockTrading:
             "CANO": self.trenv.my_acct,
             "ACNT_PRDT_CD": self.trenv.my_prod,
             "PDNO": stock_code,
-            "ORD_DVSN": "02",  # 02: After-hours closing price
+            "ORD_DVSN": "06",  # 06: Post-market after-hours (matches sell_all_closing_price)
             "ORD_QTY": str(buy_quantity),
             "ORD_UNPR": "0",  # 0 for closing price trading
             "EXCG_ID_DVSN_CD": "KRX",
