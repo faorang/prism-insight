@@ -125,3 +125,4 @@ sqlite/sqlite_mcp_server.db
 kospi-kosdaq-stock-server/
 brain/
 .env.autoenv
+openai

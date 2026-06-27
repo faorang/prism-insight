@@ -8,7 +8,9 @@ requests~=2.32.3
 aiohttp~=3.11.13
 python-dateutil~=2.9.0.post0
 email-validator
-openai~=2.11.0
+openai  @ git+https://github.com/faorang/openai-python.git@0d6cff1b893ccfa55c10eea1968c343783f646e0
+# openai~=2.11.0
+# -e ./openai
 anthropic~=0.64.0
 markdown>=3.3.0
 python-telegram-bot>=20.0
@@ -45,8 +47,9 @@ holidays~=0.68
 
 python-telegram-bot[job-queue]>=20.0
 
-# kospi_kosdaq_stock_server @ git+https://github.com/faorang/kospi-kosdaq-stock-server.git@dd15f62523e2645a59b7eea26ec788cf3a9d8097
--e ./kospi-kosdaq-stock-server
+kospi_kosdaq_stock_server @ git+https://github.com/faorang/kospi-kosdaq-stock-server.git@3ea8c0a3b9db951026eaf1749ab7f5c883699a71
+# -e ./kospi-kosdaq-stock-server
+
 DateTime~=5.5
 matplotlib~=3.10.1
 seaborn~=0.13.2
