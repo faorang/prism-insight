@@ -129,12 +129,12 @@
 - **Purpose**: Buy decision-making and entry strategy
 - **Evaluates**: Valuation, momentum, portfolio constraints
 - **Market Regime Criteria (William O'Neil strategy)**:
-  - `parabolic`: Min score 4, Risk/Reward floor 0.7, Max stop loss -7%, Momentum signals 1+
-  - `strong_bull`: Min score 4, Risk/Reward floor 1.0, Max stop loss -7%, Momentum signals 1+
-  - `moderate_bull`: Min score 4, Risk/Reward floor 1.2, Max stop loss -7%, Momentum signals 1+
-  - `sideways`: Min score 5, Risk/Reward floor 1.3, Max stop loss -6%, Momentum signals 1+
-  - `moderate_bear`: Min score 5, Risk/Reward floor 1.5, Max stop loss -5%, Momentum signals 2+, Confirmation 1+
-  - `strong_bear`: Min score 6, Risk/Reward floor 1.8, Max stop loss -5%, Momentum signals 2+, Confirmation 1+
+  - `parabolic`: Min score 6, Risk/Reward floor 0.7, Max stop loss -7%, Momentum signals 1+
+  - `strong_bull`: Min score 6, Risk/Reward floor 1.0, Max stop loss -7%, Momentum signals 1+
+  - `moderate_bull`: Min score 6, Risk/Reward floor 1.2, Max stop loss -7%, Momentum signals 1+
+  - `sideways`: Min score 7, Risk/Reward floor 1.3, Max stop loss -6%, Momentum signals 1+
+  - `moderate_bear`: Min score 7, Risk/Reward floor 1.5, Max stop loss -5%, Momentum signals 2+, Confirmation 1+
+  - `strong_bear`: Min score 8, Risk/Reward floor 1.8, Max stop loss -5%, Momentum signals 2+, Confirmation 1+
 - **Fundamental Gate (F1~F4)**: Validates F1 (profitability), F2 (balance sheet), F3 (growth), F4 (business clarity). In bull markets, minor gaps may be bypassed with compensatory catalysts; in other regimes, any failure causes immediate rejection.
 - **Output**: JSON trading scenario with entry/exit strategy (provides required backend fields like `pivot_point`, `pivot_buffer_pct`, `volume_profile_info`, `buy_limit_price`)
 
@@ -146,11 +146,11 @@
 - **File**: `cores/agents/trading_agents.py`
 - **Purpose**: Monitor holdings and determine sell timing
 - **Core Principles (Core-1~4)**:
-  - Closing-Price Rule: All stop-loss and trailing-stop calculations are based strictly on closing prices, ignoring intraday lows/wicks.
+  - Intraday Stop-Loss Rule: All stop-loss and trailing-stop evaluations are based on intraday real-time prices. Stop-loss triggers immediately when the current price drops below the threshold, without waiting for the market to close.
   - Milestone Interpretation: Target prices in the buy scenario are milestones, not auto-sell rules. Keep holding if the trend is alive in bull markets; sell immediately only in sideways/bear regimes.
-  - Trailing-stop Activation: Activated only when the highest price reaches ≥ +5% from the entry price.
+  - Trailing-stop Activation: Activated only when the highest price reaches ≥ +5% from the entry price (prevents premature exit due to post-entry noise).
   - Sell Signal Hierarchy (Tiers 1~3):
-    - `Tier 1`: Absolute Sell (closing loss ≥ -7% or closing below stop_loss)
+    - `Tier 1`: Absolute Sell (intraday loss ≥ -7% or current price below stop_loss)
     - `Tier 2`: Trailing-stop breach (drawdown -8~10% from high in bull, -3~5% in bear)
     - `Tier 3`: Trend weakness (3 consecutive red days + high volume + 20-day MA breakdown)
 - **8-Week Hold Rule**: Stocks surging +20% or more within 3 weeks of purchase are held for at least 8 weeks (ignoring short-term pullbacks).
