@@ -522,9 +522,83 @@ class StockTrackingAgent:
                     trigger_info = getattr(self, 'trigger_info_map', {}).get(ticker, {})
                     pivot_point = float(trigger_info.get('pivot_point', 0))
 
-                # If still invalid, fallback to current price
+                # [개선 1] 피벗 포인트 누락/오류 시 즉시 Watch로 진입 차단 (일괄 매수 안전장치)
                 if pivot_point <= 0:
-                    pivot_point = float(current_price)
+                    decision = "Watch"
+                    scenario["decision"] = "Watch"
+                    scenario["rejection_reason"] = "Invalid pivot point. Entry blocked to prevent unintended lump-sum purchase."
+                    logger.warning(f"{ticker}({company_name}): Decision changed to Watch. Reason: {scenario['rejection_reason']}")
+                    return {
+                        "success": True,
+                        "ticker": ticker,
+                        "company_name": company_name,
+                        "current_price": current_price,
+                        "scenario": scenario,
+                        "decision": decision,
+                        "sector": sector,
+                        "sector_diverse": is_sector_diverse,
+                        "rank_change_percentage": rank_change_percentage,
+                        "rank_change_msg": rank_change_msg
+                    }
+
+                # [개선 2] 한투 API 싱글톤을 통해 당일 고가(day_high) 및 시가(day_open)를 획득하고 윗꼬리 필터(1안) 적용
+                try:
+                    from my_portfolio import _get_trader
+                    trader = _get_trader()
+                    price_info = trader.get_current_price(ticker)
+                    if price_info:
+                        day_high = float(price_info.get('day_high', 0))
+                        day_open = float(price_info.get('day_open', 0))
+                        
+                        # 당일 최고가가 시가 대비 최소 1.5% 이상 상승했을 때만 윗꼬리 필터링 활성화
+                        min_rise_trigger = day_open * 1.015
+                        if day_high >= min_rise_trigger and day_high > day_open:
+                            range_amt = day_high - day_open
+                            upper_shadow = day_high - float(current_price)
+                            shadow_ratio = (upper_shadow / range_amt) * 100
+                            
+                            # 상승분의 50% 이상을 밀려 내려왔다면 윗꼬리로 규정하고 Skip
+                            if shadow_ratio >= 50.0:
+                                decision = "Skip"
+                                scenario["decision"] = "Skip"
+                                scenario["rejection_reason"] = (
+                                    f"Upper shadow breakout failure. Returned {shadow_ratio:.1f}% "
+                                    f"of today's gain (Open: {day_open:,.0f}, High: {day_high:,.0f}, Current: {current_price:,.0f})"
+                                )
+                                logger.info(f"{ticker}({company_name}): Decision changed to Skip. Reason: {scenario['rejection_reason']}")
+                                return {
+                                    "success": True,
+                                    "ticker": ticker,
+                                    "company_name": company_name,
+                                    "current_price": current_price,
+                                    "scenario": scenario,
+                                    "decision": decision,
+                                    "sector": sector,
+                                    "sector_diverse": is_sector_diverse,
+                                    "rank_change_percentage": rank_change_percentage,
+                                    "rank_change_msg": rank_change_msg
+                                }
+                    else:
+                        raise ValueError("KIS API returned empty price info")
+                except Exception as high_err:
+                    # [개선 3] 윗꼬리 분석 실패 시 보수적으로 Watch 처리하고 상세 에러 로그 기록
+                    decision = "Watch"
+                    scenario["decision"] = "Watch"
+                    scenario["rejection_reason"] = f"Failed to verify intraday high/open prices due to KIS API error: {str(high_err)}"
+                    logger.error(f"❌ [{ticker}] {scenario['rejection_reason']}")
+                    logger.error(traceback.format_exc())
+                    return {
+                        "success": True,
+                        "ticker": ticker,
+                        "company_name": company_name,
+                        "current_price": current_price,
+                        "scenario": scenario,
+                        "decision": decision,
+                        "sector": sector,
+                        "sector_diverse": is_sector_diverse,
+                        "rank_change_percentage": rank_change_percentage,
+                        "rank_change_msg": rank_change_msg
+                    }
 
                 # v2.1.0: 마켓 레짐에 따른 피벗 버퍼 한도 완화 (강세장 시 최대 15.0% 허용)
                 try:

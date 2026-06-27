@@ -192,7 +192,9 @@ class DomesticStockTrading:
                     'stock_name': data.get('rprs_mrkt_kor_name', ''),
                     'current_price': int(data.get('stck_prpr', 0)),  # Current price
                     'change_rate': float(data.get('prdy_ctrt', 0)),  # Change rate from previous day
-                    'volume': int(data.get('acml_vol', 0))  # Cumulative volume
+                    'volume': int(data.get('acml_vol', 0)),  # Cumulative volume
+                    'day_high': int(data.get('stck_hgpr', 0)),  # 당일 최고가 (추가)
+                    'day_open': int(data.get('stck_oprc', 0))   # 당일 시가 (추가)
                 }
 
                 logger.info(f"[{stock_code}] Current price: {result['current_price']:,} KRW ({result['change_rate']:+.2f}%)")
