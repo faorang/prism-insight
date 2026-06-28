@@ -66,6 +66,7 @@ CREATE TABLE IF NOT EXISTS trading_journal (
     -- Sell context
     sell_price REAL,
     sell_reason TEXT,
+    sell_market_context TEXT,
     profit_rate REAL,
     holding_days INTEGER,
 
@@ -294,3 +295,20 @@ def add_sector_column_if_missing(cursor, conn):
             logger.info(f"Added sector column to {table} table")
         except Exception:
             pass  # Column already exists
+
+
+def add_sell_market_context_column_if_missing(cursor, conn):
+    """
+    Add sell_market_context column to trading_journal if missing.
+
+    Args:
+        cursor: SQLite cursor
+        conn: SQLite connection
+    """
+    try:
+        cursor.execute("ALTER TABLE trading_journal ADD COLUMN sell_market_context TEXT")
+        conn.commit()
+        logger.info("Added sell_market_context column to trading_journal table")
+    except Exception:
+        pass  # Column already exists
+

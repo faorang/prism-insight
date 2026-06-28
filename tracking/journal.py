@@ -50,6 +50,23 @@ class JournalManager:
                 
         return [sector]
 
+    def _fetch_latest_market_context(self) -> Optional[str]:
+        """Fetch latest market condition as JSON string."""
+        try:
+            self.cursor.execute("SELECT date, kospi_index, kosdaq_index, condition, volatility FROM market_condition ORDER BY date DESC LIMIT 1")
+            row = self.cursor.fetchone()
+            if row:
+                return json.dumps({
+                    "date": row[0],
+                    "kospi_index": row[1],
+                    "kosdaq_index": row[2],
+                    "condition": "bull" if row[3] == 1 else "bear" if row[3] == -1 else "neutral",
+                    "volatility": row[4]
+                }, ensure_ascii=False)
+        except Exception as e:
+            logger.warning(f"Failed to fetch market condition: {e}")
+        return None
+
     async def create_entry(
         self,
         stock_data: Dict[str, Any],
@@ -97,6 +114,9 @@ class JournalManager:
                 except (json.JSONDecodeError, TypeError):
                     scenario_data = {}
 
+            # Get latest market condition at sell time
+            sell_market_context = self._fetch_latest_market_context()
+
             # Create journal agent
             journal_agent = create_trading_journal_agent(self.language)
 
@@ -105,7 +125,8 @@ class JournalManager:
 
                 prompt = self._build_analysis_prompt(
                     company_name, ticker, buy_price, buy_date,
-                    scenario_data, sell_price, profit_rate, holding_days, sell_reason
+                    scenario_data, sell_price, profit_rate, holding_days, sell_reason,
+                    sell_market_context
                 )
 
                 response = await llm.generate_str(
@@ -117,9 +138,9 @@ class JournalManager:
             # Parse and save
             journal_data = self._parse_response(response)
             journal_id = self._save_to_database(
-                ticker, company_name, buy_price, buy_date, scenario_json,
-                scenario_data, sell_price, sell_reason, profit_rate,
-                holding_days, journal_data, trade_date
+                ticker=ticker, company_name=company_name, buy_price=buy_price, buy_date=buy_date, scenario_json=scenario_json,
+                scenario_data=scenario_data, sell_price=sell_price, sell_reason=sell_reason, profit_rate=profit_rate,
+                holding_days=holding_days, journal_data=journal_data, trade_date=trade_date, sell_market_context=sell_market_context
             )
 
             logger.info(f"Journal entry created for {ticker}: {journal_data.get('one_line_summary', '')}")
@@ -202,6 +223,9 @@ class JournalManager:
 
             logger.info(f"Creating skipped journal entry for {ticker}({company_name})")
 
+            # Get latest market condition at skip retrospect time
+            sell_market_context = self._fetch_latest_market_context()
+
             # Create journal agent
             journal_agent = create_trading_journal_agent(self.language)
 
@@ -210,7 +234,7 @@ class JournalManager:
 
                 prompt = self._build_skip_analysis_prompt(
                     company_name, ticker, buy_price, buy_date,
-                    scenario_data, tracking_data, stock_data
+                    scenario_data, tracking_data, stock_data, sell_market_context
                 )
 
                 response = await llm.generate_str(
@@ -240,7 +264,8 @@ class JournalManager:
                 holding_days=30,
                 journal_data=journal_data,
                 trade_date=trade_date,
-                trade_type='skip'
+                trade_type='skip',
+                sell_market_context=sell_market_context
             )
 
             logger.info(f"Skipped journal entry created for {ticker}: {journal_data.get('one_line_summary', '')}")
@@ -260,7 +285,8 @@ class JournalManager:
 
     def _build_skip_analysis_prompt(
         self, company_name: str, ticker: str, buy_price: float, buy_date: str,
-        scenario_data: Dict, tracking_data: Dict, stock_data: Dict
+        scenario_data: Dict, tracking_data: Dict, stock_data: Dict,
+        sell_market_context: Optional[str] = None
     ) -> str:
         """Build prompt for retrospective analysis of skipped stock."""
         buy_score = stock_data.get('buy_score', scenario_data.get('buy_score', 'N/A'))
@@ -297,6 +323,7 @@ Please review the following skipped trade opportunity (this stock was analyzed b
 - Tracked 14d Return: {r14:+.2f}%
 - Tracked 30d Return: {r30:+.2f}%
 - Final Tracked Price (30d): {p30:,.0f} KRW
+- End of Tracking Market Context: {sell_market_context or 'N/A'}
 
 ## Analysis Request
 1. Compare the analysis-time context with the subsequent 30-day price trend.
@@ -310,7 +337,7 @@ Please review the following skipped trade opportunity (this stock was analyzed b
     def _build_analysis_prompt(
         self, company_name: str, ticker: str, buy_price: float, buy_date: str,
         scenario_data: Dict, sell_price: float, profit_rate: float,
-        holding_days: int, sell_reason: str
+        holding_days: int, sell_reason: str, sell_market_context: Optional[str] = None
     ) -> str:
         """Build prompt for retrospective analysis."""
         if self.language == "ko":
@@ -335,6 +362,7 @@ Please review the following completed trade:
 - Profit Rate: {profit_rate:.2f}%
 - Holding Days: {holding_days} days
 - Sell Reason: {sell_reason}
+- Sell Market Context: {sell_market_context or 'N/A'}
 
 ## Analysis Request
 1. Use kospi_kosdaq tools to check current market conditions and stock trends
@@ -364,6 +392,7 @@ Please review the following completed trade:
 - Profit Rate: {profit_rate:.2f}%
 - Holding Days: {holding_days} days
 - Sell Reason: {sell_reason}
+- Sell Market Context: {sell_market_context or 'N/A'}
 
 ## Analysis Request
 1. Use kospi_kosdaq tools to check current market and stock trends
@@ -391,7 +420,8 @@ Please review the following completed trade:
         self, ticker: str, company_name: str, buy_price: float, buy_date: str,
         scenario_json: str, scenario_data: Dict, sell_price: float, sell_reason: str,
         profit_rate: float, holding_days: int, journal_data: Dict,
-        trade_date: Optional[str] = None, trade_type: str = 'sell'
+        trade_date: Optional[str] = None, trade_type: str = 'sell',
+        sell_market_context: Optional[str] = None
     ) -> int:
         """Save journal entry to database."""
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -401,16 +431,16 @@ Please review the following completed trade:
             INSERT INTO trading_journal
             (ticker, company_name, trade_date, trade_type,
              buy_price, buy_date, buy_scenario, buy_market_context,
-             sell_price, sell_reason, profit_rate, holding_days,
+             sell_price, sell_reason, sell_market_context, profit_rate, holding_days,
              situation_analysis, judgment_evaluation, lessons, pattern_tags,
              one_line_summary, confidence_score, compression_layer, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 ticker, company_name, actual_trade_date, trade_type,
                 buy_price, buy_date, scenario_json,
                 json.dumps(scenario_data.get('market_condition', ''), ensure_ascii=False),
-                sell_price, sell_reason, profit_rate, holding_days,
+                sell_price, sell_reason, sell_market_context, profit_rate, holding_days,
                 json.dumps(journal_data.get('situation_analysis', {}), ensure_ascii=False),
                 json.dumps(journal_data.get('judgment_evaluation', {}), ensure_ascii=False),
                 json.dumps(journal_data.get('lessons', []), ensure_ascii=False),

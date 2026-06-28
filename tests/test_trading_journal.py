@@ -78,7 +78,7 @@ class TestTradingJournalTables:
         expected_columns = {
             'id', 'ticker', 'company_name', 'trade_date', 'trade_type',
             'buy_price', 'buy_date', 'buy_scenario', 'buy_market_context',
-            'sell_price', 'sell_reason', 'profit_rate', 'holding_days',
+            'sell_price', 'sell_reason', 'sell_market_context', 'profit_rate', 'holding_days',
             'situation_analysis', 'judgment_evaluation', 'lessons', 'pattern_tags',
             'one_line_summary', 'confidence_score', 'compression_layer',
             'compressed_summary', 'created_at', 'last_compressed_at'
@@ -103,6 +103,132 @@ class TestTradingJournalTables:
         """)
         result = agent.cursor.fetchone()
         assert result is not None, "trading_intuitions table should exist"
+
+        agent.conn.close()
+
+    @pytest.mark.asyncio
+    async def test_sell_market_context_saving(self):
+        """Test that sell_market_context is fetched and saved during create_entry"""
+        agent = StockTrackingAgent(db_path=self.db_path)
+        agent.trading_agent = MagicMock()
+        await agent.initialize(language="ko")
+
+        # Create market_condition table and insert dummy record
+        agent.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS market_condition (
+                date TEXT PRIMARY KEY,
+                kospi_index REAL,
+                kosdaq_index REAL,
+                condition INTEGER,
+                volatility REAL
+            )
+        """)
+        agent.cursor.execute("""
+            INSERT INTO market_condition (date, kospi_index, kosdaq_index, condition, volatility)
+            VALUES (?, ?, ?, ?, ?)
+        """, ("2026-06-28 09:00:00", 2750.5, 890.2, 1, 1.2))
+        agent.conn.commit()
+
+        # Mock the journal agent's LLM response
+        mock_agent = MagicMock()
+        mock_llm = AsyncMock()
+        mock_llm.generate_str.return_value = json.dumps({
+            "situation_analysis": {
+                "buy_context_summary": "Buy context",
+                "sell_context_summary": "Sell context",
+                "market_at_buy": "bull",
+                "market_at_sell": "bull",
+                "key_changes": []
+            },
+            "judgment_evaluation": {
+                "buy_quality": "적절",
+                "buy_quality_reason": "",
+                "sell_quality": "적절",
+                "sell_quality_reason": "",
+                "missed_signals": [],
+                "overreacted_signals": []
+            },
+            "lessons": [],
+            "pattern_tags": ["test"],
+            "one_line_summary": "One line summary",
+            "confidence_score": 0.8
+        })
+
+        with patch("cores.agents.trading_journal_agent.create_trading_journal_agent", return_value=mock_agent), \
+             patch.object(mock_agent, "attach_llm", new_callable=AsyncMock, return_value=mock_llm):
+            
+            # Enable journaling
+            agent.journal_manager.enable_journal = True
+
+            stock_data = {
+                "ticker": "005930",
+                "company_name": "Samsung Electronics",
+                "buy_price": 70000,
+                "buy_date": "2026-06-21 09:00:00",
+                "scenario": "{}"
+            }
+
+            success = await agent.journal_manager.create_entry(
+                stock_data=stock_data,
+                sell_price=75000,
+                profit_rate=7.14,
+                holding_days=7,
+                sell_reason="Target reached"
+            )
+
+            assert success is True
+
+        # Verify sell_market_context is stored correctly in database
+        agent.cursor.execute("SELECT sell_market_context FROM trading_journal WHERE ticker = '005930'")
+        row = agent.cursor.fetchone()
+        assert row is not None
+        assert row[0] is not None
+
+        sell_ctx = json.loads(row[0])
+        assert sell_ctx["kospi_index"] == 2750.5
+        assert sell_ctx["kosdaq_index"] == 890.2
+        assert sell_ctx["condition"] == "bull"
+        assert sell_ctx["volatility"] == 1.2
+
+        agent.conn.close()
+
+    @pytest.mark.asyncio
+    async def test_fetch_latest_market_context_helper(self):
+        """Test that _fetch_latest_market_context returns None on missing table/data and serialized JSON on valid data"""
+        agent = StockTrackingAgent(db_path=self.db_path)
+        agent.trading_agent = MagicMock()
+        await agent.initialize(language="ko")
+
+        # Before table creation: should gracefully return None
+        res_none = agent.journal_manager._fetch_latest_market_context()
+        assert res_none is None
+
+        # Create table and insert a record
+        agent.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS market_condition (
+                date TEXT PRIMARY KEY,
+                kospi_index REAL,
+                kosdaq_index REAL,
+                condition INTEGER,
+                volatility REAL
+            )
+        """)
+        agent.cursor.execute("""
+            INSERT INTO market_condition (date, kospi_index, kosdaq_index, condition, volatility)
+            VALUES (?, ?, ?, ?, ?)
+        """, ("2026-06-28 09:30:00", 2800.0, 910.5, -1, 2.5))
+        agent.conn.commit()
+
+        # After record insertion: should return serialized JSON
+        res_json = agent.journal_manager._fetch_latest_market_context()
+        assert res_json is not None
+        
+        parsed = json.loads(res_json)
+        assert parsed["date"] == "2026-06-28 09:30:00"
+        assert parsed["kospi_index"] == 2800.0
+        assert parsed["kosdaq_index"] == 910.5
+        assert parsed["condition"] == "bear"
+        assert parsed["volatility"] == 2.5
 
         agent.conn.close()
 
@@ -1410,7 +1536,7 @@ class TestMissedOpportunityFeedback:
         agent.trading_agent = MagicMock()
         await agent.initialize(language="ko")
 
-        # Mock entries
+        # Mock entries with market contexts
         entries = [
             {
                 "id": 1,
@@ -1422,7 +1548,9 @@ class TestMissedOpportunityFeedback:
                 "lessons": '[{"action": "익절교훈"}]',
                 "pattern_tags": '["패턴1"]',
                 "compressed_summary": "요약1",
-                "buy_scenario": '{"sector": "반도체"}'
+                "buy_scenario": '{"sector": "반도체"}',
+                "buy_market_context": '{"condition": "bull"}',
+                "sell_market_context": '{"condition": "neutral"}'
             },
             {
                 "id": 2,
@@ -1434,7 +1562,9 @@ class TestMissedOpportunityFeedback:
                 "lessons": '[{"action": "스킵교훈"}]',
                 "pattern_tags": '["패턴2"]',
                 "compressed_summary": "요약2",
-                "buy_scenario": '{"sector": "반도체"}'
+                "buy_scenario": '{"sector": "반도체"}',
+                "buy_market_context": '{"condition": "bear"}',
+                "sell_market_context": '{"condition": "neutral"}'
             }
         ]
 
@@ -1447,6 +1577,8 @@ class TestMissedOpportunityFeedback:
         assert "[SKIP]" in text_for_compression
         assert "[TRADE] 삼성전자" in text_for_compression
         assert "[SKIP] SK하이닉스" in text_for_compression
+        assert "Buy Market: {\"condition\": \"bull\"}" in text_for_compression
+        assert "Sell Market: {\"condition\": \"neutral\"}" in text_for_compression
 
         # Test _format_entries_for_intuition
         text_for_intuition = comp_manager._format_entries_for_intuition(entries)
@@ -1454,6 +1586,8 @@ class TestMissedOpportunityFeedback:
         assert "[SKIP]" in text_for_intuition
         assert "[TRADE] 삼성전자" in text_for_intuition
         assert "[SKIP] SK하이닉스" in text_for_intuition
+        assert "Buy Market: {\"condition\": \"bull\"}" in text_for_intuition
+        assert "Sell Market: {\"condition\": \"neutral\"}" in text_for_intuition
 
         agent.conn.close()
 
