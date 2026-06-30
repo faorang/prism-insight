@@ -369,21 +369,6 @@ For US market analysis (NYSE, NASDAQ):
 python prism-us/us_stock_analysis_orchestrator.py --mode morning --no-telegram
 ```
 
-### Event-Driven Trading Signals
-
-For Redis/Upstash or GCP Pub/Sub integration:
-
-```bash
-# .env file
-UPSTASH_REDIS_REST_URL="https://xxx.upstash.io"
-UPSTASH_REDIS_REST_TOKEN="your-token"
-
-# Or for GCP
-GCP_PROJECT_ID="your-gcp-project"
-GCP_PUBSUB_SUBSCRIPTION_ID="your-subscription"
-GCP_CREDENTIALS_PATH="/path/to/service-account.json"
-```
-
 ---
 
 ## Verification

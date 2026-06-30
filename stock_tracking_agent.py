@@ -903,33 +903,7 @@ class StockTrackingAgent:
                                 logger.error(f"[{ticker}] Error during actual purchase API execution: {trade_err}")
                                 trade_result = {'success': False, 'message': str(trade_err)}
 
-                            # Publish buy signal via Redis
-                            try:
-                                from messaging.redis_signal_publisher import publish_buy_signal
-                                await publish_buy_signal(
-                                    ticker=ticker,
-                                    company_name=company_name,
-                                    price=current_price,
-                                    scenario=scenario,
-                                    source="Watchlist Breakout Entry",
-                                    trade_result=trade_result
-                                )
-                            except Exception as signal_err:
-                                logger.warning(f"Buy signal publish failed (Redis): {signal_err}")
 
-                            # Publish buy signal via GCP Pub/Sub
-                            try:
-                                from messaging.gcp_pubsub_signal_publisher import publish_buy_signal as gcp_publish_buy_signal
-                                await gcp_publish_buy_signal(
-                                    ticker=ticker,
-                                    company_name=company_name,
-                                    price=current_price,
-                                    scenario=scenario,
-                                    source="Watchlist Breakout Entry",
-                                    trade_result=trade_result
-                                )
-                            except Exception as signal_err:
-                                logger.warning(f"Buy signal publish failed (GCP): {signal_err}")
 
                             # Update DB entry in watchlist_history and analysis_performance_tracker
                             self.cursor.execute(
@@ -1821,35 +1795,7 @@ class StockTrackingAgent:
                             except Exception as rb_err:
                                 logger.error(f"[{ticker}] DB rollback failed: {rb_err}")
 
-                        # [Optional] Publish buy signal via Redis Streams
-                        # Auto-skipped if Redis not configured (requires UPSTASH_REDIS_REST_URL, UPSTASH_REDIS_REST_TOKEN)
-                        try:
-                            from messaging.redis_signal_publisher import publish_buy_signal
-                            await publish_buy_signal(
-                                ticker=ticker,
-                                company_name=company_name,
-                                price=current_price,
-                                scenario=scenario,
-                                source="AI Analysis",
-                                trade_result=trade_result
-                            )
-                        except Exception as signal_err:
-                            logger.warning(f"Buy signal publish failed (non-critical): {signal_err}")
 
-                        # [Optional] Publish buy signal via GCP Pub/Sub
-                        # Auto-skipped if GCP not configured (requires GCP_PROJECT_ID, GCP_PUBSUB_TOPIC_ID)
-                        try:
-                            from messaging.gcp_pubsub_signal_publisher import publish_buy_signal as gcp_publish_buy_signal
-                            await gcp_publish_buy_signal(
-                                ticker=ticker,
-                                company_name=company_name,
-                                price=current_price,
-                                scenario=scenario,
-                                source="AI Analysis",
-                                trade_result=trade_result
-                            )
-                        except Exception as signal_err:
-                            logger.warning(f"GCP buy signal publish failed (non-critical): {signal_err}")
 
                     if buy_success:
                         buy_count += 1

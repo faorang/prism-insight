@@ -32,9 +32,9 @@ logger = logging.getLogger(__name__)
 class EnhancedStockTrackingAgent(StockTrackingAgent):
     """Enhanced stock tracking and trading agent"""
 
-    def __init__(self, db_path: str = "stock_tracking_db.sqlite", telegram_token: str = None):
+    def __init__(self, db_path: str = "stock_tracking_db.sqlite", telegram_token: str = None, enable_journal: bool = None):
         """Initialize agent"""
-        super().__init__(db_path, telegram_token)
+        super().__init__(db_path, telegram_token, enable_journal)
         # Market condition storage variable (1: bull market, 0: neutral, -1: bear market)
         self.simple_market_condition = 0
         # Volatility table (store volatility per stock)
@@ -416,7 +416,7 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
                     continue
 
                 # Skip if already holding this stock (no telegram message for already held stocks)
-                if analysis_result.get("decision") == "Currently Held":
+                if analysis_result.get("decision") == "Already holding":
                     logger.info(f"Skipping stock already in holdings: {analysis_result.get('ticker')} - {analysis_result.get('company_name')}")
                     continue
 
@@ -557,43 +557,17 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
                             except Exception as rb_err:
                                 logger.error(f"[{ticker}] DB rollback failed: {rb_err}")
 
-                        # [Optional] Publish buy signal via Redis Streams
-                        # Auto-skipped if Redis not configured (requires UPSTASH_REDIS_REST_URL, UPSTASH_REDIS_REST_TOKEN)
-                        '''
-                        try:
-                            from messaging.redis_signal_publisher import publish_buy_signal
-                            await publish_buy_signal(
-                                ticker=ticker,
-                                company_name=company_name,
-                                price=current_price,
-                                scenario=scenario,
-                                source="AI Analysis",
-                                trade_result=trade_result
-                            )
-                        except Exception as signal_err:
-                            logger.warning(f"Buy signal publish failed (non-critical): {signal_err}")
 
-                        # [Optional] Publish buy signal via GCP Pub/Sub
-                        # Auto-skipped if GCP not configured (requires GCP_PROJECT_ID, GCP_PUBSUB_TOPIC_ID)
-                        try:
-                            from messaging.gcp_pubsub_signal_publisher import publish_buy_signal as gcp_publish_buy_signal
-                            await gcp_publish_buy_signal(
-                                ticker=ticker,
-                                company_name=company_name,
-                                price=current_price,
-                                scenario=scenario,
-                                source="AI Analysis",
-                                trade_result=trade_result
-                            )
-                        except Exception as signal_err:
-                            logger.warning(f"GCP buy signal publish failed (non-critical): {signal_err}")
-                        '''
 
                     if buy_success:
                         buy_count += 1
                         logger.info(f"Purchase complete: {company_name}({ticker}) @ {current_price:,.0f} KRW")
                     else:
                         logger.warning(f"Purchase failed: {company_name}({ticker})")
+
+            # Re-evaluate Watchlist stocks for breakout/expiration (1+3 Approach)
+            watch_buy_count = await self._reevaluate_watch_stocks()
+            buy_count += watch_buy_count
 
             logger.info(f"Report processing complete - Purchased: {buy_count} items, Sold: {sell_count} items")
             return buy_count, sell_count
@@ -603,7 +577,7 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
             logger.error(traceback.format_exc())
             return 0, 0
 
-    async def buy_stock(self, ticker: str, company_name: str, current_price: float, scenario: Dict[str, Any], rank_change_msg: str = "") -> bool:
+    async def buy_stock(self, ticker: str, company_name: str, current_price: float, scenario: Dict[str, Any], rank_change_msg: str = "", is_watchlist_entry: bool = False) -> bool:
         """
         Stock buy processing (override parent class method)
         """
@@ -622,7 +596,7 @@ class EnhancedStockTrackingAgent(StockTrackingAgent):
                 logger.info(f"{ticker} Dynamic stop-loss calculated: {stop_loss:,.0f} KRW")
 
             # Call parent class's buy_stock method
-            return await super().buy_stock(ticker, company_name, current_price, scenario, rank_change_msg)
+            return await super().buy_stock(ticker, company_name, current_price, scenario, rank_change_msg, is_watchlist_entry)
 
         except Exception as e:
             logger.error(f"{ticker} Error during purchase processing: {str(e)}")

@@ -67,9 +67,6 @@ cryptography>=42.0.8,<45.0.0
 
 APScheduler==3.11.0
 
-upstash-redis>=1.0.0
-google-cloud-pubsub>=2.18.0
-
 
 # Stock Data Fallbacks (FDR & yfinance)
 yfinance>=0.2.0  # Yahoo Finance data (fallback)

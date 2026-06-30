@@ -369,21 +369,6 @@ utils/setup_crontab.sh
 python prism-us/us_stock_analysis_orchestrator.py --mode morning --no-telegram
 ```
 
-### 이벤트 기반 트레이딩 시그널
-
-Redis/Upstash 또는 GCP Pub/Sub 통합:
-
-```bash
-# .env 파일
-UPSTASH_REDIS_REST_URL="https://xxx.upstash.io"
-UPSTASH_REDIS_REST_TOKEN="your-token"
-
-# 또는 GCP용
-GCP_PROJECT_ID="your-gcp-project"
-GCP_PUBSUB_SUBSCRIPTION_ID="your-subscription"
-GCP_CREDENTIALS_PATH="/path/to/service-account.json"
-```
-
 ---
 
 ## 설치 확인
