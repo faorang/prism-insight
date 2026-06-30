@@ -6,7 +6,7 @@
 
 ---
 
-## 13개 이상의 전문화된 에이전트
+## 11개 이상의 전문화된 에이전트
 
 ### 분석 팀 (6개 에이전트) - GPT-5 기반
 
@@ -170,26 +170,7 @@
 
 <br clear="both"/>
 
-### 사용자 상담 팀 (2개 에이전트) - Claude Sonnet 4.5
 
-<img src="images/aiagent/portfolio_consultant.jpeg" alt="포트폴리오 상담가" width="150" align="right"/>
-
-**10-1. 포트폴리오 상담가**
-- **파일**: `telegram_ai_bot.py`
-- **목적**: 사용자 포트폴리오 평가 및 조언
-- **기능**: 사용자 보유 종목, 시장 데이터, 최신 뉴스 기반 맞춤 조언
-- **적응**: 사용자 선호도에 따른 응답 스타일
-
-<br clear="both"/>
-
-<img src="images/aiagent/dialogue_manager.jpeg" alt="대화 관리자" width="150" align="right"/>
-
-**10-2. 대화 관리자**
-- **파일**: `telegram_ai_bot.py`
-- **목적**: 대화 컨텍스트 유지
-- **기능**: 컨텍스트 메모리, 후속 질문 처리, 데이터 조회
-
-<br clear="both"/>
 
 ---
 

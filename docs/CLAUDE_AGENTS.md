@@ -6,7 +6,7 @@
 
 ---
 
-## The 13+ Specialized Agents
+## The 11+ Specialized Agents
 
 ### Analysis Team (6 Agents) - GPT-5 Based
 
@@ -170,26 +170,7 @@
 
 <br clear="both"/>
 
-### User Consultation Team (2 Agents) - Claude Sonnet 4.5
 
-<img src="images/aiagent/portfolio_consultant.jpeg" alt="Portfolio Consultant" width="150" align="right"/>
-
-**10-1. Portfolio Consultant**
-- **File**: `telegram_ai_bot.py`
-- **Purpose**: User portfolio evaluation and advice
-- **Features**: Custom advice based on user's positions, market data, latest news
-- **Adapts**: Response style to user preferences
-
-<br clear="both"/>
-
-<img src="images/aiagent/dialogue_manager.jpeg" alt="Dialogue Manager" width="150" align="right"/>
-
-**10-2. Dialogue Manager**
-- **File**: `telegram_ai_bot.py`
-- **Purpose**: Maintain conversation context
-- **Features**: Context memory, follow-up handling, data lookup
-
-<br clear="both"/>
 
 ---
 

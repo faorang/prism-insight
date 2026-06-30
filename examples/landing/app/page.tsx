@@ -166,8 +166,6 @@ const AGENTS = [
   { name: 'Quality Evaluator', role: 'Output Validation', image: '/agents/quality_inspector.jpeg', delay: 0.4 },
   { name: 'Buy Specialist', role: 'Entry Decisions', image: '/agents/buy_specialist.jpeg', delay: 0.45 },
   { name: 'Sell Specialist', role: 'Exit Timing', image: '/agents/sell_specialist.jpeg', delay: 0.5 },
-  { name: 'Portfolio Consultant', role: 'User Advice', image: '/agents/portfolio_consultant.jpeg', delay: 0.55 },
-  { name: 'Dialogue Manager', role: 'Conversation Context', image: '/agents/dialogue_manager.jpeg', delay: 0.6 },
 ]
 
 export default function LandingPage() {

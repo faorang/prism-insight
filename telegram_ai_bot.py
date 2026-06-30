@@ -3,7 +3,6 @@
 Telegram AI Conversational Bot
 
 Bot that provides customized responses to user requests:
-- /evaluate command to provide analysis and advice on holdings
 - /report command to generate detailed analysis reports and HTML files for specific stocks
 - /history command to check analysis history for specific stocks
 - Available only to channel subscribers
@@ -31,7 +30,7 @@ from analysis_manager import (
 )
 # Internal module imports
 from report_generator import (
-    generate_evaluation_response, get_cached_report, generate_follow_up_response,
+    get_cached_report,
     get_or_create_global_mcp_app, cleanup_global_mcp_app,
     generate_journal_conversation_response
 )
@@ -67,7 +66,6 @@ HTML_REPORTS_DIR = Path("html_reports")
 HTML_REPORTS_DIR.mkdir(exist_ok=True)  # HTML reports directory
 
 # Conversation state definitions
-CHOOSING_TICKER, ENTERING_AVGPRICE, ENTERING_PERIOD, ENTERING_TONE, ENTERING_BACKGROUND = range(5)
 REPORT_CHOOSING_TICKER = 0  # State for /report command
 HISTORY_CHOOSING_TICKER = 0  # State for /history command
 
@@ -262,60 +260,6 @@ def generate_triggers_message(db_path: str) -> str:
         return "⚠️ 트리거 신뢰도 데이터를 불러오는 중 오류가 발생했습니다."
 
 
-class ConversationContext:
-    """Conversation context management"""
-    def __init__(self, market_type: str = "kr"):
-        self.message_id = None
-        self.chat_id = None
-        self.user_id = None
-        self.ticker = None
-        self.ticker_name = None
-        self.avg_price = None
-        self.period = None
-        self.tone = None
-        self.background = None
-        self.conversation_history = []
-        self.created_at = datetime.now()
-        self.last_updated = datetime.now()
-        # Market type: "kr" (Korea) or "us" (USA)
-        self.market_type = market_type
-        # Currency: KRW (Korea) or USD (USA)
-        self.currency = "USD" if market_type == "us" else "KRW"
-
-    def add_to_history(self, role: str, content: str):
-        self.conversation_history.append({
-            "role": role,
-            "content": content,
-            "timestamp": datetime.now().isoformat()
-        })
-        self.last_updated = datetime.now()
-
-    def get_context_for_llm(self) -> str:
-        # Set currency unit
-        if self.currency == "USD":
-            price_str = f"${self.avg_price:,.2f}"
-        else:
-            price_str = f"{self.avg_price:,.0f}원"
-
-        context = f"""
-종목 정보: {self.ticker_name} ({self.ticker})
-시장: {"미국" if self.market_type == "us" else "한국"}
-평균 매수가: {price_str}
-보유 기간: {self.period}개월
-피드백 스타일: {self.tone}
-매매 배경: {self.background if self.background else "없음"}
-
-이전 대화 내역:"""
-
-        for item in self.conversation_history:
-            role_label = "AI 답변" if item['role'] == 'assistant' else "사용자 질문"
-            context += f"\n\n{role_label}: {item['content']}"
-
-        return context
-
-    def is_expired(self, hours: int = 24) -> bool:
-        return (datetime.now() - self.last_updated) > timedelta(hours=hours)
-
 
 class TelegramAIBot:
     """Telegram AI Conversational Bot"""
@@ -349,8 +293,7 @@ class TelegramAIBot:
         # Add result processing queue
         self.result_queue = Queue()
         
-        # Add conversation context storage
-        self.conversation_contexts: Dict[int, ConversationContext] = {}
+
 
         # Journal context storage (for replies)
         self.journal_contexts: Dict[int, Dict] = {}
@@ -384,16 +327,7 @@ class TelegramAIBot:
     
     def cleanup_expired_contexts(self):
         """Clean up expired conversation contexts"""
-        expired_keys = []
-        for msg_id, context in self.conversation_contexts.items():
-            if context.is_expired(hours=24):
-                expired_keys.append(msg_id)
-
-        for key in expired_keys:
-            del self.conversation_contexts[key]
-            logger.info(f"Deleted expired context: Message ID {key}")
-
-        # Also clean up journal contexts (older than 24 hours)
+        # Clean up journal contexts (older than 24 hours)
         journal_expired = []
         now = datetime.now()
         for msg_id, ctx in self.journal_contexts.items():
@@ -518,7 +452,7 @@ class TelegramAIBot:
         # ConversationHandler processes first, this handler only processes unmatched replies
         self.application.add_handler(MessageHandler(
             filters.REPLY & filters.TEXT & ~filters.COMMAND,
-            self.handle_reply_to_evaluation
+            self.handle_reply_to_message
         ), group=1)
 
         # Report command handler
@@ -561,44 +495,6 @@ class TelegramAIBot:
         )
         self.application.add_handler(history_conv_handler)
 
-        # Evaluation conversation handler
-        conv_handler = ConversationHandler(
-            entry_points=[
-                CommandHandler("evaluate", self.handle_evaluate_start),
-                # Add pattern for group chats
-                MessageHandler(filters.Regex(r'^/evaluate(@\w+)?$'), self.handle_evaluate_start)
-            ],
-            states={
-                CHOOSING_TICKER: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_ticker_input)
-                ],
-                ENTERING_AVGPRICE: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_avgprice_input)
-                ],
-                ENTERING_PERIOD: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_period_input)
-                ],
-                ENTERING_TONE: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_tone_input)
-                ],
-                ENTERING_BACKGROUND: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_background_input)
-                ]
-            },
-            fallbacks=[
-                CommandHandler("cancel", self.handle_cancel),
-                # Add other commands as well
-                CommandHandler("start", self.handle_cancel),
-                CommandHandler("help", self.handle_cancel)
-            ],
-            # Distinguish messages from different users in group chats
-            per_chat=False,
-            per_user=True,
-            # Conversation timeout (seconds)
-            conversation_timeout=300,
-        )
-        self.application.add_handler(conv_handler)
-
 
 
         # ==========================================================================
@@ -633,8 +529,8 @@ class TelegramAIBot:
         # Error handler
         self.application.add_error_handler(self.handle_error)
     
-    async def handle_reply_to_evaluation(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle replies to evaluation responses"""
+    async def handle_reply_to_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle replies to messages"""
         if not update.message or not update.message.reply_to_message:
             return
         
@@ -643,79 +539,14 @@ class TelegramAIBot:
         user_id = update.effective_user.id if update.effective_user else "unknown"
         text = update.message.text[:50] if update.message.text else "no text"
 
-        logger.info(f"[REPLY] handle_reply_to_evaluation - user_id: {user_id}, replied_to: {replied_to_msg_id}, text: {text}")
+        logger.info(f"[REPLY] handle_reply_to_message - user_id: {user_id}, replied_to: {replied_to_msg_id}, text: {text}")
 
-        # 1. Check journal context (handle journal reply)
+        # Check journal context (handle journal reply)
         if replied_to_msg_id in self.journal_contexts:
             journal_ctx = self.journal_contexts[replied_to_msg_id]
             logger.info(f"[REPLY] Found in journal_contexts - ticker: {journal_ctx.get('ticker')}")
             await self._handle_journal_reply(update, journal_ctx)
             return
-
-        # 2. Check evaluation context
-        if replied_to_msg_id not in self.conversation_contexts:
-            # Treat as general message if no context exists
-            logger.info(f"[REPLY] Not in conversation_contexts, skipping. keys: {list(self.conversation_contexts.keys())[:5]}")
-            return
-        
-        conv_context = self.conversation_contexts[replied_to_msg_id]
-        
-        # Check context expiration
-        if conv_context.is_expired():
-            await update.message.reply_text(
-                "이전 대화 세션이 만료되었습니다. 새로운 평가를 시작하려면 /evaluate 명령어를 사용해주세요."
-            )
-            del self.conversation_contexts[replied_to_msg_id]
-            return
-
-        # Get user message
-        user_question = update.message.text.strip()
-
-        # Waiting message
-        waiting_message = await update.message.reply_text(
-            "추가 질문에 대해 분석 중입니다... 잠시만 기다려주세요. 💭"
-        )
-
-        try:
-            # Add user question to conversation history
-            conv_context.add_to_history("user", user_question)
-
-            # Create context to pass to LLM
-            full_context = conv_context.get_context_for_llm()
-
-            # Generate response for Korean market (existing)
-            response = await generate_follow_up_response(
-                conv_context.ticker,
-                conv_context.ticker_name,
-                full_context,
-                user_question,
-                conv_context.tone
-            )
-            
-            # Delete waiting message
-            await waiting_message.delete()
-            
-            # Send response
-            sent_message = await update.message.reply_text(
-                response + "\n\n💡 추가 질문이 있으시면 이 메시지에 답장(Reply)해주세요."
-            )
-
-            # Add AI response to conversation history
-            conv_context.add_to_history("assistant", response)
-
-            # Update context with new message ID
-            conv_context.message_id = sent_message.message_id
-            conv_context.user_id = update.effective_user.id
-            self.conversation_contexts[sent_message.message_id] = conv_context
-
-            logger.info(f"Follow-up question processed: User {update.effective_user.id}")
-
-        except Exception as e:
-            logger.error(f"Error processing follow-up question: {str(e)}, {traceback.format_exc()}")
-            await waiting_message.delete()
-            await update.message.reply_text(
-                "죄송합니다. 추가 질문 처리 중 오류가 발생했습니다. 다시 시도해주세요."
-            )
 
     async def send_report_result(self, request: AnalysisRequest):
         """Send analysis results to Telegram"""
@@ -788,9 +619,7 @@ class TelegramAIBot:
         user = update.effective_user
         await update.message.reply_text(
             f"안녕하세요, {user.first_name}님! 저는 프리즘 어드바이저 봇입니다.\n\n"
-            "저는 보유하신 종목에 대한 평가를 제공합니다.\n\n"
             "🇰🇷 <b>한국 주식</b>\n"
-            "/evaluate - 보유 종목 평가 시작\n"
             "/report - 상세 분석 보고서 요청\n"
             "/history - 특정 종목의 분석 히스토리 확인\n\n"
             "📝 <b>투자 일기</b>\n"
@@ -798,7 +627,6 @@ class TelegramAIBot:
             "/memories - 내 기억 저장소 확인\n\n"
             "📡 <b>트리거 신뢰도</b>\n"
             "/triggers - 트리거 신뢰도 리포트 보기\n\n"
-            "💡 평가 응답에 답장(Reply)하여 추가 질문을 할 수 있습니다!\n\n"
             "이 봇은 '프리즘 인사이트' 채널 구독자만 사용할 수 있습니다.\n"
             "채널에서는 장 시작과 마감 시 AI가 선별한 특징주 3개를 소개하고,\n"
             "각 종목에 대한 AI에이전트가 작성한 고퀄리티의 상세 분석 보고서를 제공합니다.\n\n"
@@ -816,28 +644,14 @@ class TelegramAIBot:
             "/help - 도움말 보기\n"
             "/cancel - 현재 진행 중인 대화 취소\n\n"
             "🇰🇷 <b>한국 주식 명령어:</b>\n"
-            "/evaluate - 보유 종목 평가 시작\n"
             "/report - 상세 분석 보고서 요청\n"
             "/history - 특정 종목의 분석 히스토리 확인\n\n"
             "📝 <b>투자 일기:</b>\n"
             "/journal - 투자 생각 기록\n"
             "/memories - 내 기억 저장소 확인\n"
-            "  • 종목 코드와 함께 입력 가능\n"
-            "  • 과거 평가 시 기억으로 활용됨\n\n"
+            "  • 종목 코드와 함께 입력 가능\n\n"
             "📡 <b>트리거 신뢰도:</b>\n"
             "/triggers - 트리거 신뢰도 리포트 보기\n\n"
-            "<b>보유 종목 평가 방법:</b>\n"
-            "1. /evaluate 명령어 입력\n"
-            "2. 종목 코드 입력 (예: 005930)\n"
-            "3. 평균 매수가 입력 (원)\n"
-            "4. 보유 기간 입력\n"
-            "5. 원하는 피드백 스타일 입력\n"
-            "6. 매매 배경 입력 (선택사항)\n"
-            "7. 💡 AI 응답에 답장(Reply)하여 추가 질문 가능!\n\n"
-            "<b>✨ 추가 질문 기능:</b>\n"
-            "• AI의 평가 메시지에 답장하여 추가 질문\n"
-            "• 이전 대화 컨텍스트를 유지하여 연속적인 대화 가능\n"
-            "• 24시간 동안 대화 세션 유지\n\n"
             "<b>상세 분석 보고서 요청:</b>\n"
             "1. /report 명령어 입력\n"
             "2. 종목 코드 또는 이름 입력\n"
@@ -1163,215 +977,7 @@ class TelegramAIBot:
             logger.error(f"Detailed error: {traceback.format_exc()}")
             return False
 
-    async def handle_evaluate_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle evaluate command - first step"""
-        user_id = update.effective_user.id
-        user_name = update.effective_user.first_name
 
-        # Check channel subscription
-        is_subscribed = await self.check_channel_subscription(user_id)
-
-        if not is_subscribed:
-            await update.message.reply_text(
-                "이 봇은 채널 구독자만 사용할 수 있습니다.\n"
-                "아래 링크를 통해 채널을 구독해주세요:\n\n"
-                "https://t.me/stock_ai_agent"
-            )
-            return ConversationHandler.END
-
-        # Check if group chat or private chat
-        is_group = update.effective_chat.type in ["group", "supergroup"]
-
-        logger.info(f"Evaluation command started - User: {user_name}, Chat type: {'group' if is_group else 'private'}")
-
-        # Mention username in group chats
-        greeting = f"{user_name}님, " if is_group else ""
-
-        await update.message.reply_text(
-            f"{greeting}보유하신 종목의 코드나 이름을 입력해주세요. \n"
-            "예: 005930 또는 삼성전자"
-        )
-        return CHOOSING_TICKER
-
-    async def handle_ticker_input(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle ticker input"""
-        user_id = update.effective_user.id
-        user_input = update.message.text.strip()
-        logger.info(f"Received ticker input - User: {user_id}, Input: {user_input}")
-
-        # Process stock code or name
-        stock_code, stock_name, error_message = await self.get_stock_code(user_input)
-
-        if error_message:
-            # Notify user of error and request re-input
-            await update.message.reply_text(error_message)
-            return CHOOSING_TICKER
-
-        # Save stock information
-        context.user_data['ticker'] = stock_code
-        context.user_data['ticker_name'] = stock_name
-
-        logger.info(f"Stock selected: {stock_name} ({stock_code})")
-
-        await update.message.reply_text(
-            f"{stock_name} ({stock_code}) 종목을 선택하셨습니다.\n\n"
-            f"평균 매수가를 입력해주세요. (숫자만 입력)\n"
-            f"예: 68500"
-        )
-
-        logger.info(f"State transition: ENTERING_AVGPRICE - User: {user_id}")
-        return ENTERING_AVGPRICE
-
-    @staticmethod
-    async def handle_avgprice_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle average price input"""
-        try:
-            avg_price = float(update.message.text.strip().replace(',', ''))
-            context.user_data['avg_price'] = avg_price
-
-            await update.message.reply_text(
-                f"보유 기간을 입력해주세요. (월 단위)\n"
-                f"예: 6 (6개월)"
-            )
-            return ENTERING_PERIOD
-
-        except ValueError:
-            await update.message.reply_text(
-                "숫자 형식으로 입력해주세요. 쉼표 제외.\n"
-                "예: 68500"
-            )
-            return ENTERING_AVGPRICE
-
-    @staticmethod
-    async def handle_period_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle holding period input"""
-        try:
-            period = int(update.message.text.strip())
-            context.user_data['period'] = period
-
-            # Next step: Receive desired feedback style/tone input
-            await update.message.reply_text(
-                "어떤 스타일이나 톤으로 피드백을 받고 싶으신가요?\n"
-                "예: 직설적으로, 전문가처럼, 친구처럼, 간결하게 등"
-            )
-            return ENTERING_TONE
-
-        except ValueError:
-            await update.message.reply_text(
-                "숫자 형식으로 입력해주세요.\n"
-                "예: 6"
-            )
-            return ENTERING_PERIOD
-
-    @staticmethod
-    async def handle_tone_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle desired feedback style/tone input"""
-        tone = update.message.text.strip()
-        context.user_data['tone'] = tone
-
-        await update.message.reply_text(
-            "이 종목을 매매한 이유나 주요 매매 이력이 있다면 알려주세요.\n"
-            "(선택 사항, 없으면 '없음'을 입력하세요)"
-        )
-        return ENTERING_BACKGROUND
-
-    async def handle_background_input(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle trading background input and generate AI response"""
-        background = update.message.text.strip()
-        context.user_data['background'] = background if background.lower() not in ['none', '없음'] else ""
-
-        # Waiting response message
-        waiting_message = await update.message.reply_text(
-            "종목을 분석 중입니다... 잠시 기다려주세요."
-        )
-
-        # Request analysis from AI agent
-        ticker = context.user_data['ticker']
-        ticker_name = context.user_data.get('ticker_name', f"종목_{ticker}")
-        avg_price = context.user_data['avg_price']
-        period = context.user_data['period']
-        tone = context.user_data['tone']
-        background = context.user_data['background']
-        chat_id = update.effective_chat.id
-        user_id = update.effective_user.id
-
-        try:
-            # Query user memory context
-            memory_context = ""
-            if self.memory_manager:
-                memory_context = self.memory_manager.build_llm_context(
-                    user_id=user_id,
-                    ticker=ticker,
-                    max_tokens=4000
-                )
-                if memory_context:
-                    logger.info(f"User memory context loaded: {len(memory_context)} chars")
-
-            # Generate AI response (including memory_context)
-            response = await generate_evaluation_response(
-                ticker, ticker_name, avg_price, period, tone, background,
-                memory_context=memory_context
-            )
-
-            # Check if response is empty
-            if not response or not response.strip():
-                response = "응답 생성 중 오류가 발생했습니다. 다시 시도해주세요."
-                logger.error(f"Empty response generated: {ticker_name}({ticker})")
-
-            # Delete waiting message
-            await waiting_message.delete()
-
-            # Send response
-            sent_message = await update.message.reply_text(
-                response + "\n\n💡 추가 질문이 있으시면 이 메시지에 답장(Reply)해주세요."
-            )
-
-            # Save conversation context
-            conv_context = ConversationContext()
-            conv_context.message_id = sent_message.message_id
-            conv_context.chat_id = chat_id
-            conv_context.user_id = update.effective_user.id
-            conv_context.ticker = ticker
-            conv_context.ticker_name = ticker_name
-            conv_context.avg_price = avg_price
-            conv_context.period = period
-            conv_context.tone = tone
-            conv_context.background = background
-            conv_context.add_to_history("assistant", response)
-            
-            # Save context
-            self.conversation_contexts[sent_message.message_id] = conv_context
-            logger.info(f"Conversation context saved: Message ID {sent_message.message_id}")
-
-            # Save evaluation result to user memory
-            if self.memory_manager:
-                self.memory_manager.save_memory(
-                    user_id=user_id,
-                    memory_type=self.memory_manager.MEMORY_EVALUATION,
-                    content={
-                        'ticker': ticker,
-                        'ticker_name': ticker_name,
-                        'avg_price': avg_price,
-                        'period': period,
-                        'tone': tone,
-                        'background': background,
-                        'response_summary': response[:500]  # Save response summary
-                    },
-                    ticker=ticker,
-                    ticker_name=ticker_name,
-                    market_type='kr',
-                    command_source='/evaluate',
-                    message_id=sent_message.message_id
-                )
-                logger.info(f"Evaluation result saved to memory: user={user_id}, ticker={ticker}")
-
-        except Exception as e:
-            logger.error(f"Error generating or sending response: {str(e)}, {traceback.format_exc()}")
-            await waiting_message.delete()
-            await update.message.reply_text("분석 중 오류가 발생했습니다. 다시 시도해주세요.")
-
-        # End conversation
-        return ConversationHandler.END
 
     @staticmethod
     async def handle_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1380,7 +986,7 @@ class TelegramAIBot:
         context.user_data.clear()
 
         await update.message.reply_text(
-            "🇰🇷 국내 주식: /evaluate, /report, /history"
+            "🇰🇷 국내 주식: /report, /history"
         )
         return ConversationHandler.END
 
@@ -1389,7 +995,7 @@ class TelegramAIBot:
         """Handle conversation cancellation (called from outside conversation)"""
         await update.message.reply_text(
             "현재 진행 중인 대화가 없습니다.\n\n"
-            "🇰🇷 국내 주식: /evaluate, /report, /history"
+            "🇰🇷 국내 주식: /report, /history"
         )
 
     @staticmethod

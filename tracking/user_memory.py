@@ -6,7 +6,7 @@ Persistent memory system for storing user-specific trading journals and conversa
 Features:
 - Record trading journals via /journal command
 - Separate short-term memory (1 week) / long-term memory (beyond)
-- Utilize memory in /evaluate and /report commands
+- Utilize memory in /report commands
 - Support conversation threading via replies
 - User-isolated storage (user_id based)
 """
